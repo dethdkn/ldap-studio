@@ -11,7 +11,7 @@ import SwiftUI
 struct ldap_studioApp: App {
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            Home()
         }
     }
 }
