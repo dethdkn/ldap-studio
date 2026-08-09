@@ -6,6 +6,8 @@
 import SwiftUI
 
 struct InfoPanel: View {
+    @State private var isPresentingNewConnection = false
+
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
     }
@@ -28,13 +30,16 @@ struct InfoPanel: View {
 
             VStack(spacing: 10) {
                 Button {
-                    // Will open the "new connection" sheet later.
+                    isPresentingNewConnection = true
                 } label: {
                     Label("Add Connection…", systemImage: "plus.circle.fill")
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.borderedProminent)
                 .controlSize(.large)
+                .sheet(isPresented: $isPresentingNewConnection) {
+                    NewConnectionSheet()
+                }
                 Button {
                     // Will open the "import connection" file selector later.
                 } label: {
