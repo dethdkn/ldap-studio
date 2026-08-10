@@ -15,6 +15,11 @@ struct NewConnectionSheet: View {
     @State private var bindDN: String = ""
     @State private var password: String = ""
 
+    @State private var testSucceeded = false
+    @State private var testResultMessage = ""
+    @State private var isShowingTestResult = false
+    @State private var isTesting = false
+
     private var isValid: Bool {
         !name.isEmpty && !host.isEmpty
     }
@@ -30,6 +35,9 @@ struct NewConnectionSheet: View {
                 TextField("Host", text: $host)
                 TextField("Port", value: $port, format: .number)
                 Toggle("Use SSL", isOn: $useSSL)
+                    .onChange(of: useSSL) { _, newValue in
+                        port = newValue ? 636 : 389
+                    }
                 TextField("Bind DN", text: $bindDN)
                 SecureField("Password", text: $password)
             }
@@ -45,9 +53,27 @@ struct NewConnectionSheet: View {
                 .keyboardShortcut(.cancelAction)
 
                 Button("Test") {
-                    // Will test the connection later.
+                    Task {
+                        isTesting = true
+                        defer { isTesting = false }
+                        do {
+                            try await testConnection(
+                                host: host,
+                                port: UInt16(clamping: port),
+                                useSsl: useSSL,
+                                bindDn: bindDN,
+                                password: password
+                            )
+                            testSucceeded = true
+                            testResultMessage = "Successfully connected and bound to \(host)."
+                        } catch {
+                            testSucceeded = false
+                            testResultMessage = "\(error)"
+                        }
+                        isShowingTestResult = true
+                    }
                 }
-                .disabled(!isValid)
+                .disabled(!isValid || isTesting)
 
                 Button("Add") {
                     // Will create the actual connection later.
@@ -60,6 +86,14 @@ struct NewConnectionSheet: View {
             .padding()
         }
         .frame(width: 420, height: 380)
+        .alert(
+            testSucceeded ? "Connection Successful" : "Connection Failed",
+            isPresented: $isShowingTestResult
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(testResultMessage)
+        }
     }
 }
 

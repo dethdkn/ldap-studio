@@ -289,15 +289,13 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				CODE_SIGN_ENTITLEMENTS = "ldap-studio/ldap-studio.entitlements";
 				DEVELOPMENT_TEAM = 8ANR4FRBHQ;
-				HEADER_SEARCH_PATHS = "$(SRCROOT)/core/generated";
-				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/core/target/release";
-				OTHER_LDFLAGS = "$(SRCROOT)/core/target/release/libldap_studio_core.a";
-				SWIFT_OBJC_BRIDGING_HEADER = "ldap-studio/ldap-studio-Bridging-Header.h";
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/core/generated";
 				INFOPLIST_FILE = "ldap-studio/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Ldap Studio";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
@@ -306,8 +304,10 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/core/target/release";
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 0.0.1;
+				OTHER_LDFLAGS = "$(SRCROOT)/core/target/release/libldap_studio_core.a";
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ldap-studio";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -315,6 +315,7 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "ldap-studio/ldap-studio-Bridging-Header.h";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 			};
@@ -329,15 +330,13 @@
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
+				CODE_SIGN_ENTITLEMENTS = "ldap-studio/ldap-studio.entitlements";
 				DEVELOPMENT_TEAM = 8ANR4FRBHQ;
-				HEADER_SEARCH_PATHS = "$(SRCROOT)/core/generated";
-				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/core/target/release";
-				OTHER_LDFLAGS = "$(SRCROOT)/core/target/release/libldap_studio_core.a";
-				SWIFT_OBJC_BRIDGING_HEADER = "ldap-studio/ldap-studio-Bridging-Header.h";
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/core/generated";
 				INFOPLIST_FILE = "ldap-studio/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Ldap Studio";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
@@ -346,8 +345,10 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/core/target/release";
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 0.0.1;
+				OTHER_LDFLAGS = "$(SRCROOT)/core/target/release/libldap_studio_core.a";
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ldap-studio";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -355,6 +356,7 @@
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "ldap-studio/ldap-studio-Bridging-Header.h";
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
 			};
