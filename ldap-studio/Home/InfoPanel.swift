@@ -3,9 +3,13 @@
 //  ldap-studio
 //
 
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct InfoPanel: View {
+    @Environment(ConnectionStore.self) private var store
+
     @State private var isPresentingNewConnection = false
 
     private var appVersion: String {
@@ -41,7 +45,7 @@ struct InfoPanel: View {
                     NewConnectionSheet()
                 }
                 Button {
-                    // Will open the "import connection" file selector later.
+                    importConnections()
                 } label: {
                     Label("Import Connection…", systemImage: "square.and.arrow.down.fill")
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -60,9 +64,45 @@ struct InfoPanel: View {
         .frame(maxHeight: .infinity)
         .background(.regularMaterial)
     }
+
+    private func importConnections() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [.json]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+
+        panel.begin { response in
+            guard response == .OK, let url = panel.url else { return }
+            guard let data = try? Data(contentsOf: url) else { return }
+
+            let decoder = JSONDecoder()
+            let imported: [ExportableConnection]
+            if let array = try? decoder.decode([ExportableConnection].self, from: data) {
+                imported = array
+            } else if let single = try? decoder.decode(ExportableConnection.self, from: data) {
+                imported = [single]
+            } else {
+                return
+            }
+
+            for item in imported {
+                let connection = SavedConnection(
+                    name: item.name,
+                    host: item.host,
+                    port: item.port,
+                    useSSL: item.useSSL,
+                    bindDN: item.bindDN
+                )
+                KeychainService.savePassword(item.password, for: connection.id)
+                store.add(connection)
+            }
+        }
+    }
 }
 
 #Preview {
     InfoPanel()
         .frame(height: 500)
+        .environment(ConnectionStore())
 }

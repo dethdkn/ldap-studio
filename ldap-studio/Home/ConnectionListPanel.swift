@@ -137,22 +137,9 @@ struct ConnectionListPanel: View {
         }
     }
 
-    private struct ExportableConnection: Codable {
-        var name: String
-        var host: String
-        var port: Int
-        var useSSL: Bool
-        var bindDN: String
-        var password: String
-    }
-
     private func exportable(for connection: SavedConnection) -> ExportableConnection {
         ExportableConnection(
-            name: connection.name,
-            host: connection.host,
-            port: connection.port,
-            useSSL: connection.useSSL,
-            bindDN: connection.bindDN,
+            connection: connection,
             password: KeychainService.readPassword(for: connection.id) ?? ""
         )
     }

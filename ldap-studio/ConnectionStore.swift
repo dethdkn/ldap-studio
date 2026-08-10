@@ -23,8 +23,34 @@ final class ConnectionStore {
     }
 
     func add(_ connection: SavedConnection) {
+        var connection = connection
+        connection.name = uniqueName(for: connection.name)
         connections.append(connection)
         persist()
+    }
+
+    /// If `proposedName` is already taken, appends the next free " N" suffix.
+    /// A name that's already itself a numbered duplicate (e.g. "example 2")
+    /// is treated as based on "example", so re-adding it produces "example 3"
+    /// rather than "example 2 2".
+    private func uniqueName(for proposedName: String) -> String {
+        let existingNames = Set(connections.map(\.name))
+        guard existingNames.contains(proposedName) else { return proposedName }
+
+        let base = strippingNumericSuffix(from: proposedName)
+        var suffix = 2
+        while existingNames.contains("\(base) \(suffix)") {
+            suffix += 1
+        }
+        return "\(base) \(suffix)"
+    }
+
+    private func strippingNumericSuffix(from name: String) -> String {
+        let parts = name.split(separator: " ")
+        if parts.count > 1, Int(parts.last!) != nil {
+            return parts.dropLast().joined(separator: " ")
+        }
+        return name
     }
 
     func update(_ connection: SavedConnection) {
