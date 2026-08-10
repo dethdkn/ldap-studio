@@ -6,6 +6,8 @@
 import SwiftUI
 
 struct BrowserView: View {
+    let connection: SavedConnection
+
     private let root = DirectoryEntry.mockRoot
 
     @State private var selection: DirectoryEntry.ID?
@@ -30,9 +32,10 @@ struct BrowserView: View {
             }
         }
         .frame(minWidth: 700, minHeight: 420)
+        .navigationTitle(connection.name)
     }
 }
 
 #Preview {
-    BrowserView()
+    BrowserView(connection: SavedConnection(name: "Corp Directory", host: "ldap.corp.example.com", port: 389, useSSL: false, bindDN: ""))
 }

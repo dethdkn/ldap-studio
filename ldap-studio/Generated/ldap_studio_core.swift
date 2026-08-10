@@ -684,14 +684,6 @@ fileprivate func uniffiFutureContinuationCallback(handle: UInt64, pollResult: In
         print("uniffiFutureContinuationCallback invalid handle")
     }
 }
-public func greet(name: String) -> String  {
-    return try!  FfiConverterString.lift(try! rustCall() {
-        uniffiCallStatus in
-    uniffi_ldap_studio_core_fn_func_greet(
-        FfiConverterString.lower(name),uniffiCallStatus
-    )
-})
-}
 public func testConnection(host: String, port: UInt16, useSsl: Bool, bindDn: String, password: String)async throws   {
     return
         try  await uniffiRustCallAsync(
@@ -721,9 +713,6 @@ private let initializationResult: InitializationResult = {
     let scaffolding_contract_version = ffi_ldap_studio_core_uniffi_contract_version()
     if bindings_contract_version != scaffolding_contract_version {
         return InitializationResult.contractVersionMismatch
-    }
-    if (uniffi_ldap_studio_core_checksum_func_greet() != 4388) {
-        return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ldap_studio_core_checksum_func_test_connection() != 13407) {
         return InitializationResult.apiChecksumMismatch

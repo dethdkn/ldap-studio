@@ -7,18 +7,31 @@ import SwiftUI
 
 struct NewConnectionSheet: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(ConnectionStore.self) private var store
 
-    @State private var name: String = ""
-    @State private var host: String = ""
-    @State private var port: Int = 389
-    @State private var useSSL: Bool = false
-    @State private var bindDN: String = ""
-    @State private var password: String = ""
+    private let existingConnection: SavedConnection?
+
+    @State private var name: String
+    @State private var host: String
+    @State private var port: Int
+    @State private var useSSL: Bool
+    @State private var bindDN: String
+    @State private var password: String
 
     @State private var testSucceeded = false
     @State private var testResultMessage = ""
     @State private var isShowingTestResult = false
     @State private var isTesting = false
+
+    init(existingConnection: SavedConnection? = nil) {
+        self.existingConnection = existingConnection
+        _name = State(initialValue: existingConnection?.name ?? "")
+        _host = State(initialValue: existingConnection?.host ?? "")
+        _port = State(initialValue: existingConnection?.port ?? 389)
+        _useSSL = State(initialValue: existingConnection?.useSSL ?? false)
+        _bindDN = State(initialValue: existingConnection?.bindDN ?? "")
+        _password = State(initialValue: existingConnection.flatMap { KeychainService.readPassword(for: $0.id) } ?? "")
+    }
 
     private var isValid: Bool {
         !name.isEmpty && !host.isEmpty
@@ -26,7 +39,7 @@ struct NewConnectionSheet: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Text("New Connection")
+            Text(existingConnection == nil ? "New Connection" : "Edit Connection")
                 .font(.headline)
                 .padding()
 
@@ -75,8 +88,21 @@ struct NewConnectionSheet: View {
                 }
                 .disabled(!isValid || isTesting)
 
-                Button("Add") {
-                    // Will create the actual connection later.
+                Button(existingConnection == nil ? "Add" : "Save") {
+                    let connection = SavedConnection(
+                        id: existingConnection?.id ?? UUID(),
+                        name: name,
+                        host: host,
+                        port: port,
+                        useSSL: useSSL,
+                        bindDN: bindDN
+                    )
+                    KeychainService.savePassword(password, for: connection.id)
+                    if existingConnection == nil {
+                        store.add(connection)
+                    } else {
+                        store.update(connection)
+                    }
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -99,4 +125,5 @@ struct NewConnectionSheet: View {
 
 #Preview {
     NewConnectionSheet()
+        .environment(ConnectionStore())
 }

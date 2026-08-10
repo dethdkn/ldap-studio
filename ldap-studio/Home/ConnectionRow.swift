@@ -6,8 +6,8 @@
 import SwiftUI
 
 struct ConnectionRow: View {
-    let name: String
-    let host: String
+    let connection: SavedConnection
+    var isHovering: Bool = false
 
     var body: some View {
         HStack(spacing: 12) {
@@ -17,9 +17,9 @@ struct ConnectionRow: View {
                 .frame(width: 28)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(name)
+                Text(connection.name)
                     .font(.headline)
-                Text(host)
+                Text("\(connection.host):\(connection.port)")
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -27,10 +27,16 @@ struct ConnectionRow: View {
             Spacer()
         }
         .padding(.vertical, 4)
+        .padding(.horizontal, 6)
+        .background(
+            RoundedRectangle(cornerRadius: 6)
+                .fill(isHovering ? Color.gray.opacity(0.15) : Color.clear)
+                .allowsHitTesting(false)
+        )
     }
 }
 
 #Preview {
-    ConnectionRow(name: "Corp Directory", host: "ldap.corp.example.com:389")
+    ConnectionRow(connection: SavedConnection(name: "Corp Directory", host: "ldap.corp.example.com", port: 389, useSSL: false, bindDN: ""))
         .padding()
 }
