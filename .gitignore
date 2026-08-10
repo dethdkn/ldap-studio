@@ -11,6 +11,10 @@ xcuserdata/
 .build/
 .swiftpm/
 
+# Rust
+core/target/
+core/generated/
+
 # Misc
 .vscode
 .claude

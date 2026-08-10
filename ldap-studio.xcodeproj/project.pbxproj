@@ -65,6 +65,7 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 042AE3A13026B0EE00251975 /* Build configuration list for PBXNativeTarget "ldap-studio" */;
 			buildPhases = (
+				25D1BDBF4157D1BB773183E1 /* Build Rust Core */,
 				042AE3923026B0ED00251975 /* Sources */,
 				042AE3933026B0ED00251975 /* Frameworks */,
 				042AE3943026B0ED00251975 /* Resources */,
@@ -127,6 +128,29 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXShellScriptBuildPhase section */
+		25D1BDBF4157D1BB773183E1 /* Build Rust Core */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Rust Core";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\nexport PATH=\"$PATH:/opt/homebrew/bin:$HOME/.cargo/bin\"\nCORE_DIR=\"${SRCROOT}/core\"\nGENERATED_DIR=\"${SRCROOT}/ldap-studio/Generated\"\ncd \"$CORE_DIR\"\ncargo build --release\ncargo run --bin uniffi-bindgen -- generate --library target/release/libldap_studio_core.dylib --language swift --out-dir generated\nmkdir -p \"$GENERATED_DIR\"\ncp generated/ldap_studio_core.swift \"$GENERATED_DIR/ldap_studio_core.swift\"\n";
+			showEnvVarsInLog = 0;
+		};
+/* End PBXShellScriptBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		042AE3923026B0ED00251975 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -175,7 +199,7 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -238,7 +262,7 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
 				GCC_C_LANGUAGE_STANDARD = gnu17;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -266,6 +290,10 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 8ANR4FRBHQ;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/core/generated";
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/core/target/release";
+				OTHER_LDFLAGS = "$(SRCROOT)/core/target/release/libldap_studio_core.a";
+				SWIFT_OBJC_BRIDGING_HEADER = "ldap-studio/ldap-studio-Bridging-Header.h";
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
@@ -302,6 +330,10 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = 8ANR4FRBHQ;
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/core/generated";
+				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/core/target/release";
+				OTHER_LDFLAGS = "$(SRCROOT)/core/target/release/libldap_studio_core.a";
+				SWIFT_OBJC_BRIDGING_HEADER = "ldap-studio/ldap-studio-Bridging-Header.h";
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;

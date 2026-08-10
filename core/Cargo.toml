@@ -1,0 +1,15 @@
+[package]
+name = "ldap-studio-core"
+version = "0.0.1"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "staticlib"]
+name = "ldap_studio_core"
+
+[[bin]]
+name = "uniffi-bindgen"
+path = "uniffi-bindgen.rs"
+
+[dependencies]
+uniffi = { version = "0.32", features = ["cli"] }
