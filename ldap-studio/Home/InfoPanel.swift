@@ -92,6 +92,7 @@ struct InfoPanel: View {
                     host: item.host,
                     port: item.port,
                     useSSL: item.useSSL,
+                    baseDN: item.baseDN,
                     bindDN: item.bindDN
                 )
                 KeychainService.savePassword(item.password, for: connection.id)

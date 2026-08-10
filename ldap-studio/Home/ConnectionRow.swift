@@ -37,6 +37,6 @@ struct ConnectionRow: View {
 }
 
 #Preview {
-    ConnectionRow(connection: SavedConnection(name: "Corp Directory", host: "ldap.corp.example.com", port: 389, useSSL: false, bindDN: ""))
+    ConnectionRow(connection: SavedConnection(name: "Corp Directory", host: "ldap.corp.example.com", port: 389, useSSL: false, baseDN: "dc=corp,dc=example,dc=com", bindDN: ""))
         .padding()
 }

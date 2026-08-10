@@ -11,14 +11,16 @@ struct SavedConnection: Identifiable, Codable, Hashable {
     var host: String
     var port: Int
     var useSSL: Bool
+    var baseDN: String
     var bindDN: String
 
-    init(id: UUID = UUID(), name: String, host: String, port: Int, useSSL: Bool, bindDN: String) {
+    init(id: UUID = UUID(), name: String, host: String, port: Int, useSSL: Bool, baseDN: String, bindDN: String) {
         self.id = id
         self.name = name
         self.host = host
         self.port = port
         self.useSSL = useSSL
+        self.baseDN = baseDN
         self.bindDN = bindDN
     }
 }

@@ -13,6 +13,7 @@ struct ExportableConnection: Codable {
     var host: String
     var port: Int
     var useSSL: Bool
+    var baseDN: String
     var bindDN: String
     var password: String
 }
@@ -23,6 +24,7 @@ extension ExportableConnection {
         self.host = connection.host
         self.port = connection.port
         self.useSSL = connection.useSSL
+        self.baseDN = connection.baseDN
         self.bindDN = connection.bindDN
         self.password = password
     }

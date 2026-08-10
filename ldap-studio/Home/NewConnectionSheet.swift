@@ -15,6 +15,7 @@ struct NewConnectionSheet: View {
     @State private var host: String
     @State private var port: Int
     @State private var useSSL: Bool
+    @State private var baseDN: String
     @State private var bindDN: String
     @State private var password: String
 
@@ -29,6 +30,7 @@ struct NewConnectionSheet: View {
         _host = State(initialValue: existingConnection?.host ?? "")
         _port = State(initialValue: existingConnection?.port ?? 389)
         _useSSL = State(initialValue: existingConnection?.useSSL ?? false)
+        _baseDN = State(initialValue: existingConnection?.baseDN ?? "")
         _bindDN = State(initialValue: existingConnection?.bindDN ?? "")
         _password = State(initialValue: existingConnection.flatMap { KeychainService.readPassword(for: $0.id) } ?? "")
     }
@@ -51,6 +53,7 @@ struct NewConnectionSheet: View {
                     .onChange(of: useSSL) { _, newValue in
                         port = newValue ? 636 : 389
                     }
+                TextField("Base DN", text: $baseDN)
                 TextField("Bind DN", text: $bindDN)
                 SecureField("Password", text: $password)
             }
@@ -95,6 +98,7 @@ struct NewConnectionSheet: View {
                         host: host,
                         port: port,
                         useSSL: useSSL,
+                        baseDN: baseDN,
                         bindDN: bindDN
                     )
                     KeychainService.savePassword(password, for: connection.id)
