@@ -6,6 +6,10 @@ cd "$(dirname "$0")/.."
 PBXPROJ="ldap-studio.xcodeproj/project.pbxproj"
 CARGO_TOML="core/Cargo.toml"
 
+if [[ -d /Applications/Xcode.app ]]; then
+    export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+fi
+
 if [[ -n "$(git status --porcelain)" ]]; then
     echo "error: working tree is not clean — commit or stash your changes first." >&2
     exit 1
