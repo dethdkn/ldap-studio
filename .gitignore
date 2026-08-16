@@ -16,6 +16,7 @@ core/target/
 core/generated/
 
 # Misc
+dist
 .vscode
 .claude
 .env
