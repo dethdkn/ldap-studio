@@ -39,6 +39,20 @@ extension DirectoryEntry {
         }
         return nil
     }
+
+    /// Recurses into `children` to mutate the entry with `id` in place —
+    /// this is what lets edits made in the detail view (a `Binding` built
+    /// from this method) flow back up into the tree `BrowserView` owns.
+    mutating func update(id targetID: DirectoryEntry.ID, transform: (inout DirectoryEntry) -> Void) {
+        if id == targetID {
+            transform(&self)
+            return
+        }
+        guard children != nil else { return }
+        for index in children!.indices {
+            children![index].update(id: targetID, transform: transform)
+        }
+    }
 }
 
 extension DirectoryEntry {

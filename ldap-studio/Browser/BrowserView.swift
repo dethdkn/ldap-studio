@@ -12,9 +12,12 @@ struct BrowserView: View {
     @State private var loadError: String?
     @State private var selection: DirectoryEntry.ID?
 
-    private var selectedEntry: DirectoryEntry? {
-        guard let root, let selection else { return nil }
-        return root.find(id: selection)
+    private var selectedEntryBinding: Binding<DirectoryEntry>? {
+        guard let selection, root?.find(id: selection) != nil else { return nil }
+        return Binding(
+            get: { root?.find(id: selection) ?? DirectoryEntry(name: "", dn: "", icon: "", attributes: [], children: nil) },
+            set: { newValue in root?.update(id: selection) { $0 = newValue } }
+        )
     }
 
     var body: some View {
@@ -30,8 +33,8 @@ struct BrowserView: View {
                     DirectoryTreeView(root: root, selection: $selection)
                         .navigationSplitViewColumnWidth(min: 200, ideal: 260)
                 } detail: {
-                    if let selectedEntry {
-                        EntryDetailView(entry: selectedEntry)
+                    if let selectedEntryBinding {
+                        EntryDetailView(entry: selectedEntryBinding)
                     } else {
                         ContentUnavailableView(
                             "No Selection",

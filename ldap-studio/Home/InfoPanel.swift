@@ -58,7 +58,12 @@ struct InfoPanel: View {
             .padding(.top, 8)
 
             Spacer()
-            Spacer()
+            VStack(spacing: 4) {
+                Text("© Gabriel Rosa")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+            .padding(.bottom, 8)
         }
         .frame(width: 260)
         .frame(maxHeight: .infinity)
