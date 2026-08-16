@@ -975,6 +975,25 @@ public func deleteAttributeValue(host: String, port: UInt16, useSsl: Bool, bindD
         )
 }
 /**
+ * Deletes a single leaf entry — LDAP's plain Delete operation rejects
+ * non-leaf entries, so Swift walks a subtree bottom-up, calling this once
+ * per node starting with the deepest descendants.
+ */
+public func deleteEntry(host: String, port: UInt16, useSsl: Bool, bindDn: String, password: String, dn: String)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ldap_studio_core_fn_func_delete_entry(FfiConverterString.lower(host),FfiConverterUInt16.lower(port),FfiConverterBool.lower(useSsl),FfiConverterString.lower(bindDn),FfiConverterString.lower(password),FfiConverterString.lower(dn)
+                )
+            },
+            pollFunc: ffi_ldap_studio_core_rust_future_poll_void,
+            completeFunc: ffi_ldap_studio_core_rust_future_complete_void,
+            freeFunc: ffi_ldap_studio_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeConnectionError_lift
+        )
+}
+/**
  * Replaces one value of a (possibly multi-valued) attribute, leaving any
  * other values of that attribute untouched — a plain `Replace` would wipe
  * them out, so this does a targeted delete-then-add of just this value.
@@ -1041,6 +1060,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ldap_studio_core_checksum_func_delete_attribute_value() != 52601) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ldap_studio_core_checksum_func_delete_entry() != 49279) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ldap_studio_core_checksum_func_modify_attribute_value() != 22836) {

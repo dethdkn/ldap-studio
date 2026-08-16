@@ -10,6 +10,29 @@ fn modify_err(e: impl ToString) -> ConnectionError {
     }
 }
 
+/// Deletes a single leaf entry — LDAP's plain Delete operation rejects
+/// non-leaf entries, so Swift walks a subtree bottom-up, calling this once
+/// per node starting with the deepest descendants.
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn delete_entry(
+    host: String,
+    port: u16,
+    use_ssl: bool,
+    bind_dn: String,
+    password: String,
+    dn: String,
+) -> Result<(), ConnectionError> {
+    let mut ldap = connect_and_bind(&host, port, use_ssl, &bind_dn, &password).await?;
+    let outcome = ldap
+        .delete(&dn)
+        .await
+        .map_err(modify_err)?
+        .success()
+        .map_err(modify_err);
+    let _ = ldap.unbind().await;
+    outcome.map(|_| ())
+}
+
 #[uniffi::export(async_runtime = "tokio")]
 pub async fn add_attribute_value(
     host: String,

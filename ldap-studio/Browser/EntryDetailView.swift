@@ -5,7 +5,6 @@
 
 import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct EntryDetailView: View {
     @Binding var entry: DirectoryEntry
@@ -38,6 +37,10 @@ struct EntryDetailView: View {
 
     private var password: String {
         KeychainService.readPassword(for: connection.id) ?? ""
+    }
+
+    private var actions: EntryActions {
+        EntryActions(connection: connection)
     }
 
     private var filteredAttributes: [Attribute] {
@@ -229,7 +232,7 @@ struct EntryDetailView: View {
             .help("Copy DN")
 
             Button {
-                exportLDIF()
+                actions.exportLDIF(entry)
             } label: {
                 Image(systemName: "square.and.arrow.up")
             }
@@ -382,108 +385,19 @@ struct EntryDetailView: View {
     }
 
     private func move(to newSuperiorDN: String) {
-        let dn = entry.dn
+        let entry = entry
         let newDN = "\(entry.name),\(newSuperiorDN)"
         perform(reloadSelecting: newDN) {
-            try await moveEntry(
-                host: connection.host,
-                port: UInt16(clamping: connection.port),
-                useSsl: connection.useSSL,
-                bindDn: connection.bindDN,
-                password: password,
-                dn: dn,
-                newSuperior: newSuperiorDN
-            )
+            _ = try await actions.move(entry, to: newSuperiorDN)
         }
     }
 
     private func copy(to newSuperiorDN: String) {
-        let node = entry
-        let newRootDN = "\(node.name),\(newSuperiorDN)"
+        let entry = entry
+        let newRootDN = "\(entry.name),\(newSuperiorDN)"
         perform(reloadSelecting: newRootDN) {
-            try await addRecursively(node, under: newSuperiorDN)
+            _ = try await actions.copy(entry, to: newSuperiorDN)
         }
-    }
-
-    /// Recreates `node` (and, recursively, every descendant it already has
-    /// loaded) under `newSuperiorDN` — parents must exist on the server
-    /// before their children can be added under them.
-    private func addRecursively(_ node: DirectoryEntry, under newSuperiorDN: String) async throws {
-        let newDN = "\(node.name),\(newSuperiorDN)"
-        try await addEntry(
-            host: connection.host,
-            port: UInt16(clamping: connection.port),
-            useSsl: connection.useSSL,
-            bindDn: connection.bindDN,
-            password: password,
-            dn: newDN,
-            attributes: node.attributes.map { LdapAttribute(name: $0.name, value: $0.value, isBinary: $0.isBinary) }
-        )
-        for child in node.children ?? [] {
-            try await addRecursively(child, under: newDN)
-        }
-    }
-
-    private func exportLDIF() {
-        let ldif = ldifText(for: entry)
-        let suggestedName = entry.name
-            .replacingOccurrences(of: "=", with: "_")
-            .replacingOccurrences(of: " ", with: "_")
-
-        DispatchQueue.main.async {
-            let panel = NSSavePanel()
-            // NSSavePanel appends the allowed type's extension itself — since
-            // UTType(filenameExtension:) makes an ad-hoc type here (there's
-            // no system-registered "ldif" UTType), the panel doesn't
-            // recognize an extension already in the name field as matching,
-            // and appends a second one. So the name field carries no
-            // extension at all; the panel adds it.
-            panel.nameFieldStringValue = suggestedName
-            panel.allowedContentTypes = [UTType(filenameExtension: "ldif") ?? .plainText]
-
-            panel.begin { response in
-                guard response == .OK, let url = panel.url else { return }
-                try? ldif.write(to: url, atomically: true, encoding: .utf8)
-            }
-        }
-    }
-
-    private func ldifText(for entry: DirectoryEntry) -> String {
-        var lines = [ldifLine(name: "dn", value: entry.dn, isBinary: false)]
-        for attribute in entry.attributes {
-            lines.append(ldifLine(name: attribute.name, value: attribute.value, isBinary: attribute.isBinary))
-        }
-        return lines.joined(separator: "\n") + "\n"
-    }
-
-    /// `attribute.value` is already base64 for genuinely binary attributes
-    /// (jpegPhoto and the like) — this handles the other case LDIF also
-    /// requires base64 for: plain text that isn't "safe" per RFC 2849, most
-    /// commonly any character outside ASCII (e.g. "ç"), which some LDIF
-    /// readers mishandle if written as a raw `attr: value` line.
-    private func ldifLine(name: String, value: String, isBinary: Bool) -> String {
-        if isBinary || !isSafeLDIFString(value) {
-            let base64 = isBinary ? value : Data(value.utf8).base64EncodedString()
-            return "\(name):: \(base64)"
-        }
-        return "\(name): \(value)"
-    }
-
-    private func isSafeLDIFString(_ value: String) -> Bool {
-        guard let firstByte = value.utf8.first else { return true }
-
-        // RFC 2849 SAFE-INIT-CHAR excludes NUL, LF, CR, space, colon,
-        // less-than — and, being byte-range-based, anything non-ASCII.
-        let unsafeFirstBytes: Set<UInt8> = [0x00, 0x0A, 0x0D, 0x20, 0x3A, 0x3C]
-        if firstByte >= 0x80 || unsafeFirstBytes.contains(firstByte) {
-            return false
-        }
-
-        for byte in value.utf8 where byte == 0x00 || byte == 0x0A || byte == 0x0D || byte >= 0x80 {
-            return false
-        }
-
-        return !value.hasSuffix(" ")
     }
 }
 

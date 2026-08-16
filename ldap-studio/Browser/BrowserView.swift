@@ -34,8 +34,13 @@ struct BrowserView: View {
                 }
             } else if let root {
                 NavigationSplitView {
-                    DirectoryTreeView(root: root, selection: $selection)
-                        .navigationSplitViewColumnWidth(min: 200, ideal: 260)
+                    DirectoryTreeView(
+                        root: root,
+                        selection: $selection,
+                        connection: connection,
+                        reload: { dn in await reload(selecting: dn) }
+                    )
+                    .navigationSplitViewColumnWidth(min: 200, ideal: 260)
                 } detail: {
                     if let selectedEntryBinding {
                         EntryDetailView(
