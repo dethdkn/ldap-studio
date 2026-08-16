@@ -20,8 +20,13 @@ struct EntryDetailView: View {
                 Image(systemName: entry.icon)
                     .font(.title)
                     .foregroundStyle(Color.accentColor)
-                Text(entry.name)
-                    .font(.title2.bold())
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(entry.name)
+                        .font(.title2.bold())
+                    Text(entry.dn)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
                 Spacer()
             }
             .padding()

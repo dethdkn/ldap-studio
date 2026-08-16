@@ -9,6 +9,8 @@ import Foundation
 struct DirectoryEntry: Identifiable, Hashable {
     let id = UUID()
     var name: String
+    /// The full distinguished name, e.g. "cn=Alice Johnson,ou=People,dc=corp,dc=example,dc=com" — `name` is just the first component of this.
+    var dn: String
     var icon: String
     var attributes: [Attribute]
     var children: [DirectoryEntry]?
@@ -50,6 +52,7 @@ extension DirectoryEntry {
 
         self.init(
             name: entry.name,
+            dn: entry.dn,
             icon: DirectoryEntry.icon(forObjectClasses: objectClasses),
             attributes: entry.attributes.map { Attribute(name: $0.name, value: $0.value, isBinary: $0.isBinary) },
             children: entry.children.isEmpty ? nil : entry.children.map { DirectoryEntry(ldapEntry: $0) }
@@ -83,6 +86,7 @@ extension DirectoryEntry {
 extension DirectoryEntry {
     static let mockRoot = DirectoryEntry(
         name: "dc=corp,dc=example,dc=com",
+        dn: "dc=corp,dc=example,dc=com",
         icon: "globe",
         attributes: [
             Attribute(name: "objectClass", value: "dcObject, domain"),
@@ -91,6 +95,7 @@ extension DirectoryEntry {
         children: [
             DirectoryEntry(
                 name: "ou=People",
+                dn: "ou=People,dc=corp,dc=example,dc=com",
                 icon: "folder.fill",
                 attributes: [
                     Attribute(name: "objectClass", value: "organizationalUnit"),
@@ -99,6 +104,7 @@ extension DirectoryEntry {
                 children: [
                     DirectoryEntry(
                         name: "cn=Alice Johnson",
+                        dn: "cn=Alice Johnson,ou=People,dc=corp,dc=example,dc=com",
                         icon: "person.fill",
                         attributes: [
                             Attribute(name: "objectClass", value: "inetOrgPerson"),
@@ -111,6 +117,7 @@ extension DirectoryEntry {
                     ),
                     DirectoryEntry(
                         name: "cn=Bob Smith",
+                        dn: "cn=Bob Smith,ou=People,dc=corp,dc=example,dc=com",
                         icon: "person.fill",
                         attributes: [
                             Attribute(name: "objectClass", value: "inetOrgPerson"),
@@ -125,6 +132,7 @@ extension DirectoryEntry {
             ),
             DirectoryEntry(
                 name: "ou=Groups",
+                dn: "ou=Groups,dc=corp,dc=example,dc=com",
                 icon: "folder.fill",
                 attributes: [
                     Attribute(name: "objectClass", value: "organizationalUnit"),
@@ -133,6 +141,7 @@ extension DirectoryEntry {
                 children: [
                     DirectoryEntry(
                         name: "cn=Admins",
+                        dn: "cn=Admins,ou=Groups,dc=corp,dc=example,dc=com",
                         icon: "person.2.fill",
                         attributes: [
                             Attribute(name: "objectClass", value: "groupOfNames"),
@@ -145,6 +154,7 @@ extension DirectoryEntry {
             ),
             DirectoryEntry(
                 name: "ou=Computers",
+                dn: "ou=Computers,dc=corp,dc=example,dc=com",
                 icon: "folder.fill",
                 attributes: [
                     Attribute(name: "objectClass", value: "organizationalUnit"),
@@ -153,6 +163,7 @@ extension DirectoryEntry {
                 children: [
                     DirectoryEntry(
                         name: "cn=WORKSTATION01",
+                        dn: "cn=WORKSTATION01,ou=Computers,dc=corp,dc=example,dc=com",
                         icon: "desktopcomputer",
                         attributes: [
                             Attribute(name: "objectClass", value: "device"),
