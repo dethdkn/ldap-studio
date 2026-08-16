@@ -1,4 +1,7 @@
 use ldap3::{Ldap, LdapConnAsync};
+use std::time::Duration;
+
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 
 #[derive(Debug, thiserror::Error, uniffi::Error)]
 pub enum ConnectionError {
@@ -8,6 +11,8 @@ pub enum ConnectionError {
         port: u16,
         reason: String,
     },
+    #[error("Connecting to {host}:{port} timed out after 15 seconds")]
+    ConnectTimedOut { host: String, port: u16 },
     #[error("Bind failed: {reason}")]
     BindFailed { reason: String },
     #[error("Search failed: {reason}")]
@@ -18,8 +23,31 @@ pub enum ConnectionError {
 
 /// Connects and binds, handing back a ready-to-use `Ldap` handle. Shared by
 /// every feature that needs a live connection (connection testing, directory
-/// browsing, and anything else added later).
+/// browsing, and anything else added later). The whole attempt — TCP
+/// connect plus bind — is capped at 15 seconds, so an unreachable host
+/// fails fast instead of hanging indefinitely.
 pub(crate) async fn connect_and_bind(
+    host: &str,
+    port: u16,
+    use_ssl: bool,
+    bind_dn: &str,
+    password: &str,
+) -> Result<Ldap, ConnectionError> {
+    match tokio::time::timeout(
+        CONNECT_TIMEOUT,
+        connect_and_bind_inner(host, port, use_ssl, bind_dn, password),
+    )
+    .await
+    {
+        Ok(result) => result,
+        Err(_elapsed) => Err(ConnectionError::ConnectTimedOut {
+            host: host.to_string(),
+            port,
+        }),
+    }
+}
+
+async fn connect_and_bind_inner(
     host: &str,
     port: u16,
     use_ssl: bool,

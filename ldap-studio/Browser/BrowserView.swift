@@ -23,11 +23,15 @@ struct BrowserView: View {
     var body: some View {
         Group {
             if let loadError {
-                ContentUnavailableView(
-                    "Couldn't Load Directory",
-                    systemImage: "exclamationmark.triangle",
-                    description: Text(loadError)
-                )
+                ContentUnavailableView {
+                    Label("Couldn't Load Directory", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(loadError)
+                } actions: {
+                    Button("Try Again") {
+                        retry()
+                    }
+                }
             } else if let root {
                 NavigationSplitView {
                     DirectoryTreeView(root: root, selection: $selection)
@@ -55,6 +59,13 @@ struct BrowserView: View {
         .frame(minWidth: 700, minHeight: 420)
         .navigationTitle(connection.name)
         .task {
+            await loadDirectory()
+        }
+    }
+
+    private func retry() {
+        loadError = nil
+        Task {
             await loadDirectory()
         }
     }

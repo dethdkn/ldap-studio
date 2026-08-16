@@ -688,6 +688,8 @@ enum ConnectionError: Swift.Error, Equatable, Hashable, Foundation.LocalizedErro
     
     case ConnectFailed(host: String, port: UInt16, reason: String
     )
+    case ConnectTimedOut(host: String, port: UInt16
+    )
     case BindFailed(reason: String
     )
     case SearchFailed(reason: String
@@ -728,13 +730,17 @@ public struct FfiConverterTypeConnectionError: FfiConverterRustBuffer {
             port: try FfiConverterUInt16.read(from: &buf), 
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 2: return .BindFailed(
+        case 2: return .ConnectTimedOut(
+            host: try FfiConverterString.read(from: &buf), 
+            port: try FfiConverterUInt16.read(from: &buf)
+            )
+        case 3: return .BindFailed(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 3: return .SearchFailed(
+        case 4: return .SearchFailed(
             reason: try FfiConverterString.read(from: &buf)
             )
-        case 4: return .ModifyFailed(
+        case 5: return .ModifyFailed(
             reason: try FfiConverterString.read(from: &buf)
             )
 
@@ -756,18 +762,24 @@ public struct FfiConverterTypeConnectionError: FfiConverterRustBuffer {
             FfiConverterString.write(reason, into: &buf)
             
         
-        case let .BindFailed(reason):
+        case let .ConnectTimedOut(host,port):
             writeInt(&buf, Int32(2))
-            FfiConverterString.write(reason, into: &buf)
+            FfiConverterString.write(host, into: &buf)
+            FfiConverterUInt16.write(port, into: &buf)
             
         
-        case let .SearchFailed(reason):
+        case let .BindFailed(reason):
             writeInt(&buf, Int32(3))
             FfiConverterString.write(reason, into: &buf)
             
         
-        case let .ModifyFailed(reason):
+        case let .SearchFailed(reason):
             writeInt(&buf, Int32(4))
+            FfiConverterString.write(reason, into: &buf)
+            
+        
+        case let .ModifyFailed(reason):
+            writeInt(&buf, Int32(5))
             FfiConverterString.write(reason, into: &buf)
             
         }
