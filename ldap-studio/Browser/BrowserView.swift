@@ -34,7 +34,12 @@ struct BrowserView: View {
                         .navigationSplitViewColumnWidth(min: 200, ideal: 260)
                 } detail: {
                     if let selectedEntryBinding {
-                        EntryDetailView(entry: selectedEntryBinding)
+                        EntryDetailView(
+                            entry: selectedEntryBinding,
+                            root: root,
+                            connection: connection,
+                            reload: { dn in await reload(selecting: dn) }
+                        )
                     } else {
                         ContentUnavailableView(
                             "No Selection",
@@ -67,6 +72,20 @@ struct BrowserView: View {
             root = DirectoryEntry(ldapEntry: entry)
         } catch {
             loadError = "\(error)"
+        }
+    }
+
+    /// Re-fetches the whole directory (used after any write from the detail
+    /// view) and re-selects whichever dn should still be selected — `nil`
+    /// when the entry that was selected no longer exists, e.g. after Delete
+    /// Value emptied it out or a Move relocated it and the caller doesn't
+    /// know its new dn.
+    private func reload(selecting dn: String?) async {
+        await loadDirectory()
+        if let dn, root?.find(id: dn) != nil {
+            selection = dn
+        } else {
+            selection = nil
         }
     }
 }

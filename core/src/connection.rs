@@ -12,6 +12,8 @@ pub enum ConnectionError {
     BindFailed { reason: String },
     #[error("Search failed: {reason}")]
     SearchFailed { reason: String },
+    #[error("Modify failed: {reason}")]
+    ModifyFailed { reason: String },
 }
 
 /// Connects and binds, handing back a ready-to-use `Ldap` handle. Shared by

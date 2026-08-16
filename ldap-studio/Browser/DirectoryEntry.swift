@@ -7,13 +7,18 @@ import AppKit
 import Foundation
 
 struct DirectoryEntry: Identifiable, Hashable {
-    let id = UUID()
     var name: String
     /// The full distinguished name, e.g. "cn=Alice Johnson,ou=People,dc=corp,dc=example,dc=com" — `name` is just the first component of this.
     var dn: String
     var icon: String
     var attributes: [Attribute]
     var children: [DirectoryEntry]?
+
+    /// `dn` is already unique within the directory, and using it as the
+    /// identity (rather than a random UUID) means selection survives a
+    /// reload after a write — the same entry gets the same id again as long
+    /// as it hasn't moved.
+    var id: String { dn }
 }
 
 struct Attribute: Identifiable, Hashable {
@@ -52,6 +57,16 @@ extension DirectoryEntry {
         for index in children!.indices {
             children![index].update(id: targetID, transform: transform)
         }
+    }
+
+    /// Returns a copy of the tree with `excludedID` and everything under it
+    /// removed — used by the move/copy destination picker so an entry can't
+    /// be relocated into itself or one of its own descendants.
+    func pruned(removing excludedID: DirectoryEntry.ID) -> DirectoryEntry? {
+        guard id != excludedID else { return nil }
+        var copy = self
+        copy.children = children?.compactMap { $0.pruned(removing: excludedID) }
+        return copy
     }
 }
 

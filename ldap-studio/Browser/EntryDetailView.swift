@@ -5,19 +5,53 @@
 
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct EntryDetailView: View {
     @Binding var entry: DirectoryEntry
+    let root: DirectoryEntry
+    let connection: SavedConnection
+    /// Tells `BrowserView` to refetch the whole directory from the server —
+    /// every write below goes straight to LDAP, so the tree is reloaded from
+    /// there afterward instead of being patched locally. Pass the dn that
+    /// should stay selected once the fresh tree comes back (`nil` if the
+    /// entry no longer exists, e.g. after a delete).
+    let reload: (String?) async -> Void
 
     @State private var sortOrder = [KeyPathComparator(\Attribute.name)]
     @State private var selection: Attribute.ID?
+    @State private var searchText = ""
 
     @State private var attributeBeingEdited: Attribute?
     @State private var editedValue = ""
     @State private var attributePendingDeletion: Attribute?
 
-    private var sortedAttributes: [Attribute] {
-        entry.attributes.sorted(using: sortOrder)
+    @State private var isShowingAddAttribute = false
+    @State private var newAttributeName = ""
+    @State private var newAttributeValue = ""
+
+    @State private var isShowingMovePicker = false
+    @State private var isShowingCopyPicker = false
+
+    @State private var isPerformingAction = false
+    @State private var actionError: String?
+
+    private var password: String {
+        KeychainService.readPassword(for: connection.id) ?? ""
+    }
+
+    private var filteredAttributes: [Attribute] {
+        let sorted = entry.attributes.sorted(using: sortOrder)
+        guard !searchText.isEmpty else { return sorted }
+        return sorted.filter {
+            $0.name.localizedCaseInsensitiveContains(searchText)
+                || $0.value.localizedCaseInsensitiveContains(searchText)
+        }
+    }
+
+    private var selectedAttribute: Attribute? {
+        guard let selection else { return nil }
+        return entry.attributes.first { $0.id == selection }
     }
 
     var body: some View {
@@ -34,12 +68,20 @@ struct EntryDetailView: View {
                         .foregroundStyle(.secondary)
                 }
                 Spacer()
+                if isPerformingAction {
+                    ProgressView()
+                        .controlSize(.small)
+                }
             }
             .padding()
 
             Divider()
 
-            Table(sortedAttributes, selection: $selection, sortOrder: $sortOrder) {
+            toolbar
+
+            Divider()
+
+            Table(filteredAttributes, selection: $selection, sortOrder: $sortOrder) {
                 TableColumn("Attribute", value: \.name)
                 TableColumn("Value", sortUsing: KeyPathComparator(\.value)) { attribute in
                     if let image = attribute.decodedImage {
@@ -66,6 +108,31 @@ struct EntryDetailView: View {
                     contextMenuContent(for: attribute)
                 }
             }
+        }
+        .disabled(isPerformingAction)
+        .sheet(isPresented: $isShowingMovePicker) {
+            if let pruned = root.pruned(removing: entry.id) {
+                DestinationPickerSheet(root: pruned, title: "Move \(entry.name) To", confirmLabel: "Move") { destinationDN in
+                    move(to: destinationDN)
+                }
+            }
+        }
+        .sheet(isPresented: $isShowingCopyPicker) {
+            if let pruned = root.pruned(removing: entry.id) {
+                DestinationPickerSheet(root: pruned, title: "Copy \(entry.name) To", confirmLabel: "Copy") { destinationDN in
+                    copy(to: destinationDN)
+                }
+            }
+        }
+        .alert(
+            "Add Attribute",
+            isPresented: $isShowingAddAttribute
+        ) {
+            TextField("Attribute (e.g. mail)", text: $newAttributeName)
+            TextField("Value", text: $newAttributeValue)
+            Button("Add") { addAttribute() }
+                .disabled(newAttributeName.isEmpty)
+            Button("Cancel", role: .cancel) {}
         }
         .alert(
             "Edit Value",
@@ -102,15 +169,96 @@ struct EntryDetailView: View {
                 attributePendingDeletion = nil
             }
         } message: { attribute in
-            Text("This removes \(attribute.name) = \(attribute.value) from this entry.")
+            Text("This removes \(attribute.name) = \(attribute.value) from this entry on the server.")
         }
+        .alert(
+            "Action Failed",
+            isPresented: Binding(
+                get: { actionError != nil },
+                set: { if !$0 { actionError = nil } }
+            ),
+            presenting: actionError
+        ) { _ in
+            Button("OK", role: .cancel) {}
+        } message: { message in
+            Text(message)
+        }
+    }
+
+    private var toolbar: some View {
+        HStack(spacing: 14) {
+            Button {
+                newAttributeName = ""
+                newAttributeValue = ""
+                isShowingAddAttribute = true
+            } label: {
+                Image(systemName: "plus")
+            }
+            .help("Add Attribute")
+
+            Button {
+                beginEdit(selectedAttribute)
+            } label: {
+                Image(systemName: "pencil")
+            }
+            .help("Edit Attribute")
+            .disabled(selectedAttribute == nil || selectedAttribute?.isBinary == true)
+
+            Button {
+                attributePendingDeletion = selectedAttribute
+            } label: {
+                Image(systemName: "trash")
+            }
+            .help("Delete Attribute")
+            .disabled(selectedAttribute == nil)
+
+            Divider().frame(height: 16)
+
+            Button {
+                isShowingMovePicker = true
+            } label: {
+                Image(systemName: "arrow.turn.up.right")
+            }
+            .help("Move DN")
+
+            Button {
+                isShowingCopyPicker = true
+            } label: {
+                Image(systemName: "square.on.square")
+            }
+            .help("Copy DN")
+
+            Button {
+                exportLDIF()
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+            }
+            .help("Export as LDIF")
+
+            Divider().frame(height: 16)
+
+            Button {
+                refresh()
+            } label: {
+                Image(systemName: "arrow.clockwise")
+            }
+            .help("Refresh")
+
+            Spacer()
+
+            TextField("Search", text: $searchText)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 180)
+        }
+        .buttonStyle(.borderless)
+        .padding(.horizontal)
+        .padding(.vertical, 8)
     }
 
     @ViewBuilder
     private func contextMenuContent(for attribute: Attribute) -> some View {
         Button {
-            editedValue = attribute.value
-            attributeBeingEdited = attribute
+            beginEdit(attribute)
         } label: {
             Label("Edit Value", systemImage: "pencil")
         }
@@ -143,22 +291,182 @@ struct EntryDetailView: View {
         }
     }
 
+    private func beginEdit(_ attribute: Attribute?) {
+        guard let attribute, !attribute.isBinary else { return }
+        editedValue = attribute.value
+        attributeBeingEdited = attribute
+    }
+
     private func copyToPasteboard(_ string: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(string, forType: .string)
     }
 
+    /// Runs a write against the server, then refreshes the whole tree from
+    /// it — simpler and safer than hand-patching local state, since it can
+    /// never drift from what the server actually has.
+    private func perform(reloadSelecting dn: String?, _ operation: @escaping () async throws -> Void) {
+        Task {
+            isPerformingAction = true
+            defer { isPerformingAction = false }
+            do {
+                try await operation()
+                await reload(dn)
+            } catch {
+                actionError = "\(error)"
+            }
+        }
+    }
+
+    private func refresh() {
+        let dn = entry.dn
+        Task {
+            isPerformingAction = true
+            defer { isPerformingAction = false }
+            await reload(dn)
+        }
+    }
+
+    private func addAttribute() {
+        let dn = entry.dn
+        let name = newAttributeName
+        let value = newAttributeValue
+        perform(reloadSelecting: dn) {
+            try await addAttributeValue(
+                host: connection.host,
+                port: UInt16(clamping: connection.port),
+                useSsl: connection.useSSL,
+                bindDn: connection.bindDN,
+                password: password,
+                dn: dn,
+                attribute: name,
+                value: value
+            )
+        }
+    }
+
     private func saveEdit(for attribute: Attribute) {
-        guard let index = entry.attributes.firstIndex(where: { $0.id == attribute.id }) else { return }
-        entry.attributes[index].value = editedValue
+        let dn = entry.dn
+        let name = attribute.name
+        let oldValue = attribute.value
+        let newValue = editedValue
+        perform(reloadSelecting: dn) {
+            try await modifyAttributeValue(
+                host: connection.host,
+                port: UInt16(clamping: connection.port),
+                useSsl: connection.useSSL,
+                bindDn: connection.bindDN,
+                password: password,
+                dn: dn,
+                attribute: name,
+                oldValue: oldValue,
+                newValue: newValue
+            )
+        }
     }
 
     private func deleteAttribute(_ attribute: Attribute) {
-        entry.attributes.removeAll { $0.id == attribute.id }
+        let dn = entry.dn
+        perform(reloadSelecting: dn) {
+            try await deleteAttributeValue(
+                host: connection.host,
+                port: UInt16(clamping: connection.port),
+                useSsl: connection.useSSL,
+                bindDn: connection.bindDN,
+                password: password,
+                dn: dn,
+                attribute: attribute.name,
+                value: attribute.value
+            )
+        }
+    }
+
+    private func move(to newSuperiorDN: String) {
+        let dn = entry.dn
+        let newDN = "\(entry.name),\(newSuperiorDN)"
+        perform(reloadSelecting: newDN) {
+            try await moveEntry(
+                host: connection.host,
+                port: UInt16(clamping: connection.port),
+                useSsl: connection.useSSL,
+                bindDn: connection.bindDN,
+                password: password,
+                dn: dn,
+                newSuperior: newSuperiorDN
+            )
+        }
+    }
+
+    private func copy(to newSuperiorDN: String) {
+        let node = entry
+        let newRootDN = "\(node.name),\(newSuperiorDN)"
+        perform(reloadSelecting: newRootDN) {
+            try await addRecursively(node, under: newSuperiorDN)
+        }
+    }
+
+    /// Recreates `node` (and, recursively, every descendant it already has
+    /// loaded) under `newSuperiorDN` — parents must exist on the server
+    /// before their children can be added under them.
+    private func addRecursively(_ node: DirectoryEntry, under newSuperiorDN: String) async throws {
+        let newDN = "\(node.name),\(newSuperiorDN)"
+        try await addEntry(
+            host: connection.host,
+            port: UInt16(clamping: connection.port),
+            useSsl: connection.useSSL,
+            bindDn: connection.bindDN,
+            password: password,
+            dn: newDN,
+            attributes: node.attributes.map { LdapAttribute(name: $0.name, value: $0.value, isBinary: $0.isBinary) }
+        )
+        for child in node.children ?? [] {
+            try await addRecursively(child, under: newDN)
+        }
+    }
+
+    private func exportLDIF() {
+        let ldif = ldifText(for: entry)
+        let suggestedName = entry.name
+            .replacingOccurrences(of: "=", with: "_")
+            .replacingOccurrences(of: " ", with: "_")
+
+        DispatchQueue.main.async {
+            let panel = NSSavePanel()
+            // NSSavePanel appends the allowed type's extension itself — since
+            // UTType(filenameExtension:) makes an ad-hoc type here (there's
+            // no system-registered "ldif" UTType), the panel doesn't
+            // recognize an extension already in the name field as matching,
+            // and appends a second one. So the name field carries no
+            // extension at all; the panel adds it.
+            panel.nameFieldStringValue = suggestedName
+            panel.allowedContentTypes = [UTType(filenameExtension: "ldif") ?? .plainText]
+
+            panel.begin { response in
+                guard response == .OK, let url = panel.url else { return }
+                try? ldif.write(to: url, atomically: true, encoding: .utf8)
+            }
+        }
+    }
+
+    private func ldifText(for entry: DirectoryEntry) -> String {
+        var lines = ["dn: \(entry.dn)"]
+        for attribute in entry.attributes {
+            if attribute.isBinary {
+                lines.append("\(attribute.name):: \(attribute.value)")
+            } else {
+                lines.append("\(attribute.name): \(attribute.value)")
+            }
+        }
+        return lines.joined(separator: "\n") + "\n"
     }
 }
 
 #Preview {
-    EntryDetailView(entry: .constant(.mockRoot))
-        .frame(width: 500, height: 400)
+    EntryDetailView(
+        entry: .constant(.mockRoot),
+        root: .mockRoot,
+        connection: SavedConnection(name: "Preview", host: "localhost", port: 389, useSSL: false, baseDN: "", bindDN: ""),
+        reload: { _ in }
+    )
+    .frame(width: 500, height: 400)
 }

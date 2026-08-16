@@ -692,6 +692,8 @@ enum ConnectionError: Swift.Error, Equatable, Hashable, Foundation.LocalizedErro
     )
     case SearchFailed(reason: String
     )
+    case ModifyFailed(reason: String
+    )
 
     
 
@@ -732,6 +734,9 @@ public struct FfiConverterTypeConnectionError: FfiConverterRustBuffer {
         case 3: return .SearchFailed(
             reason: try FfiConverterString.read(from: &buf)
             )
+        case 4: return .ModifyFailed(
+            reason: try FfiConverterString.read(from: &buf)
+            )
 
          default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -758,6 +763,11 @@ public struct FfiConverterTypeConnectionError: FfiConverterRustBuffer {
         
         case let .SearchFailed(reason):
             writeInt(&buf, Int32(3))
+            FfiConverterString.write(reason, into: &buf)
+            
+        
+        case let .ModifyFailed(reason):
+            writeInt(&buf, Int32(4))
             FfiConverterString.write(reason, into: &buf)
             
         }
@@ -904,6 +914,92 @@ public func fetchRootEntry(host: String, port: UInt16, useSsl: Bool, bindDn: Str
             errorHandler: FfiConverterTypeConnectionError_lift
         )
 }
+public func addAttributeValue(host: String, port: UInt16, useSsl: Bool, bindDn: String, password: String, dn: String, attribute: String, value: String)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ldap_studio_core_fn_func_add_attribute_value(FfiConverterString.lower(host),FfiConverterUInt16.lower(port),FfiConverterBool.lower(useSsl),FfiConverterString.lower(bindDn),FfiConverterString.lower(password),FfiConverterString.lower(dn),FfiConverterString.lower(attribute),FfiConverterString.lower(value)
+                )
+            },
+            pollFunc: ffi_ldap_studio_core_rust_future_poll_void,
+            completeFunc: ffi_ldap_studio_core_rust_future_complete_void,
+            freeFunc: ffi_ldap_studio_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeConnectionError_lift
+        )
+}
+/**
+ * Creates a brand-new entry at `dn` with the given attributes — LDAP has no
+ * native "copy", so Swift reads the source entry's already-fetched subtree
+ * and calls this once per node (parents before children) to recreate it
+ * elsewhere.
+ */
+public func addEntry(host: String, port: UInt16, useSsl: Bool, bindDn: String, password: String, dn: String, attributes: [LdapAttribute])async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ldap_studio_core_fn_func_add_entry(FfiConverterString.lower(host),FfiConverterUInt16.lower(port),FfiConverterBool.lower(useSsl),FfiConverterString.lower(bindDn),FfiConverterString.lower(password),FfiConverterString.lower(dn),FfiConverterSequenceTypeLdapAttribute.lower(attributes)
+                )
+            },
+            pollFunc: ffi_ldap_studio_core_rust_future_poll_void,
+            completeFunc: ffi_ldap_studio_core_rust_future_complete_void,
+            freeFunc: ffi_ldap_studio_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeConnectionError_lift
+        )
+}
+public func deleteAttributeValue(host: String, port: UInt16, useSsl: Bool, bindDn: String, password: String, dn: String, attribute: String, value: String)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ldap_studio_core_fn_func_delete_attribute_value(FfiConverterString.lower(host),FfiConverterUInt16.lower(port),FfiConverterBool.lower(useSsl),FfiConverterString.lower(bindDn),FfiConverterString.lower(password),FfiConverterString.lower(dn),FfiConverterString.lower(attribute),FfiConverterString.lower(value)
+                )
+            },
+            pollFunc: ffi_ldap_studio_core_rust_future_poll_void,
+            completeFunc: ffi_ldap_studio_core_rust_future_complete_void,
+            freeFunc: ffi_ldap_studio_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeConnectionError_lift
+        )
+}
+/**
+ * Replaces one value of a (possibly multi-valued) attribute, leaving any
+ * other values of that attribute untouched — a plain `Replace` would wipe
+ * them out, so this does a targeted delete-then-add of just this value.
+ */
+public func modifyAttributeValue(host: String, port: UInt16, useSsl: Bool, bindDn: String, password: String, dn: String, attribute: String, oldValue: String, newValue: String)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ldap_studio_core_fn_func_modify_attribute_value(FfiConverterString.lower(host),FfiConverterUInt16.lower(port),FfiConverterBool.lower(useSsl),FfiConverterString.lower(bindDn),FfiConverterString.lower(password),FfiConverterString.lower(dn),FfiConverterString.lower(attribute),FfiConverterString.lower(oldValue),FfiConverterString.lower(newValue)
+                )
+            },
+            pollFunc: ffi_ldap_studio_core_rust_future_poll_void,
+            completeFunc: ffi_ldap_studio_core_rust_future_complete_void,
+            freeFunc: ffi_ldap_studio_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeConnectionError_lift
+        )
+}
+/**
+ * Moves (and/or renames) an entry. The RDN is kept as-is — only the parent
+ * changes — since Swift always has the entry's current RDN as `name` and
+ * only needs to pick a new parent from the tree.
+ */
+public func moveEntry(host: String, port: UInt16, useSsl: Bool, bindDn: String, password: String, dn: String, newSuperior: String)async throws   {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ldap_studio_core_fn_func_move_entry(FfiConverterString.lower(host),FfiConverterUInt16.lower(port),FfiConverterBool.lower(useSsl),FfiConverterString.lower(bindDn),FfiConverterString.lower(password),FfiConverterString.lower(dn),FfiConverterString.lower(newSuperior)
+                )
+            },
+            pollFunc: ffi_ldap_studio_core_rust_future_poll_void,
+            completeFunc: ffi_ldap_studio_core_rust_future_complete_void,
+            freeFunc: ffi_ldap_studio_core_rust_future_free_void,
+            liftFunc: { $0 },
+            errorHandler: FfiConverterTypeConnectionError_lift
+        )
+}
 
 private enum InitializationResult {
     case ok
@@ -924,6 +1020,21 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ldap_studio_core_checksum_func_fetch_root_entry() != 4939) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ldap_studio_core_checksum_func_add_attribute_value() != 59308) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ldap_studio_core_checksum_func_add_entry() != 21837) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ldap_studio_core_checksum_func_delete_attribute_value() != 52601) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ldap_studio_core_checksum_func_modify_attribute_value() != 22836) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ldap_studio_core_checksum_func_move_entry() != 19820) {
         return InitializationResult.apiChecksumMismatch
     }
 
