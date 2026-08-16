@@ -30,6 +30,47 @@ extension DirectoryEntry {
 }
 
 extension DirectoryEntry {
+    /// Builds the UI model from the raw data Rust fetched over LDAP. Rust
+    /// returns the whole subtree in one shot, so this recurses through
+    /// `entry.children` all the way down, not just one level.
+    init(ldapEntry entry: LdapEntry) {
+        let objectClasses = entry.attributes
+            .filter { $0.name == "objectClass" }
+            .map(\.value)
+
+        self.init(
+            name: entry.name,
+            icon: DirectoryEntry.icon(forObjectClasses: objectClasses),
+            attributes: entry.attributes.map { Attribute(name: $0.name, value: $0.value) },
+            children: entry.children.isEmpty ? nil : entry.children.map { DirectoryEntry(ldapEntry: $0) }
+        )
+    }
+
+    private static func icon(forObjectClasses classes: [String]) -> String {
+        let lowercased = Set(classes.map { $0.lowercased() })
+        if lowercased.contains("domain") || lowercased.contains("dcobject") {
+            return "globe"
+        }
+        if lowercased.contains("organizationalunit") || lowercased.contains("container") {
+            return "folder.fill"
+        }
+        if lowercased.contains("locality") {
+            return "building.2.fill"
+        }
+        if lowercased.contains("groupofnames") || lowercased.contains("group") {
+            return "person.2.fill"
+        }
+        if lowercased.contains("device") || lowercased.contains("computer") {
+            return "desktopcomputer"
+        }
+        if lowercased.contains("inetorgperson") || lowercased.contains("person") {
+            return "person.fill"
+        }
+        return "questionmark.folder"
+    }
+}
+
+extension DirectoryEntry {
     static let mockRoot = DirectoryEntry(
         name: "dc=corp,dc=example,dc=com",
         icon: "globe",

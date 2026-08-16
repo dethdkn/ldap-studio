@@ -8,6 +8,12 @@ import SwiftUI
 struct EntryDetailView: View {
     let entry: DirectoryEntry
 
+    @State private var sortOrder = [KeyPathComparator(\Attribute.name)]
+
+    private var sortedAttributes: [Attribute] {
+        entry.attributes.sorted(using: sortOrder)
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
@@ -22,7 +28,7 @@ struct EntryDetailView: View {
 
             Divider()
 
-            Table(entry.attributes) {
+            Table(sortedAttributes, sortOrder: $sortOrder) {
                 TableColumn("Attribute", value: \.name)
                 TableColumn("Value", value: \.value)
             }

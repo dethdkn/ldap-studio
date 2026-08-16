@@ -549,6 +549,126 @@ fileprivate struct FfiConverterString: FfiConverter {
 }
 
 
+public struct LdapAttribute: Equatable, Hashable {
+    public var name: String
+    public var value: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(name: String, value: String) {
+        self.name = name
+        self.value = value
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension LdapAttribute: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLdapAttribute: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LdapAttribute {
+        return
+            try LdapAttribute(
+                name: FfiConverterString.read(from: &buf), 
+                value: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LdapAttribute, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterString.write(value.value, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLdapAttribute_lift(_ buf: RustBuffer) throws -> LdapAttribute {
+    return try FfiConverterTypeLdapAttribute.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLdapAttribute_lower(_ value: LdapAttribute) -> RustBuffer {
+    return FfiConverterTypeLdapAttribute.lower(value)
+}
+
+
+public struct LdapEntry: Equatable, Hashable {
+    public var dn: String
+    public var name: String
+    public var hasChildren: Bool
+    public var attributes: [LdapAttribute]
+    public var children: [LdapEntry]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(dn: String, name: String, hasChildren: Bool, attributes: [LdapAttribute], children: [LdapEntry]) {
+        self.dn = dn
+        self.name = name
+        self.hasChildren = hasChildren
+        self.attributes = attributes
+        self.children = children
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension LdapEntry: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLdapEntry: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LdapEntry {
+        return
+            try LdapEntry(
+                dn: FfiConverterString.read(from: &buf), 
+                name: FfiConverterString.read(from: &buf), 
+                hasChildren: FfiConverterBool.read(from: &buf), 
+                attributes: FfiConverterSequenceTypeLdapAttribute.read(from: &buf), 
+                children: FfiConverterSequenceTypeLdapEntry.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LdapEntry, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.dn, into: &buf)
+        FfiConverterString.write(value.name, into: &buf)
+        FfiConverterBool.write(value.hasChildren, into: &buf)
+        FfiConverterSequenceTypeLdapAttribute.write(value.attributes, into: &buf)
+        FfiConverterSequenceTypeLdapEntry.write(value.children, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLdapEntry_lift(_ buf: RustBuffer) throws -> LdapEntry {
+    return try FfiConverterTypeLdapEntry.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLdapEntry_lower(_ value: LdapEntry) -> RustBuffer {
+    return FfiConverterTypeLdapEntry.lower(value)
+}
+
+
 public 
 enum ConnectionError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
@@ -557,6 +677,8 @@ enum ConnectionError: Swift.Error, Equatable, Hashable, Foundation.LocalizedErro
     case ConnectFailed(host: String, port: UInt16, reason: String
     )
     case BindFailed(reason: String
+    )
+    case SearchFailed(reason: String
     )
 
     
@@ -595,6 +717,9 @@ public struct FfiConverterTypeConnectionError: FfiConverterRustBuffer {
         case 2: return .BindFailed(
             reason: try FfiConverterString.read(from: &buf)
             )
+        case 3: return .SearchFailed(
+            reason: try FfiConverterString.read(from: &buf)
+            )
 
          default: throw UniffiInternalError.unexpectedEnumCase
         }
@@ -618,6 +743,11 @@ public struct FfiConverterTypeConnectionError: FfiConverterRustBuffer {
             writeInt(&buf, Int32(2))
             FfiConverterString.write(reason, into: &buf)
             
+        
+        case let .SearchFailed(reason):
+            writeInt(&buf, Int32(3))
+            FfiConverterString.write(reason, into: &buf)
+            
         }
     }
 }
@@ -635,6 +765,56 @@ public func FfiConverterTypeConnectionError_lift(_ buf: RustBuffer) throws -> Co
 #endif
 public func FfiConverterTypeConnectionError_lower(_ value: ConnectionError) -> RustBuffer {
     return FfiConverterTypeConnectionError.lower(value)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeLdapAttribute: FfiConverterRustBuffer {
+    typealias SwiftType = [LdapAttribute]
+
+    public static func write(_ value: [LdapAttribute], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeLdapAttribute.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [LdapAttribute] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [LdapAttribute]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeLdapAttribute.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeLdapEntry: FfiConverterRustBuffer {
+    typealias SwiftType = [LdapEntry]
+
+    public static func write(_ value: [LdapEntry], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeLdapEntry.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [LdapEntry] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [LdapEntry]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeLdapEntry.read(from: &buf))
+        }
+        return seq
+    }
 }
 private let UNIFFI_RUST_FUTURE_POLL_READY: Int8 = 0
 private let UNIFFI_RUST_FUTURE_POLL_WAKE: Int8 = 1
@@ -698,6 +878,20 @@ public func testConnection(host: String, port: UInt16, useSsl: Bool, bindDn: Str
             errorHandler: FfiConverterTypeConnectionError_lift
         )
 }
+public func fetchRootEntry(host: String, port: UInt16, useSsl: Bool, bindDn: String, password: String, baseDn: String)async throws  -> LdapEntry  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ldap_studio_core_fn_func_fetch_root_entry(FfiConverterString.lower(host),FfiConverterUInt16.lower(port),FfiConverterBool.lower(useSsl),FfiConverterString.lower(bindDn),FfiConverterString.lower(password),FfiConverterString.lower(baseDn)
+                )
+            },
+            pollFunc: ffi_ldap_studio_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ldap_studio_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ldap_studio_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeLdapEntry_lift,
+            errorHandler: FfiConverterTypeConnectionError_lift
+        )
+}
 
 private enum InitializationResult {
     case ok
@@ -715,6 +909,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.contractVersionMismatch
     }
     if (uniffi_ldap_studio_core_checksum_func_test_connection() != 13407) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ldap_studio_core_checksum_func_fetch_root_entry() != 4939) {
         return InitializationResult.apiChecksumMismatch
     }
 
