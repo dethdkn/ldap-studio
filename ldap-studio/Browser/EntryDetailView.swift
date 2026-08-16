@@ -449,15 +449,41 @@ struct EntryDetailView: View {
     }
 
     private func ldifText(for entry: DirectoryEntry) -> String {
-        var lines = ["dn: \(entry.dn)"]
+        var lines = [ldifLine(name: "dn", value: entry.dn, isBinary: false)]
         for attribute in entry.attributes {
-            if attribute.isBinary {
-                lines.append("\(attribute.name):: \(attribute.value)")
-            } else {
-                lines.append("\(attribute.name): \(attribute.value)")
-            }
+            lines.append(ldifLine(name: attribute.name, value: attribute.value, isBinary: attribute.isBinary))
         }
         return lines.joined(separator: "\n") + "\n"
+    }
+
+    /// `attribute.value` is already base64 for genuinely binary attributes
+    /// (jpegPhoto and the like) — this handles the other case LDIF also
+    /// requires base64 for: plain text that isn't "safe" per RFC 2849, most
+    /// commonly any character outside ASCII (e.g. "ç"), which some LDIF
+    /// readers mishandle if written as a raw `attr: value` line.
+    private func ldifLine(name: String, value: String, isBinary: Bool) -> String {
+        if isBinary || !isSafeLDIFString(value) {
+            let base64 = isBinary ? value : Data(value.utf8).base64EncodedString()
+            return "\(name):: \(base64)"
+        }
+        return "\(name): \(value)"
+    }
+
+    private func isSafeLDIFString(_ value: String) -> Bool {
+        guard let firstByte = value.utf8.first else { return true }
+
+        // RFC 2849 SAFE-INIT-CHAR excludes NUL, LF, CR, space, colon,
+        // less-than — and, being byte-range-based, anything non-ASCII.
+        let unsafeFirstBytes: Set<UInt8> = [0x00, 0x0A, 0x0D, 0x20, 0x3A, 0x3C]
+        if firstByte >= 0x80 || unsafeFirstBytes.contains(firstByte) {
+            return false
+        }
+
+        for byte in value.utf8 where byte == 0x00 || byte == 0x0A || byte == 0x0D || byte >= 0x80 {
+            return false
+        }
+
+        return !value.hasSuffix(" ")
     }
 }
 
