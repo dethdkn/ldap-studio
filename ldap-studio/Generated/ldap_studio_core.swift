@@ -551,13 +551,23 @@ fileprivate struct FfiConverterString: FfiConverter {
 
 public struct LdapAttribute: Equatable, Hashable {
     public var name: String
+    /**
+     * For binary attributes (e.g. jpegPhoto), this is base64-encoded raw
+     * bytes rather than literal text — see `is_binary`.
+     */
     public var value: String
+    public var isBinary: Bool
 
     // Default memberwise initializers are never public by default, so we
     // declare one manually.
-    public init(name: String, value: String) {
+    public init(name: String, 
+        /**
+         * For binary attributes (e.g. jpegPhoto), this is base64-encoded raw
+         * bytes rather than literal text — see `is_binary`.
+         */value: String, isBinary: Bool) {
         self.name = name
         self.value = value
+        self.isBinary = isBinary
     }
 
     
@@ -577,13 +587,15 @@ public struct FfiConverterTypeLdapAttribute: FfiConverterRustBuffer {
         return
             try LdapAttribute(
                 name: FfiConverterString.read(from: &buf), 
-                value: FfiConverterString.read(from: &buf)
+                value: FfiConverterString.read(from: &buf), 
+                isBinary: FfiConverterBool.read(from: &buf)
         )
     }
 
     public static func write(_ value: LdapAttribute, into buf: inout [UInt8]) {
         FfiConverterString.write(value.name, into: &buf)
         FfiConverterString.write(value.value, into: &buf)
+        FfiConverterBool.write(value.isBinary, into: &buf)
     }
 }
 

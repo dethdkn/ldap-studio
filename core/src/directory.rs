@@ -1,3 +1,4 @@
+use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
 use crate::connection::{connect_and_bind, ConnectionError};
 use ldap3::{Scope, SearchEntry};
 use std::collections::HashMap;
@@ -5,7 +6,10 @@ use std::collections::HashMap;
 #[derive(uniffi::Record, Clone)]
 pub struct LdapAttribute {
     pub name: String,
+    /// For binary attributes (e.g. jpegPhoto), this is base64-encoded raw
+    /// bytes rather than literal text — see `is_binary`.
     pub value: String,
+    pub is_binary: bool,
 }
 
 #[derive(uniffi::Record, Clone)]
@@ -29,14 +33,30 @@ fn parent_dn(dn: &str) -> Option<String> {
 
 fn attributes_from(entry: &SearchEntry) -> Vec<LdapAttribute> {
     let mut attributes = Vec::new();
+
     for (name, values) in &entry.attrs {
         for value in values {
             attributes.push(LdapAttribute {
                 name: name.clone(),
                 value: value.clone(),
+                is_binary: false,
             });
         }
     }
+
+    // ldap3 routes any value that isn't valid UTF-8 (photos, certificates,
+    // etc.) into `bin_attrs` instead — base64-encode it so it can still
+    // cross the FFI boundary as a plain String.
+    for (name, values) in &entry.bin_attrs {
+        for value in values {
+            attributes.push(LdapAttribute {
+                name: name.clone(),
+                value: BASE64.encode(value),
+                is_binary: true,
+            });
+        }
+    }
+
     attributes
 }
 

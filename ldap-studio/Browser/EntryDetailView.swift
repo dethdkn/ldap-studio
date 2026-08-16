@@ -30,7 +30,25 @@ struct EntryDetailView: View {
 
             Table(sortedAttributes, sortOrder: $sortOrder) {
                 TableColumn("Attribute", value: \.name)
-                TableColumn("Value", value: \.value)
+                TableColumn("Value", sortUsing: KeyPathComparator(\.value)) { attribute in
+                    if let image = attribute.decodedImage {
+                        Image(nsImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(height: 60)
+                            .clipShape(RoundedRectangle(cornerRadius: 6))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 6)
+                                    .stroke(.separator, lineWidth: 1)
+                            )
+                            .padding(.vertical, 4)
+                    } else if attribute.isBinary {
+                        Text("<binary data>")
+                            .foregroundStyle(.secondary)
+                    } else {
+                        Text(attribute.value)
+                    }
+                }
             }
         }
     }

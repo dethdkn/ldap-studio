@@ -3,6 +3,7 @@
 //  ldap-studio
 //
 
+import AppKit
 import Foundation
 
 struct DirectoryEntry: Identifiable, Hashable {
@@ -17,6 +18,15 @@ struct Attribute: Identifiable, Hashable {
     let id = UUID()
     var name: String
     var value: String
+    var isBinary: Bool = false
+
+    /// Non-nil only when this is a binary attribute whose bytes actually
+    /// decode as an image (e.g. jpegPhoto) — other binary data (certificates
+    /// and the like) simply won't produce an NSImage here.
+    var decodedImage: NSImage? {
+        guard isBinary, let data = Data(base64Encoded: value) else { return nil }
+        return NSImage(data: data)
+    }
 }
 
 extension DirectoryEntry {
@@ -41,7 +51,7 @@ extension DirectoryEntry {
         self.init(
             name: entry.name,
             icon: DirectoryEntry.icon(forObjectClasses: objectClasses),
-            attributes: entry.attributes.map { Attribute(name: $0.name, value: $0.value) },
+            attributes: entry.attributes.map { Attribute(name: $0.name, value: $0.value, isBinary: $0.isBinary) },
             children: entry.children.isEmpty ? nil : entry.children.map { DirectoryEntry(ldapEntry: $0) }
         )
     }

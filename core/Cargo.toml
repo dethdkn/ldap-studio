@@ -16,3 +16,4 @@ uniffi = { version = "0.32", features = ["cli", "tokio"] }
 ldap3 = { version = "0.11", default-features = false, features = ["tls-native"] }
 tokio = { version = "1", features = ["rt-multi-thread"] }
 thiserror = "2"
+base64 = "0.22"
