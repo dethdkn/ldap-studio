@@ -306,7 +306,7 @@
 				);
 				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/core/target/release";
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 0.0.2;
+				MARKETING_VERSION = 0.0.3;
 				OTHER_LDFLAGS = "$(SRCROOT)/core/target/release/libldap_studio_core.a";
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ldap-studio";
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -347,7 +347,7 @@
 				);
 				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/core/target/release";
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 0.0.2;
+				MARKETING_VERSION = 0.0.3;
 				OTHER_LDFLAGS = "$(SRCROOT)/core/target/release/libldap_studio_core.a";
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ldap-studio";
 				PRODUCT_NAME = "$(TARGET_NAME)";
