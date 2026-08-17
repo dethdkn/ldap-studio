@@ -71,6 +71,61 @@ struct EntryActions {
         )
     }
 
+    /// Creates a brand-new entry at `dn` with `attributes`. LDAP requires
+    /// the RDN's attribute=value pair (e.g. a dn starting "cn=John Doe"
+    /// implies a "cn: John Doe" attribute) to also literally exist among
+    /// the entry's attributes — this fills that in automatically if it's
+    /// missing, so forgetting it in the form turns into a working entry
+    /// instead of a schema error from the server.
+    func createEntry(dn: String, attributes: [(name: String, value: String)]) async throws {
+        var ldapAttributes = attributes.map { LdapAttribute(name: $0.name, value: $0.value, isBinary: false) }
+
+        if let rdn = Self.parseRDN(dn),
+           !ldapAttributes.contains(where: { $0.name.caseInsensitiveCompare(rdn.name) == .orderedSame && $0.value == rdn.value }) {
+            ldapAttributes.append(LdapAttribute(name: rdn.name, value: rdn.value, isBinary: false))
+        }
+
+        try await addEntry(
+            host: connection.host,
+            port: UInt16(clamping: connection.port),
+            useSsl: connection.useSSL,
+            bindDn: connection.bindDN,
+            password: password,
+            dn: dn,
+            attributes: ldapAttributes
+        )
+    }
+
+    private static func parseRDN(_ dn: String) -> (name: String, value: String)? {
+        guard let firstComponent = dn.split(separator: ",").first,
+              let equalsIndex = firstComponent.firstIndex(of: "=") else { return nil }
+        let name = firstComponent[firstComponent.startIndex..<equalsIndex].trimmingCharacters(in: .whitespaces)
+        let value = firstComponent[firstComponent.index(after: equalsIndex)...].trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, !value.isEmpty else { return nil }
+        return (name, value)
+    }
+
+    /// Adds every parsed entry to the server at the dn it specifies —
+    /// ordered shallowest-first in case a child appears before its parent in
+    /// the file, since a parent must exist before anything can be added
+    /// under it.
+    func importLDIF(_ entries: [LDIFEntry]) async throws {
+        let ordered = entries.sorted { lhs, rhs in
+            lhs.dn.filter { $0 == "," }.count < rhs.dn.filter { $0 == "," }.count
+        }
+        for entry in ordered {
+            try await addEntry(
+                host: connection.host,
+                port: UInt16(clamping: connection.port),
+                useSsl: connection.useSSL,
+                bindDn: connection.bindDN,
+                password: password,
+                dn: entry.dn,
+                attributes: entry.attributes.map { LdapAttribute(name: $0.name, value: $0.value, isBinary: $0.isBinary) }
+            )
+        }
+    }
+
     func exportLDIF(_ entry: DirectoryEntry) {
         let ldif = Self.ldifText(for: entry)
         let suggestedName = entry.name

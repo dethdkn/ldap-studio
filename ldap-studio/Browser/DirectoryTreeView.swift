@@ -3,7 +3,9 @@
 //  ldap-studio
 //
 
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct DirectoryTreeView: View {
     let root: DirectoryEntry
@@ -21,8 +23,14 @@ struct DirectoryTreeView: View {
         var id: String { "\(kind)-\(entry.id)" }
     }
 
+    private struct NewEntryRequest: Identifiable {
+        let parentDN: String
+        var id: String { parentDN }
+    }
+
     @State private var pickerRequest: PickerRequest?
     @State private var entryPendingDeletion: DirectoryEntry?
+    @State private var newEntryRequest: NewEntryRequest?
 
     @State private var isPerformingAction = false
     @State private var actionError: String?
@@ -32,18 +40,24 @@ struct DirectoryTreeView: View {
     }
 
     var body: some View {
-        List(selection: $selection) {
-            OutlineGroup(root, children: \.children) { entry in
-                Label(entry.name, systemImage: entry.icon)
-                    .tag(entry.id)
+        VStack(spacing: 0) {
+            toolbar
+
+            Divider()
+
+            List(selection: $selection) {
+                OutlineGroup(root, children: \.children) { entry in
+                    Label(entry.name, systemImage: entry.icon)
+                        .tag(entry.id)
+                }
+            }
+            .contextMenu(forSelectionType: DirectoryEntry.ID.self) { ids in
+                if let id = ids.first, let entry = root.find(id: id) {
+                    contextMenuContent(for: entry)
+                }
             }
         }
         .disabled(isPerformingAction)
-        .contextMenu(forSelectionType: DirectoryEntry.ID.self) { ids in
-            if let id = ids.first, let entry = root.find(id: id) {
-                contextMenuContent(for: entry)
-            }
-        }
         .sheet(item: $pickerRequest) { request in
             if let pruned = root.pruned(removing: request.entry.id) {
                 let isMove = request.kind == .move
@@ -94,6 +108,34 @@ struct DirectoryTreeView: View {
         } message: { message in
             Text(message)
         }
+        .sheet(item: $newEntryRequest) { request in
+            NewEntrySheet(parentDN: request.parentDN) { dn, attributes in
+                createEntry(dn: dn, attributes: attributes)
+            }
+        }
+    }
+
+    private var toolbar: some View {
+        HStack(spacing: 14) {
+            Button {
+                newEntryRequest = NewEntryRequest(parentDN: selection ?? root.dn)
+            } label: {
+                Image(systemName: "plus")
+            }
+            .help("New Entry")
+
+            Button {
+                importLDIF()
+            } label: {
+                Image(systemName: "square.and.arrow.down")
+            }
+            .help("Import LDIF")
+
+            Spacer()
+        }
+        .buttonStyle(.borderless)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 6)
     }
 
     @ViewBuilder
@@ -172,6 +214,37 @@ struct DirectoryTreeView: View {
         let newRootDN = "\(entry.name),\(newSuperiorDN)"
         perform(reloadSelecting: newRootDN) {
             _ = try await actions.copy(entry, to: newSuperiorDN)
+        }
+    }
+
+    private func createEntry(dn: String, attributes: [(name: String, value: String)]) {
+        perform(reloadSelecting: dn) {
+            try await actions.createEntry(dn: dn, attributes: attributes)
+        }
+    }
+
+    private func importLDIF() {
+        let panel = NSOpenPanel()
+        panel.allowedContentTypes = [UTType(filenameExtension: "ldif") ?? .plainText, .plainText]
+        panel.allowsMultipleSelection = false
+        panel.canChooseDirectories = false
+
+        DispatchQueue.main.async {
+            panel.begin { response in
+                guard response == .OK, let url = panel.url else { return }
+                guard let text = try? String(contentsOf: url, encoding: .utf8) else {
+                    actionError = "Couldn't read \(url.lastPathComponent) as text."
+                    return
+                }
+                let entries = LDIFParser.parse(text)
+                guard !entries.isEmpty else {
+                    actionError = "No entries found in \(url.lastPathComponent)."
+                    return
+                }
+                perform(reloadSelecting: selection) {
+                    try await actions.importLDIF(entries)
+                }
+            }
         }
     }
 
