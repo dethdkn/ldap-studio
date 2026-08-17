@@ -34,9 +34,17 @@ struct DirectoryTreeView: View {
 
     @State private var isPerformingAction = false
     @State private var actionError: String?
+    @State private var searchText = ""
 
     private var actions: EntryActions {
         EntryActions(connection: connection)
+    }
+
+    /// Filtering by dn (not just the entry's own name) means a query like
+    /// "People" also surfaces everything underneath that ou — matches the
+    /// literal ask, and reads naturally either way.
+    private var filteredRoot: DirectoryEntry? {
+        root.filtered(matching: searchText)
     }
 
     var body: some View {
@@ -46,9 +54,11 @@ struct DirectoryTreeView: View {
             Divider()
 
             List(selection: $selection) {
-                OutlineGroup(root, children: \.children) { entry in
-                    Label(entry.name, systemImage: entry.icon)
-                        .tag(entry.id)
+                if let filteredRoot {
+                    OutlineGroup(filteredRoot, children: \.children) { entry in
+                        Label(entry.name, systemImage: entry.icon)
+                            .tag(entry.id)
+                    }
                 }
             }
             .contextMenu(forSelectionType: DirectoryEntry.ID.self) { ids in
@@ -132,6 +142,10 @@ struct DirectoryTreeView: View {
             .help("Import LDIF")
 
             Spacer()
+
+            TextField("Search", text: $searchText)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 140)
         }
         .buttonStyle(.borderless)
         .padding(.horizontal, 8)

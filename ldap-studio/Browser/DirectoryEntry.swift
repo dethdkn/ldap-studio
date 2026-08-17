@@ -68,6 +68,24 @@ extension DirectoryEntry {
         copy.children = children?.compactMap { $0.pruned(removing: excludedID) }
         return copy
     }
+
+    /// Returns a copy of the tree containing only entries whose dn matches
+    /// `query`, plus whatever ancestors are needed to reach them — an
+    /// ancestor that doesn't itself match keeps only its matching
+    /// descendants (non-matching siblings are pruned), but an entry that
+    /// does match keeps its whole subtree as-is, so browsing continues
+    /// normally past a hit. `nil` (or an empty query) means "no filtering."
+    func filtered(matching query: String) -> DirectoryEntry? {
+        guard !query.isEmpty else { return self }
+        if dn.localizedCaseInsensitiveContains(query) {
+            return self
+        }
+        let matchingChildren = children?.compactMap { $0.filtered(matching: query) } ?? []
+        guard !matchingChildren.isEmpty else { return nil }
+        var copy = self
+        copy.children = matchingChildren
+        return copy
+    }
 }
 
 extension DirectoryEntry {
