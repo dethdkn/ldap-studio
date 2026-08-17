@@ -801,6 +801,91 @@ public func FfiConverterTypeConnectionError_lower(_ value: ConnectionError) -> R
     return FfiConverterTypeConnectionError.lower(value)
 }
 
+
+public 
+enum PhotoError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+    
+    
+    case DecodeFailed(reason: String
+    )
+    case EncodeFailed(reason: String
+    )
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
+}
+
+#if compiler(>=6)
+extension PhotoError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePhotoError: FfiConverterRustBuffer {
+    typealias SwiftType = PhotoError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PhotoError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .DecodeFailed(
+            reason: try FfiConverterString.read(from: &buf)
+            )
+        case 2: return .EncodeFailed(
+            reason: try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: PhotoError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .DecodeFailed(reason):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(reason, into: &buf)
+            
+        
+        case let .EncodeFailed(reason):
+            writeInt(&buf, Int32(2))
+            FfiConverterString.write(reason, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePhotoError_lift(_ buf: RustBuffer) throws -> PhotoError {
+    return try FfiConverterTypePhotoError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePhotoError_lower(_ value: PhotoError) -> RustBuffer {
+    return FfiConverterTypePhotoError.lower(value)
+}
+
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
@@ -960,11 +1045,11 @@ public func addEntry(host: String, port: UInt16, useSsl: Bool, bindDn: String, p
             errorHandler: FfiConverterTypeConnectionError_lift
         )
 }
-public func deleteAttributeValue(host: String, port: UInt16, useSsl: Bool, bindDn: String, password: String, dn: String, attribute: String, value: String)async throws   {
+public func deleteAttributeValue(host: String, port: UInt16, useSsl: Bool, bindDn: String, password: String, dn: String, attribute: String, value: String, isBinary: Bool)async throws   {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_ldap_studio_core_fn_func_delete_attribute_value(FfiConverterString.lower(host),FfiConverterUInt16.lower(port),FfiConverterBool.lower(useSsl),FfiConverterString.lower(bindDn),FfiConverterString.lower(password),FfiConverterString.lower(dn),FfiConverterString.lower(attribute),FfiConverterString.lower(value)
+                uniffi_ldap_studio_core_fn_func_delete_attribute_value(FfiConverterString.lower(host),FfiConverterUInt16.lower(port),FfiConverterBool.lower(useSsl),FfiConverterString.lower(bindDn),FfiConverterString.lower(password),FfiConverterString.lower(dn),FfiConverterString.lower(attribute),FfiConverterString.lower(value),FfiConverterBool.lower(isBinary)
                 )
             },
             pollFunc: ffi_ldap_studio_core_rust_future_poll_void,
@@ -998,11 +1083,11 @@ public func deleteEntry(host: String, port: UInt16, useSsl: Bool, bindDn: String
  * other values of that attribute untouched — a plain `Replace` would wipe
  * them out, so this does a targeted delete-then-add of just this value.
  */
-public func modifyAttributeValue(host: String, port: UInt16, useSsl: Bool, bindDn: String, password: String, dn: String, attribute: String, oldValue: String, newValue: String)async throws   {
+public func modifyAttributeValue(host: String, port: UInt16, useSsl: Bool, bindDn: String, password: String, dn: String, attribute: String, oldValue: String, newValue: String, isBinary: Bool)async throws   {
     return
         try  await uniffiRustCallAsync(
             rustFutureFunc: {
-                uniffi_ldap_studio_core_fn_func_modify_attribute_value(FfiConverterString.lower(host),FfiConverterUInt16.lower(port),FfiConverterBool.lower(useSsl),FfiConverterString.lower(bindDn),FfiConverterString.lower(password),FfiConverterString.lower(dn),FfiConverterString.lower(attribute),FfiConverterString.lower(oldValue),FfiConverterString.lower(newValue)
+                uniffi_ldap_studio_core_fn_func_modify_attribute_value(FfiConverterString.lower(host),FfiConverterUInt16.lower(port),FfiConverterBool.lower(useSsl),FfiConverterString.lower(bindDn),FfiConverterString.lower(password),FfiConverterString.lower(dn),FfiConverterString.lower(attribute),FfiConverterString.lower(oldValue),FfiConverterString.lower(newValue),FfiConverterBool.lower(isBinary)
                 )
             },
             pollFunc: ffi_ldap_studio_core_rust_future_poll_void,
@@ -1047,6 +1132,20 @@ public func hashPasswordPbkdf2Sha512(plaintext: String) -> String  {
     )
 })
 }
+/**
+ * Reads the image at `path`, center-crops it to a square — so resizing to
+ * exactly 300x300 never distorts it, the longer dimension's excess is cut
+ * instead of being squeezed — and returns the JPEG-encoded result as
+ * base64, ready to store directly as a binary attribute value.
+ */
+public func resizePhotoToBase64(path: String)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypePhotoError_lift) {
+        uniffiCallStatus in
+    uniffi_ldap_studio_core_fn_func_resize_photo_to_base64(
+        FfiConverterString.lower(path),uniffiCallStatus
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -1075,19 +1174,22 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ldap_studio_core_checksum_func_add_entry() != 21837) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ldap_studio_core_checksum_func_delete_attribute_value() != 52601) {
+    if (uniffi_ldap_studio_core_checksum_func_delete_attribute_value() != 35737) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ldap_studio_core_checksum_func_delete_entry() != 49279) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ldap_studio_core_checksum_func_modify_attribute_value() != 22836) {
+    if (uniffi_ldap_studio_core_checksum_func_modify_attribute_value() != 36657) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ldap_studio_core_checksum_func_move_entry() != 19820) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ldap_studio_core_checksum_func_hash_password_pbkdf2_sha512() != 31901) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ldap_studio_core_checksum_func_resize_photo_to_base64() != 42103) {
         return InitializationResult.apiChecksumMismatch
     }
 

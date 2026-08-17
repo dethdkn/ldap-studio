@@ -55,6 +55,20 @@ pub async fn add_attribute_value(
     outcome.map(|_| ())
 }
 
+/// Base64-decodes `value` when `is_binary` is set, otherwise takes its raw
+/// UTF-8 bytes — attribute values displayed/edited in Swift are already
+/// base64 for binary attributes (that's how they cross the FFI boundary as
+/// a plain String), but what's actually stored on the server is the raw
+/// bytes, so any comparison or write needs the decoded form, not the
+/// base64 text itself.
+fn value_bytes(value: &str, is_binary: bool) -> Vec<u8> {
+    if is_binary {
+        BASE64.decode(value).unwrap_or_default()
+    } else {
+        value.as_bytes().to_vec()
+    }
+}
+
 /// Replaces one value of a (possibly multi-valued) attribute, leaving any
 /// other values of that attribute untouched — a plain `Replace` would wipe
 /// them out, so this does a targeted delete-then-add of just this value.
@@ -69,14 +83,16 @@ pub async fn modify_attribute_value(
     attribute: String,
     old_value: String,
     new_value: String,
+    is_binary: bool,
 ) -> Result<(), ConnectionError> {
     let mut ldap = connect_and_bind(&host, port, use_ssl, &bind_dn, &password).await?;
+    let attr_bytes = attribute.into_bytes();
     let outcome = ldap
         .modify(
             &dn,
             vec![
-                Mod::Delete(attribute.clone(), HashSet::from([old_value])),
-                Mod::Add(attribute, HashSet::from([new_value])),
+                Mod::Delete(attr_bytes.clone(), HashSet::from([value_bytes(&old_value, is_binary)])),
+                Mod::Add(attr_bytes, HashSet::from([value_bytes(&new_value, is_binary)])),
             ],
         )
         .await
@@ -97,10 +113,14 @@ pub async fn delete_attribute_value(
     dn: String,
     attribute: String,
     value: String,
+    is_binary: bool,
 ) -> Result<(), ConnectionError> {
     let mut ldap = connect_and_bind(&host, port, use_ssl, &bind_dn, &password).await?;
     let outcome = ldap
-        .modify(&dn, vec![Mod::Delete(attribute, HashSet::from([value]))])
+        .modify(
+            &dn,
+            vec![Mod::Delete(attribute.into_bytes(), HashSet::from([value_bytes(&value, is_binary)]))],
+        )
         .await
         .map_err(modify_err)?
         .success()

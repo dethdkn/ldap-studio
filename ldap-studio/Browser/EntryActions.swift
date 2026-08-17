@@ -123,7 +123,27 @@ struct EntryActions {
             dn: dn,
             attribute: attribute,
             oldValue: oldValue,
-            newValue: hashPasswordPbkdf2Sha512(plaintext: plaintext)
+            newValue: hashPasswordPbkdf2Sha512(plaintext: plaintext),
+            isBinary: false
+        )
+    }
+
+    /// Resizes the image at `fileURL` to a 300x300 JPEG (center-cropped, so
+    /// it's never distorted) and sets it as `attribute`, replacing only
+    /// `oldValue` the same way `setPassword` does.
+    func setPhoto(fileURL: URL, replacing oldValue: String, forDN dn: String, attribute: String) async throws {
+        let base64 = try resizePhotoToBase64(path: fileURL.path)
+        try await modifyAttributeValue(
+            host: connection.host,
+            port: UInt16(clamping: connection.port),
+            useSsl: connection.useSSL,
+            bindDn: connection.bindDN,
+            password: password,
+            dn: dn,
+            attribute: attribute,
+            oldValue: oldValue,
+            newValue: base64,
+            isBinary: true
         )
     }
 

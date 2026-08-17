@@ -4,3 +4,4 @@ mod connection;
 mod directory;
 mod modify;
 mod password;
+mod photo;

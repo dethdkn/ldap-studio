@@ -5,6 +5,7 @@
 
 import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct EntryDetailView: View {
     @Binding var entry: DirectoryEntry
@@ -306,6 +307,14 @@ struct EntryDetailView: View {
         }
         .disabled(attribute.isBinary)
 
+        if attribute.name.caseInsensitiveCompare("jpegPhoto") == .orderedSame {
+            Button {
+                setPhoto(for: attribute)
+            } label: {
+                Label("Set Photo", systemImage: "photo")
+            }
+        }
+
         if attribute.name.caseInsensitiveCompare("userPassword") == .orderedSame {
             Button {
                 newPassword = ""
@@ -412,7 +421,8 @@ struct EntryDetailView: View {
                 dn: dn,
                 attribute: name,
                 oldValue: oldValue,
-                newValue: newValue
+                newValue: newValue,
+                isBinary: false
             )
         }
     }
@@ -429,6 +439,29 @@ struct EntryDetailView: View {
         }
     }
 
+    private func setPhoto(for attribute: Attribute) {
+        let dn = entry.dn
+        let name = attribute.name
+        let oldValue = attribute.value
+
+        // Deferred to the next run loop tick so the context menu has fully
+        // dismissed before a new panel is presented — same crash this app
+        // already hit once with NSSavePanel from a context menu action.
+        DispatchQueue.main.async {
+            let panel = NSOpenPanel()
+            panel.allowedContentTypes = [.image]
+            panel.allowsMultipleSelection = false
+            panel.canChooseDirectories = false
+
+            panel.begin { response in
+                guard response == .OK, let url = panel.url else { return }
+                perform(reloadSelecting: dn) {
+                    try await actions.setPhoto(fileURL: url, replacing: oldValue, forDN: dn, attribute: name)
+                }
+            }
+        }
+    }
+
     private func deleteAttribute(_ attribute: Attribute) {
         let dn = entry.dn
         perform(reloadSelecting: dn) {
@@ -440,7 +473,8 @@ struct EntryDetailView: View {
                 password: password,
                 dn: dn,
                 attribute: attribute.name,
-                value: attribute.value
+                value: attribute.value,
+                isBinary: attribute.isBinary
             )
         }
     }
