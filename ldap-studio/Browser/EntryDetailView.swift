@@ -32,6 +32,8 @@ struct EntryDetailView: View {
     @State private var isShowingMovePicker = false
     @State private var isShowingCopyPicker = false
 
+    @State private var attributeBeingViewed: Attribute?
+
     @State private var isPerformingAction = false
     @State private var actionError: String?
 
@@ -87,23 +89,26 @@ struct EntryDetailView: View {
             Table(filteredAttributes, selection: $selection, sortOrder: $sortOrder) {
                 TableColumn("Attribute", value: \.name)
                 TableColumn("Value", sortUsing: KeyPathComparator(\.value)) { attribute in
-                    if let image = attribute.decodedImage {
-                        Image(nsImage: image)
-                            .resizable()
-                            .scaledToFit()
-                            .frame(height: 60)
-                            .clipShape(RoundedRectangle(cornerRadius: 6))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 6)
-                                    .stroke(.separator, lineWidth: 1)
-                            )
-                            .padding(.vertical, 4)
-                    } else if attribute.isBinary {
-                        Text("<binary data>")
-                            .foregroundStyle(.secondary)
-                    } else {
-                        Text(attribute.value)
+                    Group {
+                        if let image = attribute.decodedImage {
+                            Image(nsImage: image)
+                                .resizable()
+                                .scaledToFit()
+                                .frame(height: 60)
+                                .clipShape(RoundedRectangle(cornerRadius: 6))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .stroke(.separator, lineWidth: 1)
+                                )
+                                .padding(.vertical, 4)
+                        } else if attribute.isBinary {
+                            Text("<binary data>")
+                                .foregroundStyle(.secondary)
+                        } else {
+                            Text(attribute.value)
+                        }
                     }
+                    .overlay(DoubleClickObserver { attributeBeingViewed = attribute })
                 }
             }
             .contextMenu(forSelectionType: Attribute.ID.self) { ids in
@@ -113,6 +118,9 @@ struct EntryDetailView: View {
             }
         }
         .disabled(isPerformingAction)
+        .sheet(item: $attributeBeingViewed) { attribute in
+            AttributeValueDetailSheet(attribute: attribute)
+        }
         .sheet(isPresented: $isShowingMovePicker) {
             if let pruned = root.pruned(removing: entry.id) {
                 DestinationPickerSheet(root: pruned, title: "Move \(entry.name) To", confirmLabel: "Move") { destinationDN in
@@ -260,6 +268,12 @@ struct EntryDetailView: View {
 
     @ViewBuilder
     private func contextMenuContent(for attribute: Attribute) -> some View {
+        Button {
+            attributeBeingViewed = attribute
+        } label: {
+            Label("View Value", systemImage: "eye")
+        }
+
         Button {
             beginEdit(attribute)
         } label: {
