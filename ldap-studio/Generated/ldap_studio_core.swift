@@ -1031,6 +1031,22 @@ public func moveEntry(host: String, port: UInt16, useSsl: Bool, bindDn: String, 
             errorHandler: FfiConverterTypeConnectionError_lift
         )
 }
+/**
+ * Hashes `plaintext` as {PBKDF2-SHA512} — a client-side guarantee that
+ * "Set Password" always stores a hash, regardless of whether the server
+ * itself would have auto-hashed a plain userPassword write. Format:
+ * `{PBKDF2-SHA512}<rounds>$<salt-b64>$<hash-b64>`, standard base64 with
+ * padding — matches what 389-ds itself produces when it auto-hashes,
+ * confirmed by decoding a real server-generated value during testing.
+ */
+public func hashPasswordPbkdf2Sha512(plaintext: String) -> String  {
+    return try!  FfiConverterString.lift(try! rustCall() {
+        uniffiCallStatus in
+    uniffi_ldap_studio_core_fn_func_hash_password_pbkdf2_sha512(
+        FfiConverterString.lower(plaintext),uniffiCallStatus
+    )
+})
+}
 
 private enum InitializationResult {
     case ok
@@ -1069,6 +1085,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ldap_studio_core_checksum_func_move_entry() != 19820) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ldap_studio_core_checksum_func_hash_password_pbkdf2_sha512() != 31901) {
         return InitializationResult.apiChecksumMismatch
     }
 

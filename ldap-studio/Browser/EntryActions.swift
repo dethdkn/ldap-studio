@@ -105,6 +105,28 @@ struct EntryActions {
         return (name, value)
     }
 
+    /// Hashes `plaintext` client-side as {PBKDF2-SHA512} before sending it —
+    /// unlike a generic attribute edit, this is a hard guarantee that the
+    /// stored value is always a hash, independent of whether the server
+    /// itself would have auto-hashed a plain write. Replaces only
+    /// `oldValue`, since userPassword can be multi-valued (e.g. during a
+    /// hash migration, or multiple auth mechanisms) — the same targeted
+    /// delete-old/add-new normal attribute edits use, not a wipe-everything
+    /// Replace.
+    func setPassword(_ plaintext: String, replacing oldValue: String, forDN dn: String, attribute: String = "userPassword") async throws {
+        try await modifyAttributeValue(
+            host: connection.host,
+            port: UInt16(clamping: connection.port),
+            useSsl: connection.useSSL,
+            bindDn: connection.bindDN,
+            password: password,
+            dn: dn,
+            attribute: attribute,
+            oldValue: oldValue,
+            newValue: hashPasswordPbkdf2Sha512(plaintext: plaintext)
+        )
+    }
+
     /// Adds every parsed entry to the server at the dn it specifies —
     /// ordered shallowest-first in case a child appears before its parent in
     /// the file, since a parent must exist before anything can be added

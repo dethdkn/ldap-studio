@@ -34,6 +34,10 @@ struct EntryDetailView: View {
 
     @State private var attributeBeingViewed: Attribute?
 
+    @State private var attributeBeingPasswordSet: Attribute?
+    @State private var newPassword = ""
+    @State private var confirmPassword = ""
+
     @State private var isPerformingAction = false
     @State private var actionError: String?
 
@@ -165,6 +169,27 @@ struct EntryDetailView: View {
             Text("Attribute: \(attribute.name)")
         }
         .alert(
+            "Set Password",
+            isPresented: Binding(
+                get: { attributeBeingPasswordSet != nil },
+                set: { if !$0 { attributeBeingPasswordSet = nil } }
+            ),
+            presenting: attributeBeingPasswordSet
+        ) { attribute in
+            SecureField("New Password", text: $newPassword)
+            SecureField("Confirm Password", text: $confirmPassword)
+            Button("Set") {
+                savePassword(for: attribute)
+                attributeBeingPasswordSet = nil
+            }
+            .disabled(newPassword.isEmpty || newPassword != confirmPassword)
+            Button("Cancel", role: .cancel) {
+                attributeBeingPasswordSet = nil
+            }
+        } message: { _ in
+            Text("Hashed ({PBKDF2-SHA512}) before being sent — the plaintext is never stored.")
+        }
+        .alert(
             "Delete Value?",
             isPresented: Binding(
                 get: { attributePendingDeletion != nil },
@@ -281,6 +306,16 @@ struct EntryDetailView: View {
         }
         .disabled(attribute.isBinary)
 
+        if attribute.name.caseInsensitiveCompare("userPassword") == .orderedSame {
+            Button {
+                newPassword = ""
+                confirmPassword = ""
+                attributeBeingPasswordSet = attribute
+            } label: {
+                Label("Set Password", systemImage: "key")
+            }
+        }
+
         Button(role: .destructive) {
             attributePendingDeletion = attribute
         } label: {
@@ -379,6 +414,18 @@ struct EntryDetailView: View {
                 oldValue: oldValue,
                 newValue: newValue
             )
+        }
+    }
+
+    private func savePassword(for attribute: Attribute) {
+        let dn = entry.dn
+        let name = attribute.name
+        let oldValue = attribute.value
+        let plaintext = newPassword
+        newPassword = ""
+        confirmPassword = ""
+        perform(reloadSelecting: dn) {
+            try await actions.setPassword(plaintext, replacing: oldValue, forDN: dn, attribute: name)
         }
     }
 
