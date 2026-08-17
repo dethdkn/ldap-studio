@@ -62,7 +62,7 @@ struct BrowserView: View {
             }
         }
         .frame(minWidth: 700, minHeight: 420)
-        .navigationTitle(connection.name)
+        .navigationTitle("Ldap Studio - \(connection.name)")
         .task {
             await loadDirectory()
         }
