@@ -35,6 +35,7 @@ struct DirectoryTreeView: View {
     @State private var isPerformingAction = false
     @State private var actionError: String?
     @State private var searchText = ""
+    @State private var isShowingAdvancedSearch = false
 
     private var actions: EntryActions {
         EntryActions(connection: connection)
@@ -123,6 +124,11 @@ struct DirectoryTreeView: View {
                 createEntry(dn: dn, attributes: attributes)
             }
         }
+        .sheet(isPresented: $isShowingAdvancedSearch) {
+            AdvancedSearchSheet(connection: connection, defaultBaseDN: root.dn) { dn in
+                selection = dn
+            }
+        }
     }
 
     private var toolbar: some View {
@@ -146,6 +152,13 @@ struct DirectoryTreeView: View {
             TextField("Search", text: $searchText)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 140)
+
+            Button {
+                isShowingAdvancedSearch = true
+            } label: {
+                Image(systemName: "slider.horizontal.3")
+            }
+            .help("Advanced Search")
         }
         .buttonStyle(.borderless)
         .padding(.horizontal, 8)

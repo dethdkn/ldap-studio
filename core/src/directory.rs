@@ -21,6 +21,23 @@ pub struct LdapEntry {
     pub children: Vec<LdapEntry>,
 }
 
+#[derive(uniffi::Enum, Clone, Copy)]
+pub enum LdapSearchScope {
+    Base,
+    OneLevel,
+    Subtree,
+}
+
+impl From<LdapSearchScope> for Scope {
+    fn from(scope: LdapSearchScope) -> Self {
+        match scope {
+            LdapSearchScope::Base => Scope::Base,
+            LdapSearchScope::OneLevel => Scope::OneLevel,
+            LdapSearchScope::Subtree => Scope::Subtree,
+        }
+    }
+}
+
 fn display_name(dn: &str) -> String {
     dn.split(',').next().unwrap_or(dn).to_string()
 }
@@ -130,4 +147,51 @@ pub async fn fetch_root_entry(
     build_entry(&base_dn, &by_dn, &children_of).ok_or_else(|| ConnectionError::SearchFailed {
         reason: format!("Base DN \"{base_dn}\" was not found"),
     })
+}
+
+/// Runs an arbitrary LDAP search — `filter` is a real RFC 4515 filter
+/// string, evaluated by the server itself (not reimplemented client-side),
+/// so it supports everything a real LDAP search does: AND/OR/NOT,
+/// substring and presence matches, any attribute, etc. Results come back
+/// flat (no tree assembly — `children` is always empty), since an arbitrary
+/// filter's matches don't necessarily form one clean subtree.
+#[uniffi::export(async_runtime = "tokio")]
+pub async fn search_directory(
+    host: String,
+    port: u16,
+    use_ssl: bool,
+    bind_dn: String,
+    password: String,
+    base_dn: String,
+    scope: LdapSearchScope,
+    filter: String,
+) -> Result<Vec<LdapEntry>, ConnectionError> {
+    let mut ldap = connect_and_bind(&host, port, use_ssl, &bind_dn, &password).await?;
+
+    let (results, _) = ldap
+        .search(&base_dn, scope.into(), &filter, vec!["*"])
+        .await
+        .map_err(|e| ConnectionError::SearchFailed {
+            reason: e.to_string(),
+        })?
+        .success()
+        .map_err(|e| ConnectionError::SearchFailed {
+            reason: e.to_string(),
+        })?;
+
+    let _ = ldap.unbind().await;
+
+    Ok(results
+        .into_iter()
+        .map(|result| {
+            let entry = SearchEntry::construct(result);
+            LdapEntry {
+                name: display_name(&entry.dn),
+                attributes: attributes_from(&entry),
+                dn: entry.dn,
+                has_children: false,
+                children: Vec::new(),
+            }
+        })
+        .collect())
 }

@@ -802,6 +802,79 @@ public func FfiConverterTypeConnectionError_lower(_ value: ConnectionError) -> R
 }
 
 
+
+public enum LdapSearchScope: Equatable, Hashable {
+    
+    case base
+    case oneLevel
+    case subtree
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension LdapSearchScope: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLdapSearchScope: FfiConverterRustBuffer {
+    typealias SwiftType = LdapSearchScope
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LdapSearchScope {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .base
+        
+        case 2: return .oneLevel
+        
+        case 3: return .subtree
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: LdapSearchScope, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .base:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .oneLevel:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .subtree:
+            writeInt(&buf, Int32(3))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLdapSearchScope_lift(_ buf: RustBuffer) throws -> LdapSearchScope {
+    return try FfiConverterTypeLdapSearchScope.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLdapSearchScope_lower(_ value: LdapSearchScope) -> RustBuffer {
+    return FfiConverterTypeLdapSearchScope.lower(value)
+}
+
+
+
 public 
 enum PhotoError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
@@ -1011,6 +1084,28 @@ public func fetchRootEntry(host: String, port: UInt16, useSsl: Bool, bindDn: Str
             errorHandler: FfiConverterTypeConnectionError_lift
         )
 }
+/**
+ * Runs an arbitrary LDAP search — `filter` is a real RFC 4515 filter
+ * string, evaluated by the server itself (not reimplemented client-side),
+ * so it supports everything a real LDAP search does: AND/OR/NOT,
+ * substring and presence matches, any attribute, etc. Results come back
+ * flat (no tree assembly — `children` is always empty), since an arbitrary
+ * filter's matches don't necessarily form one clean subtree.
+ */
+public func searchDirectory(host: String, port: UInt16, useSsl: Bool, bindDn: String, password: String, baseDn: String, scope: LdapSearchScope, filter: String)async throws  -> [LdapEntry]  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ldap_studio_core_fn_func_search_directory(FfiConverterString.lower(host),FfiConverterUInt16.lower(port),FfiConverterBool.lower(useSsl),FfiConverterString.lower(bindDn),FfiConverterString.lower(password),FfiConverterString.lower(baseDn),FfiConverterTypeLdapSearchScope_lower(scope),FfiConverterString.lower(filter)
+                )
+            },
+            pollFunc: ffi_ldap_studio_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ldap_studio_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ldap_studio_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterSequenceTypeLdapEntry.lift,
+            errorHandler: FfiConverterTypeConnectionError_lift
+        )
+}
 public func addAttributeValue(host: String, port: UInt16, useSsl: Bool, bindDn: String, password: String, dn: String, attribute: String, value: String)async throws   {
     return
         try  await uniffiRustCallAsync(
@@ -1166,6 +1261,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ldap_studio_core_checksum_func_fetch_root_entry() != 4939) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ldap_studio_core_checksum_func_search_directory() != 3126) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ldap_studio_core_checksum_func_add_attribute_value() != 59308) {
