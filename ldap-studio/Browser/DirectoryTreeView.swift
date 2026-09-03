@@ -11,6 +11,7 @@ struct DirectoryTreeView: View {
     let root: DirectoryEntry
     @Binding var selection: DirectoryEntry.ID?
     let connection: SavedConnection
+    @Environment(\.openWindow) private var openWindow
     /// Same contract as `EntryDetailView`'s `reload`: refetches the whole
     /// directory from the server and reselects the given dn if it still
     /// exists afterward.
@@ -158,6 +159,13 @@ struct DirectoryTreeView: View {
                 Image(systemName: "square.and.arrow.down")
             }
             .help("Import LDIF")
+
+            Button {
+                openWindow(id: "schema", value: connection)
+            } label: {
+                Image(systemName: "list.bullet.rectangle")
+            }
+            .help("Schema")
 
             Spacer()
 

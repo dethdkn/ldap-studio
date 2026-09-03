@@ -5,3 +5,4 @@ mod directory;
 mod modify;
 mod password;
 mod photo;
+mod schema;

@@ -19,5 +19,11 @@ struct ldap_studioApp: App {
                 BrowserView(connection: connection)
             }
         }
+
+        WindowGroup(id: "schema", for: SavedConnection.self) { $connection in
+            if let connection {
+                SchemaView(connection: connection)
+            }
+        }
     }
 }

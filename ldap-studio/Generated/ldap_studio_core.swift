@@ -681,6 +681,284 @@ public func FfiConverterTypeLdapEntry_lower(_ value: LdapEntry) -> RustBuffer {
 }
 
 
+public struct LdapSchema: Equatable, Hashable {
+    public var objectClasses: [SchemaObjectClass]
+    public var attributeTypes: [SchemaAttributeType]
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(objectClasses: [SchemaObjectClass], attributeTypes: [SchemaAttributeType]) {
+        self.objectClasses = objectClasses
+        self.attributeTypes = attributeTypes
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension LdapSchema: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeLdapSchema: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> LdapSchema {
+        return
+            try LdapSchema(
+                objectClasses: FfiConverterSequenceTypeSchemaObjectClass.read(from: &buf), 
+                attributeTypes: FfiConverterSequenceTypeSchemaAttributeType.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: LdapSchema, into buf: inout [UInt8]) {
+        FfiConverterSequenceTypeSchemaObjectClass.write(value.objectClasses, into: &buf)
+        FfiConverterSequenceTypeSchemaAttributeType.write(value.attributeTypes, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLdapSchema_lift(_ buf: RustBuffer) throws -> LdapSchema {
+    return try FfiConverterTypeLdapSchema.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeLdapSchema_lower(_ value: LdapSchema) -> RustBuffer {
+    return FfiConverterTypeLdapSchema.lower(value)
+}
+
+
+public struct SchemaAttributeType: Equatable, Hashable {
+    public var oid: String
+    public var names: [String]
+    public var description: String?
+    public var obsolete: Bool
+    public var superiorType: String?
+    public var equalityMatchingRule: String?
+    public var orderingMatchingRule: String?
+    public var substringMatchingRule: String?
+    /**
+     * The SYNTAX token as the server sent it — usually a numeric OID,
+     * sometimes with a `{length}` suffix.
+     */
+    public var syntaxOid: String?
+    public var singleValued: Bool
+    public var collective: Bool
+    public var noUserModification: Bool
+    public var usage: String?
+    public var xOrigin: String?
+    public var raw: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(oid: String, names: [String], description: String?, obsolete: Bool, superiorType: String?, equalityMatchingRule: String?, orderingMatchingRule: String?, substringMatchingRule: String?, 
+        /**
+         * The SYNTAX token as the server sent it — usually a numeric OID,
+         * sometimes with a `{length}` suffix.
+         */syntaxOid: String?, singleValued: Bool, collective: Bool, noUserModification: Bool, usage: String?, xOrigin: String?, raw: String) {
+        self.oid = oid
+        self.names = names
+        self.description = description
+        self.obsolete = obsolete
+        self.superiorType = superiorType
+        self.equalityMatchingRule = equalityMatchingRule
+        self.orderingMatchingRule = orderingMatchingRule
+        self.substringMatchingRule = substringMatchingRule
+        self.syntaxOid = syntaxOid
+        self.singleValued = singleValued
+        self.collective = collective
+        self.noUserModification = noUserModification
+        self.usage = usage
+        self.xOrigin = xOrigin
+        self.raw = raw
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension SchemaAttributeType: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSchemaAttributeType: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SchemaAttributeType {
+        return
+            try SchemaAttributeType(
+                oid: FfiConverterString.read(from: &buf), 
+                names: FfiConverterSequenceString.read(from: &buf), 
+                description: FfiConverterOptionString.read(from: &buf), 
+                obsolete: FfiConverterBool.read(from: &buf), 
+                superiorType: FfiConverterOptionString.read(from: &buf), 
+                equalityMatchingRule: FfiConverterOptionString.read(from: &buf), 
+                orderingMatchingRule: FfiConverterOptionString.read(from: &buf), 
+                substringMatchingRule: FfiConverterOptionString.read(from: &buf), 
+                syntaxOid: FfiConverterOptionString.read(from: &buf), 
+                singleValued: FfiConverterBool.read(from: &buf), 
+                collective: FfiConverterBool.read(from: &buf), 
+                noUserModification: FfiConverterBool.read(from: &buf), 
+                usage: FfiConverterOptionString.read(from: &buf), 
+                xOrigin: FfiConverterOptionString.read(from: &buf), 
+                raw: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SchemaAttributeType, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.oid, into: &buf)
+        FfiConverterSequenceString.write(value.names, into: &buf)
+        FfiConverterOptionString.write(value.description, into: &buf)
+        FfiConverterBool.write(value.obsolete, into: &buf)
+        FfiConverterOptionString.write(value.superiorType, into: &buf)
+        FfiConverterOptionString.write(value.equalityMatchingRule, into: &buf)
+        FfiConverterOptionString.write(value.orderingMatchingRule, into: &buf)
+        FfiConverterOptionString.write(value.substringMatchingRule, into: &buf)
+        FfiConverterOptionString.write(value.syntaxOid, into: &buf)
+        FfiConverterBool.write(value.singleValued, into: &buf)
+        FfiConverterBool.write(value.collective, into: &buf)
+        FfiConverterBool.write(value.noUserModification, into: &buf)
+        FfiConverterOptionString.write(value.usage, into: &buf)
+        FfiConverterOptionString.write(value.xOrigin, into: &buf)
+        FfiConverterString.write(value.raw, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSchemaAttributeType_lift(_ buf: RustBuffer) throws -> SchemaAttributeType {
+    return try FfiConverterTypeSchemaAttributeType.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSchemaAttributeType_lower(_ value: SchemaAttributeType) -> RustBuffer {
+    return FfiConverterTypeSchemaAttributeType.lower(value)
+}
+
+
+public struct SchemaObjectClass: Equatable, Hashable {
+    public var oid: String
+    /**
+     * All NAME values — the first is the conventional display name, any
+     * further ones are aliases.
+     */
+    public var names: [String]
+    public var description: String?
+    public var obsolete: Bool
+    public var superiorClasses: [String]
+    /**
+     * STRUCTURAL / ABSTRACT / AUXILIARY — defaults to STRUCTURAL per RFC
+     * 4512 when the server omits it.
+     */
+    public var kind: String
+    public var must: [String]
+    public var may: [String]
+    public var xOrigin: String?
+    /**
+     * The untouched schema definition string, for anyone who wants to see
+     * exactly what the server sent regardless of how we parsed it.
+     */
+    public var raw: String
+
+    // Default memberwise initializers are never public by default, so we
+    // declare one manually.
+    public init(oid: String, 
+        /**
+         * All NAME values — the first is the conventional display name, any
+         * further ones are aliases.
+         */names: [String], description: String?, obsolete: Bool, superiorClasses: [String], 
+        /**
+         * STRUCTURAL / ABSTRACT / AUXILIARY — defaults to STRUCTURAL per RFC
+         * 4512 when the server omits it.
+         */kind: String, must: [String], may: [String], xOrigin: String?, 
+        /**
+         * The untouched schema definition string, for anyone who wants to see
+         * exactly what the server sent regardless of how we parsed it.
+         */raw: String) {
+        self.oid = oid
+        self.names = names
+        self.description = description
+        self.obsolete = obsolete
+        self.superiorClasses = superiorClasses
+        self.kind = kind
+        self.must = must
+        self.may = may
+        self.xOrigin = xOrigin
+        self.raw = raw
+    }
+
+    
+
+    
+}
+
+#if compiler(>=6)
+extension SchemaObjectClass: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypeSchemaObjectClass: FfiConverterRustBuffer {
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SchemaObjectClass {
+        return
+            try SchemaObjectClass(
+                oid: FfiConverterString.read(from: &buf), 
+                names: FfiConverterSequenceString.read(from: &buf), 
+                description: FfiConverterOptionString.read(from: &buf), 
+                obsolete: FfiConverterBool.read(from: &buf), 
+                superiorClasses: FfiConverterSequenceString.read(from: &buf), 
+                kind: FfiConverterString.read(from: &buf), 
+                must: FfiConverterSequenceString.read(from: &buf), 
+                may: FfiConverterSequenceString.read(from: &buf), 
+                xOrigin: FfiConverterOptionString.read(from: &buf), 
+                raw: FfiConverterString.read(from: &buf)
+        )
+    }
+
+    public static func write(_ value: SchemaObjectClass, into buf: inout [UInt8]) {
+        FfiConverterString.write(value.oid, into: &buf)
+        FfiConverterSequenceString.write(value.names, into: &buf)
+        FfiConverterOptionString.write(value.description, into: &buf)
+        FfiConverterBool.write(value.obsolete, into: &buf)
+        FfiConverterSequenceString.write(value.superiorClasses, into: &buf)
+        FfiConverterString.write(value.kind, into: &buf)
+        FfiConverterSequenceString.write(value.must, into: &buf)
+        FfiConverterSequenceString.write(value.may, into: &buf)
+        FfiConverterOptionString.write(value.xOrigin, into: &buf)
+        FfiConverterString.write(value.raw, into: &buf)
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSchemaObjectClass_lift(_ buf: RustBuffer) throws -> SchemaObjectClass {
+    return try FfiConverterTypeSchemaObjectClass.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypeSchemaObjectClass_lower(_ value: SchemaObjectClass) -> RustBuffer {
+    return FfiConverterTypeSchemaObjectClass.lower(value)
+}
+
+
 public 
 enum ConnectionError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
@@ -962,6 +1240,55 @@ public func FfiConverterTypePhotoError_lower(_ value: PhotoError) -> RustBuffer 
 #if swift(>=5.8)
 @_documentation(visibility: private)
 #endif
+fileprivate struct FfiConverterOptionString: FfiConverterRustBuffer {
+    typealias SwiftType = String?
+
+    public static func write(_ value: SwiftType, into buf: inout [UInt8]) {
+        guard let value = value else {
+            writeInt(&buf, Int8(0))
+            return
+        }
+        writeInt(&buf, Int8(1))
+        FfiConverterString.write(value, into: &buf)
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> SwiftType {
+        switch try readInt(&buf) as Int8 {
+        case 0: return nil
+        case 1: return try FfiConverterString.read(from: &buf)
+        default: throw UniffiInternalError.unexpectedOptionalTag
+        }
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceString: FfiConverterRustBuffer {
+    typealias SwiftType = [String]
+
+    public static func write(_ value: [String], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterString.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [String] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [String]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterString.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
 fileprivate struct FfiConverterSequenceTypeLdapAttribute: FfiConverterRustBuffer {
     typealias SwiftType = [LdapAttribute]
 
@@ -1004,6 +1331,56 @@ fileprivate struct FfiConverterSequenceTypeLdapEntry: FfiConverterRustBuffer {
         seq.reserveCapacity(Int(len))
         for _ in 0 ..< len {
             seq.append(try FfiConverterTypeLdapEntry.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSchemaAttributeType: FfiConverterRustBuffer {
+    typealias SwiftType = [SchemaAttributeType]
+
+    public static func write(_ value: [SchemaAttributeType], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSchemaAttributeType.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SchemaAttributeType] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SchemaAttributeType]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSchemaAttributeType.read(from: &buf))
+        }
+        return seq
+    }
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+fileprivate struct FfiConverterSequenceTypeSchemaObjectClass: FfiConverterRustBuffer {
+    typealias SwiftType = [SchemaObjectClass]
+
+    public static func write(_ value: [SchemaObjectClass], into buf: inout [UInt8]) {
+        let len = Int32(value.count)
+        writeInt(&buf, len)
+        for item in value {
+            FfiConverterTypeSchemaObjectClass.write(item, into: &buf)
+        }
+    }
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> [SchemaObjectClass] {
+        let len: Int32 = try readInt(&buf)
+        var seq = [SchemaObjectClass]()
+        seq.reserveCapacity(Int(len))
+        for _ in 0 ..< len {
+            seq.append(try FfiConverterTypeSchemaObjectClass.read(from: &buf))
         }
         return seq
     }
@@ -1241,6 +1618,26 @@ public func resizePhotoToBase64(path: String)throws  -> String  {
     )
 })
 }
+/**
+ * Fetches and parses the server's schema — object classes and attribute
+ * types. The schema isn't at a fixed, well-known DN; the Root DSE's
+ * `subschemaSubentry` operational attribute tells us where to look for it,
+ * per RFC 4512.
+ */
+public func fetchSchema(host: String, port: UInt16, useSsl: Bool, bindDn: String, password: String)async throws  -> LdapSchema  {
+    return
+        try  await uniffiRustCallAsync(
+            rustFutureFunc: {
+                uniffi_ldap_studio_core_fn_func_fetch_schema(FfiConverterString.lower(host),FfiConverterUInt16.lower(port),FfiConverterBool.lower(useSsl),FfiConverterString.lower(bindDn),FfiConverterString.lower(password)
+                )
+            },
+            pollFunc: ffi_ldap_studio_core_rust_future_poll_rust_buffer,
+            completeFunc: ffi_ldap_studio_core_rust_future_complete_rust_buffer,
+            freeFunc: ffi_ldap_studio_core_rust_future_free_rust_buffer,
+            liftFunc: FfiConverterTypeLdapSchema_lift,
+            errorHandler: FfiConverterTypeConnectionError_lift
+        )
+}
 
 private enum InitializationResult {
     case ok
@@ -1288,6 +1685,9 @@ private let initializationResult: InitializationResult = {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ldap_studio_core_checksum_func_resize_photo_to_base64() != 42103) {
+        return InitializationResult.apiChecksumMismatch
+    }
+    if (uniffi_ldap_studio_core_checksum_func_fetch_schema() != 45077) {
         return InitializationResult.apiChecksumMismatch
     }
 
