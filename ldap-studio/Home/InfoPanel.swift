@@ -72,7 +72,7 @@ struct InfoPanel: View {
 
     private func importConnections() {
         let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.json]
+        panel.allowedContentTypes = [.json, UTType(filenameExtension: "lcf") ?? .xml]
         panel.allowsMultipleSelection = false
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
@@ -81,28 +81,54 @@ struct InfoPanel: View {
             guard response == .OK, let url = panel.url else { return }
             guard let data = try? Data(contentsOf: url) else { return }
 
-            let decoder = JSONDecoder()
-            let imported: [ExportableConnection]
-            if let array = try? decoder.decode([ExportableConnection].self, from: data) {
-                imported = array
-            } else if let single = try? decoder.decode(ExportableConnection.self, from: data) {
-                imported = [single]
+            if url.pathExtension.lowercased() == "lcf" {
+                importLCF(data)
             } else {
-                return
+                importJSON(data)
             }
+        }
+    }
 
-            for item in imported {
-                let connection = SavedConnection(
-                    name: item.name,
-                    host: item.host,
-                    port: item.port,
-                    useSSL: item.useSSL,
-                    baseDN: item.baseDN,
-                    bindDN: item.bindDN
-                )
-                KeychainService.savePassword(item.password, for: connection.id)
-                store.add(connection)
-            }
+    private func importJSON(_ data: Data) {
+        let decoder = JSONDecoder()
+        let imported: [ExportableConnection]
+        if let array = try? decoder.decode([ExportableConnection].self, from: data) {
+            imported = array
+        } else if let single = try? decoder.decode(ExportableConnection.self, from: data) {
+            imported = [single]
+        } else {
+            return
+        }
+
+        for item in imported {
+            let connection = SavedConnection(
+                name: item.name,
+                host: item.host,
+                port: item.port,
+                useSSL: item.useSSL,
+                baseDN: item.baseDN,
+                bindDN: item.bindDN
+            )
+            KeychainService.savePassword(item.password, for: connection.id)
+            store.add(connection)
+        }
+    }
+
+    /// LDAP Admin (.lcf) files can group accounts into folders — we have no
+    /// such concept, so every account gets flattened into one flat list
+    /// regardless of how it was organized in the source file.
+    private func importLCF(_ data: Data) {
+        for account in LCFParser.parse(data) {
+            let connection = SavedConnection(
+                name: account.name,
+                host: account.host,
+                port: account.port,
+                useSSL: account.useSSL,
+                baseDN: account.baseDN,
+                bindDN: account.bindDN
+            )
+            KeychainService.savePassword(account.password, for: connection.id)
+            store.add(connection)
         }
     }
 }
