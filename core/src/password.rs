@@ -1,5 +1,5 @@
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine};
-use rand::RngCore;
+use rand::RngExt;
 
 const ITERATIONS: u32 = 100_000;
 const SALT_LEN: usize = 16;
@@ -14,7 +14,7 @@ const KEY_LEN: usize = 64; // SHA-512 output length, the usual choice for "-SHA5
 #[uniffi::export]
 pub fn hash_password_pbkdf2_sha512(plaintext: String) -> String {
     let mut salt = [0u8; SALT_LEN];
-    rand::thread_rng().fill_bytes(&mut salt);
+    rand::rng().fill(&mut salt);
 
     let mut key = [0u8; KEY_LEN];
     pbkdf2::pbkdf2_hmac::<sha2::Sha512>(plaintext.as_bytes(), &salt, ITERATIONS, &mut key);

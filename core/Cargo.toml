@@ -13,11 +13,11 @@ path = "uniffi-bindgen.rs"
 
 [dependencies]
 uniffi = { version = "0.32", features = ["cli", "tokio"] }
-ldap3 = { version = "0.11", default-features = false, features = ["tls-native"] }
+ldap3 = { version = "0.12", default-features = false, features = ["tls-native"] }
 tokio = { version = "1", features = ["rt-multi-thread", "time"] }
 thiserror = "2"
-base64 = "0.22"
-pbkdf2 = "0.12"
-sha2 = "0.10"
-rand = "0.8"
+base64 = "0.23"
+pbkdf2 = "0.13"
+sha2 = "0.11"
+rand = "0.10"
 image = "0.25"
