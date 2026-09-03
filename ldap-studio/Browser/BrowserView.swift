@@ -11,6 +11,11 @@ struct BrowserView: View {
     @State private var root: DirectoryEntry?
     @State private var loadError: String?
     @State private var selection: DirectoryEntry.ID?
+    /// Fetched alongside the tree for attribute/object-class autocomplete —
+    /// optional and non-blocking on purpose: if it fails to load (or the
+    /// server doesn't expose a usable schema), autocomplete just has no
+    /// suggestions rather than the whole browser failing to open.
+    @State private var schema: LdapSchema?
 
     private var selectedEntryBinding: Binding<DirectoryEntry>? {
         guard let selection, root?.find(id: selection) != nil else { return nil }
@@ -38,6 +43,7 @@ struct BrowserView: View {
                         root: root,
                         selection: $selection,
                         connection: connection,
+                        schema: schema,
                         reload: { dn in await reload(selecting: dn) }
                     )
                     .navigationSplitViewColumnWidth(min: 200, ideal: 260)
@@ -47,6 +53,7 @@ struct BrowserView: View {
                             entry: selectedEntryBinding,
                             root: root,
                             connection: connection,
+                            schema: schema,
                             reload: { dn in await reload(selecting: dn) }
                         )
                     } else {
@@ -76,16 +83,30 @@ struct BrowserView: View {
     }
 
     private func loadDirectory() async {
+        let password = KeychainService.readPassword(for: connection.id) ?? ""
+
+        // Run together rather than one after the other — the schema fetch
+        // is a nice-to-have for autocomplete, not something worth making
+        // the user wait an extra round trip for.
+        async let entryTask = fetchRootEntry(
+            host: connection.host,
+            port: UInt16(clamping: connection.port),
+            useSsl: connection.useSSL,
+            bindDn: connection.bindDN,
+            password: password,
+            baseDn: connection.baseDN
+        )
+        async let schemaTask: LdapSchema? = try? await fetchSchema(
+            host: connection.host,
+            port: UInt16(clamping: connection.port),
+            useSsl: connection.useSSL,
+            bindDn: connection.bindDN,
+            password: password
+        )
+
         do {
-            let entry = try await fetchRootEntry(
-                host: connection.host,
-                port: UInt16(clamping: connection.port),
-                useSsl: connection.useSSL,
-                bindDn: connection.bindDN,
-                password: KeychainService.readPassword(for: connection.id) ?? "",
-                baseDn: connection.baseDN
-            )
-            root = DirectoryEntry(ldapEntry: entry)
+            root = DirectoryEntry(ldapEntry: try await entryTask)
+            schema = await schemaTask
         } catch {
             loadError = "\(error)"
         }

@@ -11,6 +11,9 @@ struct EntryDetailView: View {
     @Binding var entry: DirectoryEntry
     let root: DirectoryEntry
     let connection: SavedConnection
+    /// Optional — feeds Add Attribute's autocomplete; nil just means no
+    /// suggestions, never a blocker.
+    let schema: LdapSchema?
     /// Tells `BrowserView` to refetch the whole directory from the server —
     /// every write below goes straight to LDAP, so the tree is reloaded from
     /// there afterward instead of being patched locally. Pass the dn that
@@ -27,8 +30,6 @@ struct EntryDetailView: View {
     @State private var attributePendingDeletion: Attribute?
 
     @State private var isShowingAddAttribute = false
-    @State private var newAttributeName = ""
-    @State private var newAttributeValue = ""
 
     @State private var isShowingMovePicker = false
     @State private var isShowingCopyPicker = false
@@ -62,6 +63,23 @@ struct EntryDetailView: View {
     private var selectedAttribute: Attribute? {
         guard let selection else { return nil }
         return entry.attributes.first { $0.id == selection }
+    }
+
+    /// This entry's current objectClass values — used to figure out which
+    /// attribute names actually apply here.
+    private var currentObjectClassNames: [String] {
+        entry.attributes
+            .filter { $0.name.caseInsensitiveCompare("objectClass") == .orderedSame }
+            .map(\.value)
+    }
+
+    private var attributeNameSuggestions: [String] {
+        schema?.allowedAttributeNames(forObjectClasses: currentObjectClassNames) ?? []
+    }
+
+    private func valueSuggestions(for attributeName: String) -> [String] {
+        guard attributeName.caseInsensitiveCompare("objectClass") == .orderedSame else { return [] }
+        return schema?.allObjectClassNames ?? []
     }
 
     var body: some View {
@@ -140,15 +158,10 @@ struct EntryDetailView: View {
                 }
             }
         }
-        .alert(
-            "Add Attribute",
-            isPresented: $isShowingAddAttribute
-        ) {
-            TextField("Attribute (e.g. mail)", text: $newAttributeName)
-            TextField("Value", text: $newAttributeValue)
-            Button("Add") { addAttribute() }
-                .disabled(newAttributeName.isEmpty)
-            Button("Cancel", role: .cancel) {}
+        .sheet(isPresented: $isShowingAddAttribute) {
+            AddAttributeSheet(nameSuggestions: attributeNameSuggestions, valueSuggestions: valueSuggestions) { name, value in
+                addAttribute(name: name, value: value)
+            }
         }
         .alert(
             "Edit Value",
@@ -225,8 +238,6 @@ struct EntryDetailView: View {
     private var toolbar: some View {
         HStack(spacing: 14) {
             Button {
-                newAttributeName = ""
-                newAttributeValue = ""
                 isShowingAddAttribute = true
             } label: {
                 Image(systemName: "plus")
@@ -388,10 +399,8 @@ struct EntryDetailView: View {
         }
     }
 
-    private func addAttribute() {
+    private func addAttribute(name: String, value: String) {
         let dn = entry.dn
-        let name = newAttributeName
-        let value = newAttributeValue
         perform(reloadSelecting: dn) {
             try await addAttributeValue(
                 host: connection.host,
@@ -501,6 +510,7 @@ struct EntryDetailView: View {
         entry: .constant(.mockRoot),
         root: .mockRoot,
         connection: SavedConnection(name: "Preview", host: "localhost", port: 389, useSSL: false, baseDN: "", bindDN: ""),
+        schema: nil,
         reload: { _ in }
     )
     .frame(width: 500, height: 400)

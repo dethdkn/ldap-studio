@@ -11,6 +11,9 @@ struct DirectoryTreeView: View {
     let root: DirectoryEntry
     @Binding var selection: DirectoryEntry.ID?
     let connection: SavedConnection
+    /// Optional — feeds the attribute/object-class autocomplete in New
+    /// Entry; nil just means no suggestions, never a blocker.
+    let schema: LdapSchema?
     @Environment(\.openWindow) private var openWindow
     /// Same contract as `EntryDetailView`'s `reload`: refetches the whole
     /// directory from the server and reselects the given dn if it still
@@ -133,7 +136,7 @@ struct DirectoryTreeView: View {
             Text(message)
         }
         .sheet(item: $newEntryRequest) { request in
-            NewEntrySheet(parentDN: request.parentDN) { dn, attributes in
+            NewEntrySheet(parentDN: request.parentDN, schema: schema) { dn, attributes in
                 createEntry(dn: dn, attributes: attributes)
             }
         }
@@ -377,6 +380,7 @@ private struct DirectoryOutlineRow: View {
         root: .mockRoot,
         selection: .constant(nil),
         connection: SavedConnection(name: "Preview", host: "localhost", port: 389, useSSL: false, baseDN: "", bindDN: ""),
+        schema: nil,
         reload: { _ in }
     )
     .frame(width: 260, height: 400)
