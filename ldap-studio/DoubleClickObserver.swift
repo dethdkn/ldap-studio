@@ -35,7 +35,15 @@ struct DoubleClickObserver: NSViewRepresentable {
             }
             guard window != nil else { return }
             monitor = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
-                guard let self, event.clickCount == 2 else { return event }
+                // "Local" here means "local to this app" — this fires for
+                // every window, not just this view's own. `event.window`
+                // must be checked before converting coordinates: a click in
+                // a different window (e.g. a sheet on top of this one) has
+                // coordinates in *that* window's frame, and converting them
+                // as if they belonged to this view's window is meaningless
+                // — it can alias into `bounds` by pure coincidence and fire
+                // the callback for a click that never happened here.
+                guard let self, event.clickCount == 2, event.window === self.window else { return event }
                 let locationInView = self.convert(event.locationInWindow, from: nil)
                 if self.bounds.contains(locationInView) {
                     self.onDoubleClick?()
