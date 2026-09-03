@@ -109,7 +109,7 @@ struct InfoPanel: View {
                 baseDN: item.baseDN,
                 bindDN: item.bindDN
             )
-            KeychainService.savePassword(item.password, for: connection.id)
+            KeychainService.savePassword(item.decodedPassword, for: connection.id)
             store.add(connection)
         }
     }

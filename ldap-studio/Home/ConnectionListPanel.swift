@@ -17,6 +17,8 @@ struct ConnectionListPanel: View {
     @State private var connectionToEdit: SavedConnection?
     @State private var connectionsPendingDeletion: [SavedConnection] = []
     @State private var isShowingDeleteConfirmation = false
+    @State private var connectionsPendingExport: [SavedConnection] = []
+    @State private var isShowingExportChoice = false
 
     private var filteredConnections: [SavedConnection] {
         guard !searchText.isEmpty else { return store.connections }
@@ -93,6 +95,22 @@ struct ConnectionListPanel: View {
                 Text("Are you sure you want to delete \"\(connectionsPendingDeletion.first?.name ?? "")\"? This cannot be undone.")
             }
         }
+        .alert(
+            connectionsPendingExport.count > 1
+                ? "Export \(connectionsPendingExport.count) Connections"
+                : "Export Connection",
+            isPresented: $isShowingExportChoice
+        ) {
+            Button("Without Password") {
+                exportConnections(connectionsPendingExport, includePassword: false)
+            }
+            Button("With Password") {
+                exportConnections(connectionsPendingExport, includePassword: true)
+            }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Include the saved password in the exported file?")
+        }
     }
 
     /// The connections a context-menu action should apply to: the full
@@ -122,7 +140,8 @@ struct ConnectionListPanel: View {
             targets.count > 1 ? "Export \(targets.count) Connections…" : "Export…",
             systemImage: "square.and.arrow.up"
         ) {
-            exportConnections(targets)
+            connectionsPendingExport = targets
+            isShowingExportChoice = true
         }
 
         Divider()
@@ -137,15 +156,20 @@ struct ConnectionListPanel: View {
         }
     }
 
-    private func exportable(for connection: SavedConnection) -> ExportableConnection {
-        ExportableConnection(
+    private func exportable(for connection: SavedConnection, includePassword: Bool) -> ExportableConnection {
+        guard includePassword else {
+            return ExportableConnection(connection: connection, password: "")
+        }
+        let password = KeychainService.readPassword(for: connection.id) ?? ""
+        return ExportableConnection(
             connection: connection,
-            password: KeychainService.readPassword(for: connection.id) ?? ""
+            password: Data(password.utf8).base64EncodedString(),
+            passwordIsBase64: true
         )
     }
 
-    private func exportConnections(_ connections: [SavedConnection]) {
-        let items = connections.map { exportable(for: $0) }
+    private func exportConnections(_ connections: [SavedConnection], includePassword: Bool) {
+        let items = connections.map { exportable(for: $0, includePassword: includePassword) }
 
         // Deferred to the next run loop tick so the context menu has fully
         // dismissed before we present another modal panel — presenting
