@@ -105,7 +105,7 @@ struct EntryActions {
         return (name, value)
     }
 
-    /// Hashes `plaintext` client-side as {PBKDF2-SHA512} before sending it —
+    /// Hashes `plaintext` client-side, using `scheme`, before sending it —
     /// unlike a generic attribute edit, this is a hard guarantee that the
     /// stored value is always a hash, independent of whether the server
     /// itself would have auto-hashed a plain write. Replaces only
@@ -113,7 +113,7 @@ struct EntryActions {
     /// hash migration, or multiple auth mechanisms) — the same targeted
     /// delete-old/add-new normal attribute edits use, not a wipe-everything
     /// Replace.
-    func setPassword(_ plaintext: String, replacing oldValue: String, forDN dn: String, attribute: String = "userPassword") async throws {
+    func setPassword(_ plaintext: String, scheme: PasswordScheme, replacing oldValue: String, forDN dn: String, attribute: String = "userPassword") async throws {
         try await modifyAttributeValue(
             host: connection.host,
             port: UInt16(clamping: connection.port),
@@ -123,7 +123,7 @@ struct EntryActions {
             dn: dn,
             attribute: attribute,
             oldValue: oldValue,
-            newValue: hashPasswordPbkdf2Sha512(plaintext: plaintext),
+            newValue: try hashPassword(plaintext: plaintext, scheme: scheme),
             isBinary: false
         )
     }

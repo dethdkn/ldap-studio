@@ -34,7 +34,7 @@ I use LDAP at [CBPF](https://cbpf.br), the research center I work at. The only r
 - Full directory tree browsing, with live filtering and real LDAP filter (RFC 4515) advanced search
 - Add, edit, view, and delete attributes, including binary values
 - View and set photos (`jpegPhoto`), auto-resized and center-cropped to 300×300
-- Set passwords (`userPassword`) with client-side PBKDF2-SHA512 hashing; the plaintext is never stored or sent as-is
+- Set passwords (`userPassword`) with client-side hashing (PBKDF2-SHA512 by default, plus Unix/MD5/SHA-256/SHA-512 Crypt, MD5, SHA1, SMD5, and SSHA for compatibility); the plaintext is never stored or sent as-is
 - Move, copy, create, and delete entries anywhere in the tree
 - Import and export LDIF files
 - Schema browser: object classes and attributes, with full superior-class inheritance resolved

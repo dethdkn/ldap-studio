@@ -1154,6 +1154,212 @@ public func FfiConverterTypeLdapSearchScope_lower(_ value: LdapSearchScope) -> R
 
 
 public 
+enum PasswordError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
+
+    
+    
+    case HashFailed(reason: String
+    )
+
+    
+
+    
+
+    
+    public var errorDescription: String? {
+        String(reflecting: self)
+    }
+    
+}
+
+#if compiler(>=6)
+extension PasswordError: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePasswordError: FfiConverterRustBuffer {
+    typealias SwiftType = PasswordError
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PasswordError {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+
+        
+
+        
+        case 1: return .HashFailed(
+            reason: try FfiConverterString.read(from: &buf)
+            )
+
+         default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: PasswordError, into buf: inout [UInt8]) {
+        switch value {
+
+        
+
+        
+        
+        case let .HashFailed(reason):
+            writeInt(&buf, Int32(1))
+            FfiConverterString.write(reason, into: &buf)
+            
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePasswordError_lift(_ buf: RustBuffer) throws -> PasswordError {
+    return try FfiConverterTypePasswordError.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePasswordError_lower(_ value: PasswordError) -> RustBuffer {
+    return FfiConverterTypePasswordError.lower(value)
+}
+
+
+/**
+ * Every userPassword hashing scheme the "Set Password" picker offers.
+ * PBKDF2-SHA512 is our own recommended default (a real, configurable work
+ * factor); the rest exist so the hash matches whatever a specific server
+ * or migration expects — several (plain MD5/SHA1, and the classic Unix
+ * crypt) are only offered for compatibility and are not secure by modern
+ * standards.
+ *
+ * MD4 and RIPEMD-160 were deliberately left out: they were live-tested
+ * against a real server (389 Directory Server) and turned out not to be
+ * recognized `userPassword` schemes at all — the server silently treated
+ * the whole `{MD4}...`/`{RIPEMD160}...` string as a literal cleartext
+ * password and re-hashed *that*, permanently discarding the intended
+ * password with no error shown. Every other scheme here was verified the
+ * same way and round-tripped correctly.
+ */
+
+public enum PasswordScheme: Equatable, Hashable {
+    
+    case pbkdf2Sha512
+    case unixCrypt
+    case md5Crypt
+    case md5
+    case sha1
+    case smd5
+    case ssha
+    case sha256Crypt
+    case sha512Crypt
+
+
+
+
+
+}
+
+#if compiler(>=6)
+extension PasswordScheme: Sendable {}
+#endif
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public struct FfiConverterTypePasswordScheme: FfiConverterRustBuffer {
+    typealias SwiftType = PasswordScheme
+
+    public static func read(from buf: inout (data: Data, offset: Data.Index)) throws -> PasswordScheme {
+        let variant: Int32 = try readInt(&buf)
+        switch variant {
+        
+        case 1: return .pbkdf2Sha512
+        
+        case 2: return .unixCrypt
+        
+        case 3: return .md5Crypt
+        
+        case 4: return .md5
+        
+        case 5: return .sha1
+        
+        case 6: return .smd5
+        
+        case 7: return .ssha
+        
+        case 8: return .sha256Crypt
+        
+        case 9: return .sha512Crypt
+        
+        default: throw UniffiInternalError.unexpectedEnumCase
+        }
+    }
+
+    public static func write(_ value: PasswordScheme, into buf: inout [UInt8]) {
+        switch value {
+        
+        
+        case .pbkdf2Sha512:
+            writeInt(&buf, Int32(1))
+        
+        
+        case .unixCrypt:
+            writeInt(&buf, Int32(2))
+        
+        
+        case .md5Crypt:
+            writeInt(&buf, Int32(3))
+        
+        
+        case .md5:
+            writeInt(&buf, Int32(4))
+        
+        
+        case .sha1:
+            writeInt(&buf, Int32(5))
+        
+        
+        case .smd5:
+            writeInt(&buf, Int32(6))
+        
+        
+        case .ssha:
+            writeInt(&buf, Int32(7))
+        
+        
+        case .sha256Crypt:
+            writeInt(&buf, Int32(8))
+        
+        
+        case .sha512Crypt:
+            writeInt(&buf, Int32(9))
+        
+        }
+    }
+}
+
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePasswordScheme_lift(_ buf: RustBuffer) throws -> PasswordScheme {
+    return try FfiConverterTypePasswordScheme.lift(buf)
+}
+
+#if swift(>=5.8)
+@_documentation(visibility: private)
+#endif
+public func FfiConverterTypePasswordScheme_lower(_ value: PasswordScheme) -> RustBuffer {
+    return FfiConverterTypePasswordScheme.lower(value)
+}
+
+
+
+public 
 enum PhotoError: Swift.Error, Equatable, Hashable, Foundation.LocalizedError {
 
     
@@ -1589,18 +1795,17 @@ public func moveEntry(host: String, port: UInt16, useSsl: Bool, bindDn: String, 
         )
 }
 /**
- * Hashes `plaintext` as {PBKDF2-SHA512} — a client-side guarantee that
- * "Set Password" always stores a hash, regardless of whether the server
- * itself would have auto-hashed a plain userPassword write. Format:
- * `{PBKDF2-SHA512}<rounds>$<salt-b64>$<hash-b64>`, standard base64 with
- * padding — matches what 389-ds itself produces when it auto-hashes,
- * confirmed by decoding a real server-generated value during testing.
+ * Hashes `plaintext` using the chosen scheme, tagged the way LDAP's
+ * userPassword expects: `{SCHEME}...` for the simple digest-based
+ * schemes, `{CRYPT}...` for the crypt(3) family (whose own `$id$` marker,
+ * already part of the hash string, identifies the specific algorithm).
  */
-public func hashPasswordPbkdf2Sha512(plaintext: String) -> String  {
-    return try!  FfiConverterString.lift(try! rustCall() {
+public func hashPassword(plaintext: String, scheme: PasswordScheme)throws  -> String  {
+    return try  FfiConverterString.lift(try rustCallWithError(FfiConverterTypePasswordError_lift) {
         uniffiCallStatus in
-    uniffi_ldap_studio_core_fn_func_hash_password_pbkdf2_sha512(
-        FfiConverterString.lower(plaintext),uniffiCallStatus
+    uniffi_ldap_studio_core_fn_func_hash_password(
+        FfiConverterString.lower(plaintext),
+        FfiConverterTypePasswordScheme_lower(scheme),uniffiCallStatus
     )
 })
 }
@@ -1681,7 +1886,7 @@ private let initializationResult: InitializationResult = {
     if (uniffi_ldap_studio_core_checksum_func_move_entry() != 19820) {
         return InitializationResult.apiChecksumMismatch
     }
-    if (uniffi_ldap_studio_core_checksum_func_hash_password_pbkdf2_sha512() != 31901) {
+    if (uniffi_ldap_studio_core_checksum_func_hash_password() != 56242) {
         return InitializationResult.apiChecksumMismatch
     }
     if (uniffi_ldap_studio_core_checksum_func_resize_photo_to_base64() != 42103) {

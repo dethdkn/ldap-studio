@@ -21,3 +21,7 @@ pbkdf2 = "0.13"
 sha2 = "0.11"
 rand = "0.10"
 image = "0.25"
+sha1 = "0.11.0"
+md-5 = "0.11.0"
+digest = "0.11"
+crypt3_rs = { version = "0.1.1", default-features = false, features = ["unix", "md5", "sha2", "bsdi"] }

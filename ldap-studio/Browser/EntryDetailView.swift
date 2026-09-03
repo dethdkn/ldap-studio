@@ -37,8 +37,6 @@ struct EntryDetailView: View {
     @State private var attributeBeingViewed: Attribute?
 
     @State private var attributeBeingPasswordSet: Attribute?
-    @State private var newPassword = ""
-    @State private var confirmPassword = ""
 
     @State private var isPerformingAction = false
     @State private var actionError: String?
@@ -182,26 +180,10 @@ struct EntryDetailView: View {
         } message: { attribute in
             Text("Attribute: \(attribute.name)")
         }
-        .alert(
-            "Set Password",
-            isPresented: Binding(
-                get: { attributeBeingPasswordSet != nil },
-                set: { if !$0 { attributeBeingPasswordSet = nil } }
-            ),
-            presenting: attributeBeingPasswordSet
-        ) { attribute in
-            SecureField("New Password", text: $newPassword)
-            SecureField("Confirm Password", text: $confirmPassword)
-            Button("Set") {
-                savePassword(for: attribute)
-                attributeBeingPasswordSet = nil
+        .sheet(item: $attributeBeingPasswordSet) { attribute in
+            SetPasswordSheet { plaintext, scheme in
+                savePassword(plaintext, scheme: scheme, for: attribute)
             }
-            .disabled(newPassword.isEmpty || newPassword != confirmPassword)
-            Button("Cancel", role: .cancel) {
-                attributeBeingPasswordSet = nil
-            }
-        } message: { _ in
-            Text("Hashed ({PBKDF2-SHA512}) before being sent — the plaintext is never stored.")
         }
         .alert(
             "Delete Value?",
@@ -246,8 +228,6 @@ struct EntryDetailView: View {
             copyAttributeName: selectedAttribute.map { attribute in { copyToPasteboard(attribute.name) } },
             copyValue: selectedAttribute.map { attribute in { copyToPasteboard(attribute.value) } },
             setPassword: selectedAttribute?.name.caseInsensitiveCompare("userPassword") == .orderedSame ? {
-                newPassword = ""
-                confirmPassword = ""
                 attributeBeingPasswordSet = selectedAttribute
             } : nil,
             setPhoto: selectedAttribute?.name.caseInsensitiveCompare("jpegPhoto") == .orderedSame ? {
@@ -349,8 +329,6 @@ struct EntryDetailView: View {
 
         if attribute.name.caseInsensitiveCompare("userPassword") == .orderedSame {
             Button {
-                newPassword = ""
-                confirmPassword = ""
                 attributeBeingPasswordSet = attribute
             } label: {
                 Label("Set Password", systemImage: "key")
@@ -457,15 +435,12 @@ struct EntryDetailView: View {
         }
     }
 
-    private func savePassword(for attribute: Attribute) {
+    private func savePassword(_ plaintext: String, scheme: PasswordScheme, for attribute: Attribute) {
         let dn = entry.dn
         let name = attribute.name
         let oldValue = attribute.value
-        let plaintext = newPassword
-        newPassword = ""
-        confirmPassword = ""
         perform(reloadSelecting: dn) {
-            try await actions.setPassword(plaintext, replacing: oldValue, forDN: dn, attribute: name)
+            try await actions.setPassword(plaintext, scheme: scheme, replacing: oldValue, forDN: dn, attribute: name)
         }
     }
 
