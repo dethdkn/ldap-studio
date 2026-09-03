@@ -59,6 +59,11 @@ struct DirectoryTreeView: View {
         root.filtered(matching: searchText)
     }
 
+    private var selectedEntry: DirectoryEntry? {
+        guard let selection else { return nil }
+        return root.find(id: selection)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             toolbar
@@ -145,6 +150,13 @@ struct DirectoryTreeView: View {
                 reveal(dn)
             }
         }
+        .focusedSceneValue(\.directoryCommands, DirectoryCommands(
+            newEntry: { newEntryRequest = NewEntryRequest(parentDN: selection ?? root.dn) },
+            importLDIF: { importLDIF() },
+            openSchema: { openWindow(id: "schema", value: connection) },
+            advancedSearch: { isShowingAdvancedSearch = true },
+            deleteSelected: selectedEntry.map { entry in { entryPendingDeletion = entry } }
+        ))
     }
 
     private var toolbar: some View {

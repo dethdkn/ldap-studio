@@ -233,6 +233,27 @@ struct EntryDetailView: View {
         } message: { message in
             Text(message)
         }
+        .focusedSceneValue(\.entryDetailCommands, EntryDetailCommands(
+            addAttribute: { isShowingAddAttribute = true },
+            editAttribute: selectedAttribute?.isBinary == false ? { beginEdit(selectedAttribute) } : nil,
+            deleteAttribute: selectedAttribute.map { attribute in { attributePendingDeletion = attribute } },
+            moveDN: { isShowingMovePicker = true },
+            copyDN: { isShowingCopyPicker = true },
+            exportLDIF: { actions.exportLDIF(entry) },
+            refresh: { refresh() },
+            viewValue: selectedAttribute.map { attribute in { attributeBeingViewed = attribute } },
+            copyFull: selectedAttribute.map { attribute in { copyToPasteboard("\(attribute.name): \(attribute.value)") } },
+            copyAttributeName: selectedAttribute.map { attribute in { copyToPasteboard(attribute.name) } },
+            copyValue: selectedAttribute.map { attribute in { copyToPasteboard(attribute.value) } },
+            setPassword: selectedAttribute?.name.caseInsensitiveCompare("userPassword") == .orderedSame ? {
+                newPassword = ""
+                confirmPassword = ""
+                attributeBeingPasswordSet = selectedAttribute
+            } : nil,
+            setPhoto: selectedAttribute?.name.caseInsensitiveCompare("jpegPhoto") == .orderedSame ? {
+                if let selectedAttribute { setPhoto(for: selectedAttribute) }
+            } : nil
+        ))
     }
 
     private var toolbar: some View {

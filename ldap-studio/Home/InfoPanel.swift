@@ -68,6 +68,10 @@ struct InfoPanel: View {
         .frame(width: 260)
         .frame(maxHeight: .infinity)
         .background(.regularMaterial)
+        .focusedSceneValue(\.connectionCommands, ConnectionCommands(
+            addConnection: { isPresentingNewConnection = true },
+            importConnection: { importConnections() }
+        ))
     }
 
     private func importConnections() {

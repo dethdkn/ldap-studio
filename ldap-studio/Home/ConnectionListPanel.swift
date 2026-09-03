@@ -28,6 +28,15 @@ struct ConnectionListPanel: View {
         }
     }
 
+    /// Only a single, unambiguous selection maps to menu-bar commands —
+    /// multi-selecting and using the menu (as opposed to the context menu,
+    /// which already handles multi-select for Export/Delete) isn't
+    /// something the menu bar needs to support.
+    private var singleSelectedConnection: SavedConnection? {
+        guard selection.count == 1, let id = selection.first else { return nil }
+        return store.connections.first { $0.id == id }
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             HStack {
@@ -111,6 +120,18 @@ struct ConnectionListPanel: View {
         } message: {
             Text("Include the saved password in the exported file?")
         }
+        .focusedSceneValue(\.selectedConnectionCommands, SelectedConnectionCommands(
+            open: singleSelectedConnection.map { connection in { openWindow(value: connection) } },
+            edit: singleSelectedConnection.map { connection in { connectionToEdit = connection } },
+            export: singleSelectedConnection.map { connection in {
+                connectionsPendingExport = [connection]
+                isShowingExportChoice = true
+            } },
+            delete: singleSelectedConnection.map { connection in {
+                connectionsPendingDeletion = [connection]
+                isShowingDeleteConfirmation = true
+            } }
+        ))
     }
 
     /// The connections a context-menu action should apply to: the full
