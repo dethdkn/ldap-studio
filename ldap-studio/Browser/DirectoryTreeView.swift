@@ -37,6 +37,13 @@ struct DirectoryTreeView: View {
     @State private var searchText = ""
     @State private var isShowingAdvancedSearch = false
 
+    /// Which nodes are expanded — `OutlineGroup`'s simple form manages this
+    /// internally with no way to control it from outside, so revealing a
+    /// search result (expanding its ancestors, then scrolling to it) needs
+    /// this hand-rolled instead, via `DisclosureGroup`'s `isExpanded`
+    /// binding.
+    @State private var expandedIDs: Set<DirectoryEntry.ID> = []
+
     private var actions: EntryActions {
         EntryActions(connection: connection)
     }
@@ -54,17 +61,22 @@ struct DirectoryTreeView: View {
 
             Divider()
 
-            List(selection: $selection) {
-                if let filteredRoot {
-                    OutlineGroup(filteredRoot, children: \.children) { entry in
-                        Label(entry.name, systemImage: entry.icon)
-                            .tag(entry.id)
+            ScrollViewReader { proxy in
+                List(selection: $selection) {
+                    if let filteredRoot {
+                        DirectoryOutlineRow(entry: filteredRoot, expandedIDs: $expandedIDs)
                     }
                 }
-            }
-            .contextMenu(forSelectionType: DirectoryEntry.ID.self) { ids in
-                if let id = ids.first, let entry = root.find(id: id) {
-                    contextMenuContent(for: entry)
+                .contextMenu(forSelectionType: DirectoryEntry.ID.self) { ids in
+                    if let id = ids.first, let entry = root.find(id: id) {
+                        contextMenuContent(for: entry)
+                    }
+                }
+                .onChange(of: selection) { _, newValue in
+                    guard let newValue else { return }
+                    withAnimation {
+                        proxy.scrollTo(newValue, anchor: .center)
+                    }
                 }
             }
         }
@@ -126,7 +138,7 @@ struct DirectoryTreeView: View {
         }
         .sheet(isPresented: $isShowingAdvancedSearch) {
             AdvancedSearchSheet(connection: connection, defaultBaseDN: root.dn) { dn in
-                selection = dn
+                reveal(dn)
             }
         }
     }
@@ -282,6 +294,72 @@ struct DirectoryTreeView: View {
         // entry, or a descendant of it).
         perform(reloadSelecting: selection) {
             try await actions.delete(entry)
+        }
+    }
+
+    /// Expands every ancestor of `dn` (so it's actually visible in the
+    /// tree, not hidden inside a collapsed disclosure group) and selects
+    /// it — `.onChange(of: selection)` handles the scroll. Used when a
+    /// result is picked from Advanced Search, which can land anywhere in
+    /// the directory regardless of what's currently expanded.
+    private func reveal(_ dn: String) {
+        for ancestor in Self.ancestorDNs(of: dn) {
+            expandedIDs.insert(ancestor)
+        }
+        selection = dn
+    }
+
+    /// Every suffix of `dn` after stripping one RDN component at a time —
+    /// e.g. for "uid=x,ou=People,dc=corp,dc=com" that's
+    /// ["ou=People,dc=corp,dc=com", "dc=corp,dc=com", "dc=com"]. The dn
+    /// itself isn't included; expanding a leaf's own (nonexistent) children
+    /// isn't needed to reveal it.
+    private static func ancestorDNs(of dn: String) -> [String] {
+        var result: [String] = []
+        var remaining = Substring(dn)
+        while let commaIndex = remaining.firstIndex(of: ",") {
+            remaining = remaining[remaining.index(after: commaIndex)...]
+            result.append(String(remaining))
+        }
+        return result
+    }
+}
+
+/// A tree row with an externally controllable expanded state — plain
+/// `OutlineGroup` manages this internally with no way to set it from
+/// outside, which is what `DirectoryTreeView.reveal(_:)` needs.
+private struct DirectoryOutlineRow: View {
+    let entry: DirectoryEntry
+    @Binding var expandedIDs: Set<DirectoryEntry.ID>
+
+    private var isExpanded: Binding<Bool> {
+        Binding(
+            get: { expandedIDs.contains(entry.id) },
+            set: { isExpanded in
+                if isExpanded {
+                    expandedIDs.insert(entry.id)
+                } else {
+                    expandedIDs.remove(entry.id)
+                }
+            }
+        )
+    }
+
+    var body: some View {
+        if let children = entry.children, !children.isEmpty {
+            DisclosureGroup(isExpanded: isExpanded) {
+                ForEach(children) { child in
+                    DirectoryOutlineRow(entry: child, expandedIDs: $expandedIDs)
+                }
+            } label: {
+                Label(entry.name, systemImage: entry.icon)
+                    .tag(entry.id)
+            }
+            .id(entry.id)
+        } else {
+            Label(entry.name, systemImage: entry.icon)
+                .tag(entry.id)
+                .id(entry.id)
         }
     }
 }
