@@ -28,5 +28,11 @@ struct ldap_studioApp: App {
                 SchemaView(connection: connection)
             }
         }
+
+        Window("About Ldap Studio", id: "about") {
+            AboutView()
+        }
+        .windowStyle(.hiddenTitleBar)
+        .windowResizability(.contentSize)
     }
 }

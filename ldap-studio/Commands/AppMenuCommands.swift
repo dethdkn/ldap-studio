@@ -10,8 +10,15 @@ struct AppMenuCommands: Commands {
     @FocusedValue(\.selectedConnectionCommands) private var selectedConnectionCommands
     @FocusedValue(\.directoryCommands) private var directoryCommands
     @FocusedValue(\.entryDetailCommands) private var entryDetailCommands
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Commands {
+        CommandGroup(replacing: .appInfo) {
+            Button("About Ldap Studio") {
+                openWindow(id: "about")
+            }
+        }
+
         CommandGroup(replacing: .newItem) {
             Button("New Connection…") {
                 connectionCommands?.addConnection()
