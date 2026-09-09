@@ -375,7 +375,7 @@ private struct DirectoryOutlineRow: View {
                     DirectoryOutlineRow(entry: child, expandedIDs: $expandedIDs)
                 }
             } label: {
-                Label(entry.name, systemImage: entry.icon)
+                Label("\(entry.name) (\(children.count))", systemImage: entry.icon)
                     .tag(entry.id)
             }
             .id(entry.id)

@@ -65,9 +65,13 @@ $(LIB): $(OBJ)
 	@mkdir -p $(dir $@)
 	libtool -static -o $@ $(OBJ)
 
+# -MMD -MP emits a build/src/foo.d listing every header foo.c pulls in, so
+# editing e.g. ldapstudio.h forces the affected .o files to rebuild.
 build/%.o: %.c
 	@mkdir -p $(dir $@)
-	$(CC) $(ARCHFLAGS) $(MINFLAG) $(SYSROOT) $(CFLAGS) $(CPPFLAGS) -c $< -o $@
+	$(CC) $(ARCHFLAGS) $(MINFLAG) $(SYSROOT) $(CFLAGS) $(CPPFLAGS) -MMD -MP -c $< -o $@
+
+-include $(OBJ:.o=.d)
 
 clean:
 	rm -rf build
