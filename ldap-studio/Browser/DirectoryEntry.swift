@@ -89,9 +89,9 @@ extension DirectoryEntry {
 }
 
 extension DirectoryEntry {
-    /// Builds the UI model from the raw data Rust fetched over LDAP. Rust
-    /// returns the whole subtree in one shot, so this recurses through
-    /// `entry.children` all the way down, not just one level.
+    /// Builds the UI model from the raw data the C core fetched over LDAP.
+    /// The core returns the whole subtree in one shot, so this recurses
+    /// through `entry.children` all the way down, not just one level.
     init(ldapEntry entry: LdapEntry) {
         let objectClasses = entry.attributes
             .filter { $0.name == "objectClass" }

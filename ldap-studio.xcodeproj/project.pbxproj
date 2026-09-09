@@ -65,10 +65,11 @@
 			isa = PBXNativeTarget;
 			buildConfigurationList = 042AE3A13026B0EE00251975 /* Build configuration list for PBXNativeTarget "ldap-studio" */;
 			buildPhases = (
-				25D1BDBF4157D1BB773183E1 /* Build Rust Core */,
+				25D1BDBF4157D1BB773183E1 /* Build C Core */,
 				042AE3923026B0ED00251975 /* Sources */,
 				042AE3933026B0ED00251975 /* Frameworks */,
 				042AE3943026B0ED00251975 /* Resources */,
+				25D1BDBF4157D1BB77318400 /* Bundle Homebrew libraries */,
 			);
 			buildRules = (
 			);
@@ -129,7 +130,7 @@
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXShellScriptBuildPhase section */
-		25D1BDBF4157D1BB773183E1 /* Build Rust Core */ = {
+		25D1BDBF4157D1BB773183E1 /* Build C Core */ = {
 			isa = PBXShellScriptBuildPhase;
 			alwaysOutOfDate = 1;
 			buildActionMask = 2147483647;
@@ -139,14 +140,34 @@
 			);
 			inputPaths = (
 			);
-			name = "Build Rust Core";
+			name = "Build C Core";
 			outputFileListPaths = (
 			);
 			outputPaths = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\nexport PATH=\"$PATH:/opt/homebrew/bin:$HOME/.cargo/bin\"\nCORE_DIR=\"${SRCROOT}/core\"\nGENERATED_DIR=\"${SRCROOT}/ldap-studio/Generated\"\ncd \"$CORE_DIR\"\ncargo build --release\ncargo run --bin uniffi-bindgen -- generate --library target/release/libldap_studio_core.dylib --language swift --out-dir generated\nmkdir -p \"$GENERATED_DIR\"\ncp generated/ldap_studio_core.swift \"$GENERATED_DIR/ldap_studio_core.swift\"\n";
+			shellScript = "set -e\nexport PATH=\"$PATH:/usr/bin:/opt/homebrew/bin\"\n# Builds core/build/libldapstudio.a. The Makefile picks up ARCHS,\n# MACOSX_DEPLOYMENT_TARGET and SDKROOT from Xcode's environment.\nmake -C \"${SRCROOT}/core\"\n";
+			showEnvVarsInLog = 0;
+		};
+		25D1BDBF4157D1BB77318400 /* Bundle Homebrew libraries */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Bundle Homebrew libraries";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "set -e\nexport PATH=\"$PATH:/opt/homebrew/bin:/usr/bin\"\n\n# CA bundle for the bundled OpenSSL: the App Sandbox blocks its default\n# Homebrew cert path, so ship one in Resources for ls_set_tls_cacert().\nRES=\"${CODESIGNING_FOLDER_PATH}/Contents/Resources\"\nmkdir -p \"$RES\"\nCACERT=\"/opt/homebrew/etc/ca-certificates/cert.pem\"\n[ -f \"$CACERT\" ] || CACERT=\"$(brew --prefix openssl@3)/etc/openssl@3/cert.pem\"\nif [ -f \"$CACERT\" ]; then cp -f \"$CACERT\" \"$RES/openssl-cacert.pem\"; else echo \"warning: no CA bundle to embed - LDAPS will fail in the sandbox\" >&2; fi\n\nif [ \"${CODE_SIGNING_ALLOWED}\" = \"NO\" ]; then echo \"note: code signing disabled - skipping dylib bundling\"; exit 0; fi\n\nFW=\"${CODESIGNING_FOLDER_PATH}/Contents/Frameworks\"\nEXE=\"${CODESIGNING_FOLDER_PATH}/Contents/MacOS/${EXECUTABLE_NAME}\"\nmkdir -p \"$FW\"\n\nOL=\"$(brew --prefix openldap)\"\nOS=\"$(brew --prefix openssl@3)\"\nLX=\"$(brew --prefix libxcrypt)\"\nDYLIBS=\"$OL/lib/libldap.2.dylib $OL/lib/liblber.2.dylib $OS/lib/libssl.3.dylib $OS/lib/libcrypto.3.dylib $LX/lib/libcrypt.2.dylib\"\n\nrepoint() {\n  otool -L \"$1\" | tail -n +2 | awk '{print $1}' | while read dep; do\n    case \"$dep\" in\n      /opt/homebrew/*|/usr/local/*) install_name_tool -change \"$dep\" \"@rpath/$(basename \"$dep\")\" \"$1\" ;;\n    esac\n  done\n}\n\nfor src in $DYLIBS; do\n  base=\"$(basename \"$src\")\"\n  cp -f \"$src\" \"$FW/$base\"\n  chmod u+w \"$FW/$base\"\n  install_name_tool -id \"@rpath/$base\" \"$FW/$base\"\n  repoint \"$FW/$base\"\ndone\n\nrepoint \"$EXE\"\n\nIDENT=\"${EXPANDED_CODE_SIGN_IDENTITY:--}\"\nfor src in $DYLIBS; do\n  codesign --force --sign \"$IDENT\" --options runtime \"$FW/$(basename \"$src\")\"\ndone\n";
 			showEnvVarsInLog = 0;
 		};
 /* End PBXShellScriptBuildPhase section */
@@ -295,7 +316,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
-				HEADER_SEARCH_PATHS = "$(SRCROOT)/core/generated";
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/core/include";
 				INFOPLIST_FILE = "ldap-studio/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Ldap Studio";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
@@ -304,10 +325,23 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/core/target/release";
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/core/build",
+					"/opt/homebrew/opt/openldap/lib",
+					"/opt/homebrew/opt/openssl@3/lib",
+					"/opt/homebrew/opt/libxcrypt/lib",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0.0;
-				OTHER_LDFLAGS = "$(SRCROOT)/core/target/release/libldap_studio_core.a";
+				OTHER_LDFLAGS = (
+					"$(SRCROOT)/core/build/libldapstudio.a",
+					"-lldap",
+					"-llber",
+					"-lcrypto",
+					"-lcrypt",
+					"-framework", "ImageIO",
+					"-framework", "CoreGraphics",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ldap-studio";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
@@ -336,7 +370,7 @@
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readwrite;
 				GENERATE_INFOPLIST_FILE = YES;
-				HEADER_SEARCH_PATHS = "$(SRCROOT)/core/generated";
+				HEADER_SEARCH_PATHS = "$(SRCROOT)/core/include";
 				INFOPLIST_FILE = "ldap-studio/Info.plist";
 				INFOPLIST_KEY_CFBundleDisplayName = "Ldap Studio";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.developer-tools";
@@ -345,10 +379,23 @@
 					"$(inherited)",
 					"@executable_path/../Frameworks",
 				);
-				LIBRARY_SEARCH_PATHS = "$(SRCROOT)/core/target/release";
+				LIBRARY_SEARCH_PATHS = (
+					"$(SRCROOT)/core/build",
+					"/opt/homebrew/opt/openldap/lib",
+					"/opt/homebrew/opt/openssl@3/lib",
+					"/opt/homebrew/opt/libxcrypt/lib",
+				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0.0;
-				OTHER_LDFLAGS = "$(SRCROOT)/core/target/release/libldap_studio_core.a";
+				OTHER_LDFLAGS = (
+					"$(SRCROOT)/core/build/libldapstudio.a",
+					"-lldap",
+					"-llber",
+					"-lcrypto",
+					"-lcrypt",
+					"-framework", "ImageIO",
+					"-framework", "CoreGraphics",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ldap-studio";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;

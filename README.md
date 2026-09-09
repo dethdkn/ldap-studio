@@ -1,6 +1,6 @@
 # Ldap Studio
 
-🔍 A native macOS LDAP client, with a Rust-powered backend, for browsing, searching, and editing LDAP directories.
+🔍 A native macOS LDAP client for browsing, searching, and editing LDAP directories.
 
 ## Screenshots
 
@@ -14,7 +14,7 @@
 
 I use LDAP at [CBPF](https://cbpf.br), the research center I work at. The only real LDAP client available was LDAP Admin for Windows, which hasn't been updated in a long time and is Windows-only, meaning I needed a Windows virtual machine running just to open it. So I built my own, native to macOS.
 
-> ⚠️ I also wanted to learn Swift and Rust. I'm still learning both, so this app was built with the help of AI.
+> ⚠️ I also wanted to learn Swift and C. I'm still learning both, so this app was built with the help of AI.
 
 ## Installation
 
@@ -40,14 +40,6 @@ I use LDAP at [CBPF](https://cbpf.br), the research center I work at. The only r
 - Schema browser: object classes and attributes, with full superior-class inheritance resolved
 - Autocomplete for attribute names and object classes when adding attributes or creating entries, driven by the server's own schema
 - Native macOS menu bar integration for every major action
-
-## Built With
-
-- [SwiftUI](https://developer.apple.com/xcode/swiftui/) for the native macOS interface
-- [Rust](https://www.rust-lang.org) for the LDAP backend, bridged to Swift via [uniffi](https://mozilla.github.io/uniffi-rs/)
-- [ldap3](https://crates.io/crates/ldap3) for the LDAP protocol implementation
-- [image](https://crates.io/crates/image) for photo processing
-- RustCrypto's [pbkdf2](https://crates.io/crates/pbkdf2)/[sha2](https://crates.io/crates/sha2)/[md-5](https://crates.io/crates/md-5)/[sha1](https://crates.io/crates/sha1) and [crypt3_rs](https://crates.io/crates/crypt3_rs) for the password hashing schemes
 
 ## Requirements
 

@@ -11,13 +11,15 @@ xcuserdata/
 .build/
 .swiftpm/
 
-# Rust
-core/target/
-core/generated/
+# C core
+core/build/
+core/compile_commands.json
 
 # Misc
 dist
-.vscode
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
 .claude
 .env
 .env

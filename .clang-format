@@ -1,0 +1,11 @@
+# Style for the C core in core/. Run `make -C core format`.
+---
+Language: Cpp
+BasedOnStyle: Google
+ColumnLimit: 80
+# Keep short single-statement if/loop bodies on one line.
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: true
+# Don't infer pointer placement from the file; always `char *p`.
+DerivePointerAlignment: false
+PointerAlignment: Right

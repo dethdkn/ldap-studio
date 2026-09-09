@@ -1,0 +1,38 @@
+# Static analysis for the C core in core/. Run `make -C core tidy`
+# (needs core/compile_commands.json — `make -C core compdb` first).
+#
+# Strict: broad check set + WarningsAsErrors, so any finding fails the
+# command. Excluded checks are ones that are wrong for C or fight the
+# house style, not a loosening of strictness:
+#   readability-identifier-length            - short loop/local names (i, rc, md) are idiomatic C
+#   readability-magic-numbers                - bit masks / buffer sizes; the important ones are #defines
+#   readability-braces-around-statements     - .clang-format keeps 1-line if/loop bodies
+#   misc-no-recursion                        - the LDAP tree walkers are recursive by nature
+#   bugprone-easily-swappable-parameters     - every LDAP fn takes host/port/dn/...
+#   bugprone-multi-level-implicit-pointer-conversion - free((void*)p) with p a T** is valid C
+#   misc-include-cleaner                     - unreliable / very noisy
+#   misc-header-include-cycle                - only ever fires inside OpenSSL's own headers
+# cognitive-complexity threshold is raised to 40: the schema keyword
+# dispatchers and the photo cleanup ladder are long but flat.
+---
+Checks: >
+  bugprone-*,
+  cert-*,
+  clang-analyzer-*,
+  misc-*,
+  performance-*,
+  portability-*,
+  readability-*,
+  -bugprone-easily-swappable-parameters,
+  -bugprone-multi-level-implicit-pointer-conversion,
+  -misc-header-include-cycle,
+  -misc-include-cleaner,
+  -misc-no-recursion,
+  -readability-braces-around-statements,
+  -readability-identifier-length,
+  -readability-magic-numbers
+WarningsAsErrors: '*'
+HeaderFilterRegex: 'core/(src|include)/.*\.h$'
+FormatStyle: file
+CheckOptions:
+  readability-function-cognitive-complexity.Threshold: 40

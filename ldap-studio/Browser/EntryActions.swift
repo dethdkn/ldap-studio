@@ -129,11 +129,12 @@ struct EntryActions {
     }
 
     /// Resizes the image at `fileURL` to a 300x300 JPEG (center-cropped, so
-    /// it's never distorted) and sets it as `attribute`, replacing only
-    /// `oldValue` the same way `setPassword` does.
-    func setPhoto(fileURL: URL, replacing oldValue: String, forDN dn: String, attribute: String) async throws {
+    /// it's never distorted) and makes it the entry's `attribute` value —
+    /// a plain Replace, so it works regardless of whatever (possibly
+    /// bogus) value was there before.
+    func setPhoto(fileURL: URL, forDN dn: String, attribute: String) async throws {
         let base64 = try resizePhotoToBase64(path: fileURL.path)
-        try await modifyAttributeValue(
+        try await setAttributeValue(
             host: connection.host,
             port: UInt16(clamping: connection.port),
             useSsl: connection.useSSL,
@@ -141,8 +142,7 @@ struct EntryActions {
             password: password,
             dn: dn,
             attribute: attribute,
-            oldValue: oldValue,
-            newValue: base64,
+            value: base64,
             isBinary: true
         )
     }

@@ -447,7 +447,6 @@ struct EntryDetailView: View {
     private func setPhoto(for attribute: Attribute) {
         let dn = entry.dn
         let name = attribute.name
-        let oldValue = attribute.value
 
         // Deferred to the next run loop tick so the context menu has fully
         // dismissed before a new panel is presented — same crash this app
@@ -461,7 +460,7 @@ struct EntryDetailView: View {
             panel.begin { response in
                 guard response == .OK, let url = panel.url else { return }
                 perform(reloadSelecting: dn) {
-                    try await actions.setPhoto(fileURL: url, replacing: oldValue, forDN: dn, attribute: name)
+                    try await actions.setPhoto(fileURL: url, forDN: dn, attribute: name)
                 }
             }
         }

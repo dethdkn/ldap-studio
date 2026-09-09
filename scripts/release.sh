@@ -4,7 +4,6 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 PBXPROJ="ldap-studio.xcodeproj/project.pbxproj"
-CARGO_TOML="core/Cargo.toml"
 
 if [[ -d /Applications/Xcode.app ]]; then
     export DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
@@ -15,7 +14,7 @@ if [[ -n "$(git status --porcelain)" ]]; then
     exit 1
 fi
 
-CURRENT_VERSION="$(sed -n 's/^version = "\(.*\)"/\1/p' "$CARGO_TOML" | head -n1)"
+CURRENT_VERSION="$(sed -n 's/.*MARKETING_VERSION = \(.*\);/\1/p' "$PBXPROJ" | head -n1)"
 read -rp "New version (current is $CURRENT_VERSION, e.g. 0.1.4): " VERSION
 
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
@@ -33,13 +32,7 @@ fi
 echo "==> Updating Xcode project version to $VERSION"
 sed -i '' "s/MARKETING_VERSION = .*/MARKETING_VERSION = $VERSION;/" "$PBXPROJ"
 
-echo "==> Updating Cargo.toml version to $VERSION"
-sed -i '' "s/^version = \".*\"/version = \"$VERSION\"/" "$CARGO_TOML"
-
-echo "==> Refreshing Cargo.lock"
-(cd core && cargo check --offline --quiet)
-
-git add "$PBXPROJ" "$CARGO_TOML" core/Cargo.lock
+git add "$PBXPROJ"
 
 echo "==> Committing"
 git commit -m "🔖 Release $VERSION"

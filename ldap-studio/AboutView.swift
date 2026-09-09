@@ -28,6 +28,15 @@ struct AboutView: View {
                     .foregroundStyle(.secondary)
             }
 
+            let deps = dependencyVersions()
+            VStack(spacing: 2) {
+                Text("OpenLDAP \(deps.openldap)")
+                Text("OpenSSL \(deps.openssl)")
+                Text("libxcrypt \(deps.libxcrypt)")
+            }
+            .font(.caption)
+            .foregroundStyle(.tertiary)
+
             HStack(spacing: 6) {
                 Link("GitHub", destination: URL(string: "https://github.com/dethdkn/ldap-studio")!)
                 Text("|")

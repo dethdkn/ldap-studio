@@ -1,1 +1,1 @@
-#include "ldap_studio_coreFFI.h"
+#include "ldapstudio.h"
