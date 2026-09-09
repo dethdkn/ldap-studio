@@ -17,9 +17,7 @@ core/compile_commands.json
 
 # Misc
 dist
-.vscode/*
-!.vscode/settings.json
-!.vscode/extensions.json
+tmp
 .claude
 .env
 .env
