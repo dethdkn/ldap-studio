@@ -97,36 +97,114 @@ extension DirectoryEntry {
             .filter { $0.name == "objectClass" }
             .map(\.value)
 
+        let univentionType = entry.attributes
+            .first { $0.name == "univentionObjectType" }?.value
+
         self.init(
             name: entry.name,
             dn: entry.dn,
-            icon: DirectoryEntry.icon(forObjectClasses: objectClasses),
+            icon: DirectoryEntry.icon(forObjectClasses: objectClasses,
+                                      univentionType: univentionType,
+                                      hasChildren: entry.hasChildren),
             attributes: entry.attributes.map { Attribute(name: $0.name, value: $0.value, isBinary: $0.isBinary) },
             children: entry.children.isEmpty ? nil : entry.children.map { DirectoryEntry(ldapEntry: $0) }
         )
     }
 
-    private static func icon(forObjectClasses classes: [String]) -> String {
-        let lowercased = Set(classes.map { $0.lowercased() })
-        if lowercased.contains("domain") || lowercased.contains("dcobject") {
-            return "globe"
+    /// Picks an SF Symbol for a tree row.
+    ///
+    /// Univention (UCS) directories carry the real entry type in
+    /// `univentionObjectType` as `module/type` — that's checked first
+    /// because the objectClasses on a UCS entry (`univentionObject`, a
+    /// bare `cn` container, …) often don't say much. Otherwise it goes by
+    /// objectClass: an entry carries several (one structural plus any
+    /// number of auxiliaries) and we don't have the schema here to tell
+    /// which is structural, so the checks are ordered so the class that
+    /// best describes the entry wins. Anything unrecognised falls back to
+    /// a folder or a document rather than a question mark.
+    static func icon(forObjectClasses classes: [String],
+                     univentionType: String? = nil,
+                     hasChildren: Bool) -> String {
+        if let ut = univentionType?.lowercased() {
+            let module = ut.split(separator: "/").first.map(String.init) ?? ut
+            switch module {
+            case "users": return "person.fill"
+            case "groups": return "person.2.fill"
+            case "container": return "folder.fill"
+            case "computers":
+                return (ut.contains("domaincontroller") || ut.contains("memberserver"))
+                    ? "server.rack" : "desktopcomputer"
+            case "dns", "dhcp", "networks": return "network"
+            case "shares": return ut.contains("printer") ? "printer.fill" : "externaldrive.fill"
+            case "printers": return "printer.fill"
+            case "mail", "oxmail", "oxresources": return "envelope.fill"
+            case "policies": return "slider.horizontal.3"
+            case "settings", "appcenter", "uvmm": return "gearshape.fill"
+            case "portals": return "square.grid.2x2.fill"
+            case "kerberos", "saml": return "key.fill"
+            default: break  // fall through to the objectClass checks
+            }
         }
-        if lowercased.contains("organizationalunit") || lowercased.contains("container") {
-            return "folder.fill"
-        }
-        if lowercased.contains("locality") {
-            return "building.2.fill"
-        }
-        if lowercased.contains("groupofnames") || lowercased.contains("group") {
-            return "person.2.fill"
-        }
-        if lowercased.contains("device") || lowercased.contains("computer") {
-            return "desktopcomputer"
-        }
-        if lowercased.contains("inetorgperson") || lowercased.contains("person") {
+        return objectClassIcon(classes, hasChildren: hasChildren)
+    }
+
+    private static func objectClassIcon(_ classes: [String], hasChildren: Bool) -> String {
+        // Values normally arrive one per objectClass attribute; also
+        // tolerate a single comma/space-joined value (mock data, pasted
+        // input).
+        let names = Set(
+            classes
+                .flatMap { $0.lowercased().split { $0 == "," || $0 == " " } }
+                .map(String.init)
+        )
+        func has(_ candidates: String...) -> Bool { !names.isDisjoint(with: candidates) }
+
+        if has("alias") { return "arrowshape.turn.up.right.fill" }
+        if has("referral") { return "arrow.up.forward.square.fill" }
+
+        // People
+        if has("inetorgperson", "organizationalperson", "person", "residentialperson",
+               "posixaccount", "shadowaccount", "account", "inetuser", "user",
+               "pkiuser", "sambasamaccount", "mailrecipient") {
             return "person.fill"
         }
-        return "questionmark.folder"
+
+        // Groups
+        if has("groupofnames", "groupofuniquenames", "groupofmembers", "groupofurls",
+               "posixgroup", "sambagroupmapping", "nisnetgroup", "group") {
+            return "person.2.fill"
+        }
+
+        // Machines & network
+        if has("device", "ieee802device", "bootabledevice", "computer") {
+            return "desktopcomputer"
+        }
+        if has("iphost", "ipnetwork", "ipservice", "ipprotocol",
+               "dnszone", "dnsnode", "oncrpc", "nisobject") {
+            return "network"
+        }
+        if has("printerabstract", "printerservice", "slpservice") { return "printer.fill" }
+
+        // Directory infrastructure
+        if has("applicationprocess") { return "gearshape.fill" }
+        if has("applicationentity", "dsa") { return "server.rack" }
+        if has("simplesecurityobject") { return "key.fill" }
+        if has("organizationalrole") { return "briefcase.fill" }
+
+        // Containers
+        if has("organizationalunit", "container", "nscontainer",
+               "niscontainer", "posixcontainer") {
+            return "folder.fill"
+        }
+
+        // Naming contexts / roots
+        if has("domain", "dcobject", "domaincomponent", "dnsdomain") { return "globe" }
+        if has("organization") { return "building.2.fill" }
+        if has("country") { return "flag.fill" }
+        if has("locality") { return "mappin.and.ellipse" }
+
+        // Unknown — at least distinguish a branch from a leaf.
+        return hasChildren ? "folder" : "doc.text"
     }
 }
 

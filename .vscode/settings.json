@@ -1,6 +1,3 @@
 {
-  // IntelliSense reads the real compiler flags from the compilation
-  // database. Generate it once after cloning (and after Makefile flag
-  // changes) with:  make -C core compdb
   "C_Cpp.default.compileCommands": "${workspaceFolder}/core/compile_commands.json"
 }
