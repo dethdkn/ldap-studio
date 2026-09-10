@@ -128,14 +128,15 @@ struct DirectoryTreeView: View {
             }
         }
         .alert(
-            "Delete \(entryPendingDeletion?.name ?? "")?",
+            deleteAlertTitle(for: entryPendingDeletion),
             isPresented: Binding(
                 get: { entryPendingDeletion != nil },
                 set: { if !$0 { entryPendingDeletion = nil } }
             ),
             presenting: entryPendingDeletion
         ) { entry in
-            Button("Delete", role: .destructive) {
+            Button(entry.subtreeCount > 1 ? "Delete \(entry.subtreeCount) Entries" : "Delete",
+                   role: .destructive) {
                 delete(entry)
                 entryPendingDeletion = nil
             }
@@ -143,8 +144,9 @@ struct DirectoryTreeView: View {
                 entryPendingDeletion = nil
             }
         } message: { entry in
-            if entry.children?.isEmpty == false {
-                Text("\(entry.dn) has child entries — deleting it will delete all of them too. This cannot be undone.")
+            let descendants = entry.subtreeCount - 1
+            if descendants > 0 {
+                Text("This permanently deletes \(entry.dn) and \(descendants) \(descendants == 1 ? "entry" : "entries") beneath it from the server — \(entry.subtreeCount) in total. This cannot be undone.")
             } else {
                 Text("This permanently deletes \(entry.dn) from the server. This cannot be undone.")
             }
@@ -591,6 +593,13 @@ struct DirectoryTreeView: View {
         perform(reloadSelecting: selection) {
             try await actions.delete(entry)
         }
+    }
+
+    private func deleteAlertTitle(for entry: DirectoryEntry?) -> String {
+        guard let entry else { return "Delete Entry?" }
+        return entry.subtreeCount > 1
+            ? "Delete “\(entry.name)” and everything under it?"
+            : "Delete “\(entry.name)”?"
     }
 
     /// Expands every ancestor of `dn` (so it's actually visible in the

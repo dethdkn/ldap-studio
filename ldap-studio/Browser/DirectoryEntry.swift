@@ -37,6 +37,12 @@ struct Attribute: Identifiable, Hashable {
 }
 
 extension DirectoryEntry {
+    /// This entry plus every descendant currently loaded — what a
+    /// recursive delete would actually remove.
+    var subtreeCount: Int {
+        1 + (children ?? []).reduce(0) { $0 + $1.subtreeCount }
+    }
+
     /// This entry's `objectClass` values.
     var objectClassNames: [String] {
         attributes
