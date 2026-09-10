@@ -23,10 +23,13 @@ struct SavedConnection: Identifiable, Codable, Hashable {
     var trustedCertSHA256: String?
     /// DNs the user pinned for quick jumping, newest first.
     var bookmarks: [String]
+    /// Pinned to the top of the connection list with a star.
+    var isFavorite: Bool
 
     init(id: UUID = UUID(), name: String, host: String, port: Int, useSSL: Bool,
          useStartTLS: Bool = false, baseDN: String, bindDN: String,
-         trustedCertSHA256: String? = nil, bookmarks: [String] = []) {
+         trustedCertSHA256: String? = nil, bookmarks: [String] = [],
+         isFavorite: Bool = false) {
         self.id = id
         self.name = name
         self.host = host
@@ -37,10 +40,11 @@ struct SavedConnection: Identifiable, Codable, Hashable {
         self.bindDN = bindDN
         self.trustedCertSHA256 = trustedCertSHA256
         self.bookmarks = bookmarks
+        self.isFavorite = isFavorite
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, host, port, useSSL, useStartTLS, baseDN, bindDN, trustedCertSHA256, bookmarks
+        case id, name, host, port, useSSL, useStartTLS, baseDN, bindDN, trustedCertSHA256, bookmarks, isFavorite
     }
 
     // Custom decoding so older saved files (from before `baseDN` /
@@ -59,6 +63,7 @@ struct SavedConnection: Identifiable, Codable, Hashable {
         bindDN = try container.decode(String.self, forKey: .bindDN)
         trustedCertSHA256 = try container.decodeIfPresent(String.self, forKey: .trustedCertSHA256)
         bookmarks = try container.decodeIfPresent([String].self, forKey: .bookmarks) ?? []
+        isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
     }
 
     func encode(to encoder: Encoder) throws {
@@ -73,5 +78,6 @@ struct SavedConnection: Identifiable, Codable, Hashable {
         try container.encode(bindDN, forKey: .bindDN)
         try container.encodeIfPresent(trustedCertSHA256, forKey: .trustedCertSHA256)
         if !bookmarks.isEmpty { try container.encode(bookmarks, forKey: .bookmarks) }
+        if isFavorite { try container.encode(true, forKey: .isFavorite) }
     }
 }

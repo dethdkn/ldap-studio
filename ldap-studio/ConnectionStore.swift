@@ -63,6 +63,12 @@ final class ConnectionStore {
         persist()
     }
 
+    func setFavorite(_ isFavorite: Bool, for id: SavedConnection.ID) {
+        guard let index = connections.firstIndex(where: { $0.id == id }) else { return }
+        connections[index].isFavorite = isFavorite
+        persist()
+    }
+
     func delete(_ connection: SavedConnection) {
         connections.removeAll { $0.id == connection.id }
         KeychainService.deletePassword(for: connection.id)

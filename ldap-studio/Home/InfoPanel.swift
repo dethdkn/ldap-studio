@@ -113,7 +113,8 @@ struct InfoPanel: View {
                 useStartTLS: item.useStartTLS,
                 baseDN: item.baseDN,
                 bindDN: item.bindDN,
-                bookmarks: item.bookmarks
+                bookmarks: item.bookmarks,
+                isFavorite: item.isFavorite
             )
             KeychainService.savePassword(item.decodedPassword, for: connection.id)
             store.add(connection)

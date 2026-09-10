@@ -21,11 +21,15 @@ struct ConnectionListPanel: View {
     @State private var isShowingExportChoice = false
 
     private var filteredConnections: [SavedConnection] {
-        guard !searchText.isEmpty else { return store.connections }
-        return store.connections.filter {
-            $0.name.localizedCaseInsensitiveContains(searchText)
-                || $0.host.localizedCaseInsensitiveContains(searchText)
-        }
+        let matches = searchText.isEmpty
+            ? store.connections
+            : store.connections.filter {
+                $0.name.localizedCaseInsensitiveContains(searchText)
+                    || $0.host.localizedCaseInsensitiveContains(searchText)
+            }
+        // Favorites float to the top; `sorted` is stable so the rest keep
+        // their existing order.
+        return matches.sorted { $0.isFavorite && !$1.isFavorite }
     }
 
     /// Only a single, unambiguous selection maps to menu-bar commands —
@@ -64,7 +68,11 @@ struct ConnectionListPanel: View {
                 )
             } else {
                 List(filteredConnections, selection: $selection) { connection in
-                    ConnectionRow(connection: connection, isHovering: hoveredConnectionID == connection.id)
+                    ConnectionRow(
+                        connection: connection,
+                        isHovering: hoveredConnectionID == connection.id,
+                        onToggleFavorite: { store.setFavorite(!connection.isFavorite, for: connection.id) }
+                    )
                         .contentShape(Rectangle())
                         .onHover { hovering in
                             hoveredConnectionID = hovering ? connection.id : nil
@@ -130,7 +138,11 @@ struct ConnectionListPanel: View {
             delete: singleSelectedConnection.map { connection in {
                 connectionsPendingDeletion = [connection]
                 isShowingDeleteConfirmation = true
-            } }
+            } },
+            toggleFavorite: singleSelectedConnection.map { connection in
+                { store.setFavorite(!connection.isFavorite, for: connection.id) }
+            },
+            isFavorite: singleSelectedConnection?.isFavorite ?? false
         ))
     }
 
@@ -154,6 +166,19 @@ struct ConnectionListPanel: View {
             }
             Button("Edit", systemImage: "pencil") {
                 connectionToEdit = connection
+            }
+        }
+
+        if targets.allSatisfy(\.isFavorite) {
+            Button("Remove from Favorites", systemImage: "star.slash") {
+                for target in targets { store.setFavorite(false, for: target.id) }
+            }
+        } else {
+            Button(
+                targets.count > 1 ? "Add \(targets.count) to Favorites" : "Add to Favorites",
+                systemImage: "star"
+            ) {
+                for target in targets { store.setFavorite(true, for: target.id) }
             }
         }
 

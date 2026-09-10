@@ -17,6 +17,7 @@ struct ExportableConnection: Codable {
     var baseDN: String
     var bindDN: String
     var bookmarks: [String]
+    var isFavorite: Bool
     var password: String
     /// Whether `password` is base64-encoded rather than plain text — an
     /// explicit flag rather than guessing from the string's shape on
@@ -26,10 +27,10 @@ struct ExportableConnection: Codable {
     var passwordIsBase64: Bool
 
     enum CodingKeys: String, CodingKey {
-        case name, host, port, useSSL, useStartTLS, baseDN, bindDN, bookmarks, password, passwordIsBase64
+        case name, host, port, useSSL, useStartTLS, baseDN, bindDN, bookmarks, isFavorite, password, passwordIsBase64
     }
 
-    init(name: String, host: String, port: Int, useSSL: Bool, useStartTLS: Bool = false, baseDN: String, bindDN: String, bookmarks: [String] = [], password: String, passwordIsBase64: Bool = false) {
+    init(name: String, host: String, port: Int, useSSL: Bool, useStartTLS: Bool = false, baseDN: String, bindDN: String, bookmarks: [String] = [], isFavorite: Bool = false, password: String, passwordIsBase64: Bool = false) {
         self.name = name
         self.host = host
         self.port = port
@@ -38,6 +39,7 @@ struct ExportableConnection: Codable {
         self.baseDN = baseDN
         self.bindDN = bindDN
         self.bookmarks = bookmarks
+        self.isFavorite = isFavorite
         self.password = password
         self.passwordIsBase64 = passwordIsBase64
     }
@@ -54,6 +56,7 @@ struct ExportableConnection: Codable {
         baseDN = try container.decodeIfPresent(String.self, forKey: .baseDN) ?? ""
         bindDN = try container.decode(String.self, forKey: .bindDN)
         bookmarks = try container.decodeIfPresent([String].self, forKey: .bookmarks) ?? []
+        isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
         password = try container.decode(String.self, forKey: .password)
         passwordIsBase64 = try container.decodeIfPresent(Bool.self, forKey: .passwordIsBase64) ?? false
     }
@@ -68,6 +71,7 @@ struct ExportableConnection: Codable {
         try container.encode(baseDN, forKey: .baseDN)
         try container.encode(bindDN, forKey: .bindDN)
         try container.encode(bookmarks, forKey: .bookmarks)
+        try container.encode(isFavorite, forKey: .isFavorite)
         try container.encode(password, forKey: .password)
         try container.encode(passwordIsBase64, forKey: .passwordIsBase64)
     }
@@ -93,6 +97,7 @@ extension ExportableConnection {
             baseDN: connection.baseDN,
             bindDN: connection.bindDN,
             bookmarks: connection.bookmarks,
+            isFavorite: connection.isFavorite,
             password: password,
             passwordIsBase64: passwordIsBase64
         )

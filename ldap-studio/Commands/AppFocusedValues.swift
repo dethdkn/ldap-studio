@@ -22,6 +22,10 @@ struct SelectedConnectionCommands {
     var edit: (() -> Void)?
     var export: (() -> Void)?
     var delete: (() -> Void)?
+    /// Toggles the selected connection's favorite flag; nil with no
+    /// single selection. `isFavorite` drives the menu-item label.
+    var toggleFavorite: (() -> Void)?
+    var isFavorite: Bool = false
 }
 
 struct DirectoryCommands {

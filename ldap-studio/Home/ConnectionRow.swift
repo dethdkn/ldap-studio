@@ -8,6 +8,7 @@ import SwiftUI
 struct ConnectionRow: View {
     let connection: SavedConnection
     var isHovering: Bool = false
+    var onToggleFavorite: (() -> Void)?
 
     /// A bind DN with no password behind it will simply fail to bind —
     /// worth a quiet nudge. An empty bind DN (anonymous bind) is a normal,
@@ -18,6 +19,18 @@ struct ConnectionRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
+            Button {
+                onToggleFavorite?()
+            } label: {
+                Image(systemName: connection.isFavorite ? "star.fill" : "star")
+                    .font(.callout)
+                    .foregroundStyle(connection.isFavorite ? Color.yellow : Color.secondary)
+            }
+            .buttonStyle(.plain)
+            .frame(width: 18)
+            .opacity(connection.isFavorite || isHovering ? 1 : 0)
+            .help(connection.isFavorite ? "Remove from Favorites" : "Add to Favorites")
+
             Image(systemName: "server.rack")
                 .font(.title2)
                 .foregroundStyle(.blue)

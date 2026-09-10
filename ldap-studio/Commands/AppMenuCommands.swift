@@ -89,6 +89,11 @@ struct AppMenuCommands: Commands {
             }
             .disabled(selectedConnectionCommands?.edit == nil)
 
+            Button(selectedConnectionCommands?.isFavorite == true ? "Remove from Favorites" : "Add to Favorites") {
+                selectedConnectionCommands?.toggleFavorite?()
+            }
+            .disabled(selectedConnectionCommands?.toggleFavorite == nil)
+
             Divider()
 
             Button("Delete", role: .destructive) {
