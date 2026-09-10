@@ -42,4 +42,52 @@ extension LdapSchema {
             .compactMap { $0.names.first }
             .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
+
+    /// Primary names of the classes of a given kind ("STRUCTURAL",
+    /// "AUXILIARY", "ABSTRACT"), sorted.
+    func objectClassNames(ofKind kind: String) -> [String] {
+        objectClasses
+            .filter { $0.kind.caseInsensitiveCompare(kind) == .orderedSame }
+            .compactMap { $0.names.first }
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+    }
+
+    struct RequiredOptionalAttributes {
+        var must: [String]
+        var may: [String]
+    }
+
+    /// The MUST (required) and MAY (optional) attribute names for an entry
+    /// with the given object classes, gathering each class's own plus
+    /// everything inherited from its superiors. Anything that's MUST for
+    /// any class is treated as required overall (removed from `may`).
+    func requiredAndOptionalAttributes(forObjectClasses objectClassNames: [String]) -> RequiredOptionalAttributes {
+        var visited = Set<String>()
+        var must = Set<String>()
+        var may = Set<String>()
+
+        func visit(_ name: String) {
+            let key = name.lowercased()
+            guard !visited.contains(key) else { return }
+            visited.insert(key)
+            guard let objectClass = objectClasses.first(where: { oc in
+                oc.names.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
+            }) else { return }
+            must.formUnion(objectClass.must)
+            may.formUnion(objectClass.may)
+            for superior in objectClass.superiorClasses {
+                visit(superior)
+            }
+        }
+
+        for name in objectClassNames {
+            visit(name)
+        }
+        may.subtract(must)
+
+        func sorted(_ set: Set<String>) -> [String] {
+            set.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+        }
+        return RequiredOptionalAttributes(must: sorted(must), may: sorted(may))
+    }
 }
