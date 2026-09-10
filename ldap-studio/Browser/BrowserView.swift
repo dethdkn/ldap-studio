@@ -6,10 +6,20 @@
 import SwiftUI
 
 struct BrowserView: View {
-    let connection: SavedConnection
+    @Environment(ConnectionStore.self) private var store
+
+    /// Seeded from the value the window opened with; the only field that
+    /// changes here is `trustedCertSHA256`, when the user accepts an
+    /// untrusted certificate (then persisted back through the store).
+    @State private var connection: SavedConnection
+
+    init(connection: SavedConnection) {
+        _connection = State(initialValue: connection)
+    }
 
     @State private var root: DirectoryEntry?
     @State private var loadError: String?
+    @State private var isShowingCertTrust = false
     @State private var selection: DirectoryEntry.ID?
     /// Fetched alongside the tree for attribute/object-class autocomplete —
     /// optional and non-blocking on purpose: if it fails to load (or the
@@ -73,6 +83,18 @@ struct BrowserView: View {
         .task {
             await loadDirectory()
         }
+        .sheet(isPresented: $isShowingCertTrust) {
+            CertificateTrustSheet(
+                host: connection.host,
+                port: UInt16(clamping: connection.port),
+                useSSL: connection.useSSL,
+                useStartTLS: connection.useStartTLS
+            ) { sha256 in
+                connection.trustedCertSHA256 = sha256
+                store.update(connection)
+                retry()
+            }
+        }
     }
 
     private func retry() {
@@ -92,6 +114,8 @@ struct BrowserView: View {
             host: connection.host,
             port: UInt16(clamping: connection.port),
             useSsl: connection.useSSL,
+            startTLS: connection.useStartTLS,
+            pinnedCertSHA256: connection.trustedCertSHA256,
             bindDn: connection.bindDN,
             password: password,
             baseDn: connection.baseDN
@@ -100,6 +124,8 @@ struct BrowserView: View {
             host: connection.host,
             port: UInt16(clamping: connection.port),
             useSsl: connection.useSSL,
+            startTLS: connection.useStartTLS,
+            pinnedCertSHA256: connection.trustedCertSHA256,
             bindDn: connection.bindDN,
             password: password
         )
@@ -107,6 +133,15 @@ struct BrowserView: View {
         do {
             root = DirectoryEntry(ldapEntry: try await entryTask)
             schema = await schemaTask
+        } catch let error as ConnectionError {
+            // An untrusted certificate isn't a dead end — offer to inspect
+            // and pin it. Anything the user already pinned that still fails
+            // is a real problem, so show it plainly.
+            if case .TLSUntrusted = error, connection.trustedCertSHA256 == nil {
+                isShowingCertTrust = true
+            } else {
+                loadError = "\(error)"
+            }
         } catch {
             loadError = "\(error)"
         }
@@ -129,4 +164,5 @@ struct BrowserView: View {
 
 #Preview {
     BrowserView(connection: SavedConnection(name: "Corp Directory", host: "ldap.corp.example.com", port: 389, useSSL: false, baseDN: "dc=corp,dc=example,dc=com", bindDN: ""))
+        .environment(ConnectionStore())
 }

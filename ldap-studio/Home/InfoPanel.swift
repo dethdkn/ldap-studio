@@ -110,6 +110,7 @@ struct InfoPanel: View {
                 host: item.host,
                 port: item.port,
                 useSSL: item.useSSL,
+                useStartTLS: item.useStartTLS,
                 baseDN: item.baseDN,
                 bindDN: item.bindDN
             )

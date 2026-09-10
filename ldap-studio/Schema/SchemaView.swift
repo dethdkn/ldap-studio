@@ -53,6 +53,8 @@ struct SchemaView: View {
                 host: connection.host,
                 port: UInt16(clamping: connection.port),
                 useSsl: connection.useSSL,
+                startTLS: connection.useStartTLS,
+                pinnedCertSHA256: connection.trustedCertSHA256,
                 bindDn: connection.bindDN,
                 password: KeychainService.readPassword(for: connection.id) ?? ""
             )

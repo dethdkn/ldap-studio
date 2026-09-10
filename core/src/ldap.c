@@ -7,6 +7,9 @@
  * unbinds — exactly as the async Rust functions did.
  */
 #include <ctype.h>
+#include <openssl/evp.h>
+#include <openssl/x509.h>
+#include <openssl/x509v3.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -22,9 +25,95 @@ int ls_ldap_fail(LSError *err, LSErrorKind kind, int rc) {
  * Written before any connection is opened, read-only thereafter. */
 static char *g_tls_cacert;
 
+/* Per-connection TLS policy — see ls_set_tls_policy in the header. Plain
+ * globals, matching g_tls_cacert; the Swift layer rewrites them before
+ * every operation. */
+static bool g_tls_start_tls;
+static bool g_tls_allow_untrusted;
+static char
+    *g_tls_pinned_sha256; /* lowercase hex, no separators; NULL = none */
+
 void ls_set_tls_cacert(const char *path) {
   free(g_tls_cacert);
   g_tls_cacert = path ? ls_xstrdup(path) : NULL;
+}
+
+/* Lowercase a hex string in place and strip ':' separators. */
+static char *normalize_hex(const char *s) {
+  char *out = ls_xmalloc(strlen(s) + 1);
+  size_t n = 0;
+  for (const char *p = s; *p; p++) {
+    if (*p == ':' || *p == ' ') continue;
+    out[n++] = (char)tolower((unsigned char)*p);
+  }
+  out[n] = '\0';
+  return out;
+}
+
+void ls_set_tls_policy(bool start_tls, bool allow_untrusted,
+                       const char *pinned_sha256) {
+  g_tls_start_tls = start_tls;
+  g_tls_allow_untrusted = allow_untrusted;
+  free(g_tls_pinned_sha256);
+  g_tls_pinned_sha256 = pinned_sha256 ? normalize_hex(pinned_sha256) : NULL;
+}
+
+/* Lowercase-hex encode `len` bytes into `out` (needs len*2 + 1 bytes). */
+static void hex_encode(const unsigned char *bytes, size_t len, char *out) {
+  static const char digits[] = "0123456789abcdef";
+  for (size_t i = 0; i < len; i++) {
+    out[i * 2] = digits[bytes[i] >> 4];
+    out[(i * 2) + 1] = digits[bytes[i] & 0x0F];
+  }
+  out[len * 2] = '\0';
+}
+
+/* SHA-256 of the connection's peer leaf cert (DER), as lowercase hex into
+ * `out` (needs >= 65 bytes). False if there's no peer cert yet. */
+static bool peer_cert_sha256(LDAP *ld, char *out) {
+  struct berval der = {0, NULL};
+  if (ldap_get_option(ld, LDAP_OPT_X_TLS_PEERCERT, &der) != LDAP_OPT_SUCCESS ||
+      !der.bv_val) {
+    return false;
+  }
+  const unsigned char *p = (const unsigned char *)der.bv_val;
+  X509 *cert = d2i_X509(NULL, &p, (long)der.bv_len);
+  ldap_memfree(der.bv_val);
+  if (!cert) return false;
+
+  unsigned char md[EVP_MAX_MD_SIZE];
+  unsigned int md_len = 0;
+  int ok = X509_digest(cert, EVP_sha256(), md, &md_len);
+  X509_free(cert);
+  if (!ok || md_len == 0) return false;
+
+  hex_encode(md, md_len, out);
+  return true;
+}
+
+/* A failed TLS/StartTLS step is either the socket (real connect failure)
+ * or the certificate being rejected. libldap blurs the two — StartTLS
+ * verification failure comes back as LDAP_CONNECT_ERROR, ldaps:// as
+ * LDAP_SERVER_DOWN, same as a dead host, and by then it has dropped the
+ * TLS context so the peer cert is gone. So re-probe with verification
+ * off: if the server still completes a handshake and presents a
+ * certificate, the original failure was that cert being rejected — tell
+ * the app so it can offer to trust it. Only when we were verifying; a
+ * pinned or allow-untrusted connection that still failed is a real
+ * fault. */
+static LSErrorKind classify_tls_failure(const char *host, uint16_t port,
+                                        bool use_ssl, int rc) {
+  if (rc == LDAP_TIMEOUT) return LS_CONNECT_TIMED_OUT;
+  if (g_tls_allow_untrusted || g_tls_pinned_sha256 != NULL) {
+    return LS_CONNECT_FAILED;
+  }
+  LSCertInfo probe = {0};
+  LSError probe_err = {0};
+  int prc = ls_probe_certificate(host, port, use_ssl, g_tls_start_tls, &probe,
+                                 &probe_err);
+  ls_cert_info_dispose(&probe);
+  ls_error_dispose(&probe_err);
+  return prc == LS_OK ? LS_TLS_UNTRUSTED : LS_CONNECT_FAILED;
 }
 
 int ls_connect_and_bind(const char *host, uint16_t port, bool use_ssl,
@@ -50,15 +139,57 @@ int ls_connect_and_bind(const char *host, uint16_t port, bool use_ssl,
   ldap_set_option(ld, LDAP_OPT_NETWORK_TIMEOUT, &tv);
   ldap_set_option(ld, LDAP_OPT_TIMEOUT, &tv);
 
-  /* TLS certificate verification is left at the library default (verify),
-   * matching the old native-tls path. When the app has supplied a CA
-   * bundle (it must, under the sandbox — OpenSSL can't reach its own
-   * default store), point this handle at it and force a fresh TLS
-   * context so the setting takes effect. */
-  if (use_ssl && g_tls_cacert) {
-    ldap_set_option(ld, LDAP_OPT_X_TLS_CACERTFILE, g_tls_cacert);
+  bool tls = use_ssl;
+  if (g_tls_start_tls) tls = true;
+  if (tls) {
+    /* Verification stays at the library default (demand a valid chain)
+     * unless the connection is pinned or the user chose "allow untrusted"
+     * — then it's the pin (or nothing) that gates acceptance. */
+    int require = (g_tls_allow_untrusted || g_tls_pinned_sha256)
+                      ? LDAP_OPT_X_TLS_NEVER
+                      : LDAP_OPT_X_TLS_DEMAND;
+    ldap_set_option(ld, LDAP_OPT_X_TLS_REQUIRE_CERT, &require);
+    /* The bundled OpenSSL can't reach its own default store under the
+     * sandbox, so point it at the app's CA bundle when we're verifying. */
+    if (g_tls_cacert && require == LDAP_OPT_X_TLS_DEMAND) {
+      ldap_set_option(ld, LDAP_OPT_X_TLS_CACERTFILE, g_tls_cacert);
+    }
     int newctx = 0; /* 0 = build a new client context now */
     ldap_set_option(ld, LDAP_OPT_X_TLS_NEWCTX, &newctx);
+  }
+
+  if (g_tls_start_tls && !use_ssl) {
+    rc = ldap_start_tls_s(ld, NULL, NULL);
+    if (rc != LDAP_SUCCESS) {
+      int out_rc = ls_fail(err, classify_tls_failure(host, port, use_ssl, rc),
+                           host, port, ldap_err2string(rc));
+      ldap_unbind_ext_s(ld, NULL, NULL);
+      return out_rc;
+    }
+  }
+
+  if (tls) {
+    /* Force the handshake now (ldaps:// otherwise defers it to the bind)
+     * so a cert rejection is classified here and the peer cert is
+     * available for pinning. */
+    rc = ldap_connect(ld);
+    if (rc != LDAP_SUCCESS) {
+      int out_rc = ls_fail(err, classify_tls_failure(host, port, use_ssl, rc),
+                           host, port, ldap_err2string(rc));
+      ldap_unbind_ext_s(ld, NULL, NULL);
+      return out_rc;
+    }
+  }
+
+  if (g_tls_pinned_sha256 && tls) {
+    char got[(EVP_MAX_MD_SIZE * 2) + 1] = {0};
+    if (!peer_cert_sha256(ld, got) || strcmp(got, g_tls_pinned_sha256) != 0) {
+      int out_rc = ls_fail(err, LS_TLS_UNTRUSTED, host, port,
+                           "server certificate does not match the "
+                           "fingerprint trusted for this connection");
+      ldap_unbind_ext_s(ld, NULL, NULL);
+      return out_rc;
+    }
   }
 
   struct berval cred;
@@ -98,6 +229,135 @@ int ls_test_connection(const char *host, uint16_t port, bool use_ssl,
   if (rc != LS_OK) return rc;
   ldap_unbind_ext_s(ld, NULL, NULL);
   return LS_OK;
+}
+
+/* ── certificate probe (for the trust dialog) ─────────────────────── */
+
+/* An X509_NAME as a single RFC 2253-ish line. Caller frees. */
+static char *x509_name_string(X509_NAME *name) {
+  if (!name) return ls_xstrdup("");
+  BIO *bio = BIO_new(BIO_s_mem());
+  if (!bio) return ls_xstrdup("");
+  X509_NAME_print_ex(bio, name, 0, XN_FLAG_RFC2253);
+  char *data = NULL;
+  long len = BIO_get_mem_data(bio, &data);
+  char *out = ls_strdup_n(data, len > 0 ? (size_t)len : 0);
+  BIO_free(bio);
+  return out;
+}
+
+/* An ASN1_TIME rendered like "Sep 10 12:00:00 2026 GMT". Caller frees. */
+static char *asn1_time_string(const ASN1_TIME *time) {
+  if (!time) return ls_xstrdup("");
+  BIO *bio = BIO_new(BIO_s_mem());
+  if (!bio) return ls_xstrdup("");
+  ASN1_TIME_print(bio, time);
+  char *data = NULL;
+  long len = BIO_get_mem_data(bio, &data);
+  char *out = ls_strdup_n(data, len > 0 ? (size_t)len : 0);
+  BIO_free(bio);
+  return out;
+}
+
+static char *x509_sha256_hex(X509 *cert) {
+  unsigned char md[EVP_MAX_MD_SIZE];
+  unsigned int md_len = 0;
+  if (!X509_digest(cert, EVP_sha256(), md, &md_len) || md_len == 0) {
+    return ls_xstrdup("");
+  }
+  char *out = ls_xmalloc(((size_t)md_len * 2) + 1);
+  hex_encode(md, md_len, out);
+  return out;
+}
+
+int ls_probe_certificate(const char *host, uint16_t port, bool use_ssl,
+                         bool start_tls, LSCertInfo *out, LSError *err) {
+  memset(out, 0, sizeof *out);
+
+  const char *scheme = "ldap";
+  if (use_ssl) scheme = "ldaps";
+  char *uri =
+      ls_aprintf("%s://%s:%u", scheme, host ? host : "", (unsigned)port);
+  LDAP *ld = NULL;
+  int rc = ldap_initialize(&ld, uri);
+  free(uri);
+  if (rc != LDAP_SUCCESS || !ld) {
+    return ls_fail(err, LS_CONNECT_FAILED, host, port, ldap_err2string(rc));
+  }
+
+  int version = LDAP_VERSION3;
+  ldap_set_option(ld, LDAP_OPT_PROTOCOL_VERSION, &version);
+  struct timeval tv = {LS_CONNECT_TIMEOUT_SECS, 0};
+  ldap_set_option(ld, LDAP_OPT_NETWORK_TIMEOUT, &tv);
+  ldap_set_option(ld, LDAP_OPT_TIMEOUT, &tv);
+
+  int never = LDAP_OPT_X_TLS_NEVER;
+  ldap_set_option(ld, LDAP_OPT_X_TLS_REQUIRE_CERT, &never);
+  int newctx = 0;
+  ldap_set_option(ld, LDAP_OPT_X_TLS_NEWCTX, &newctx);
+
+  if (start_tls && !use_ssl) {
+    rc = ldap_start_tls_s(ld, NULL, NULL);
+  } else {
+    rc = ldap_connect(ld);
+  }
+  if (rc != LDAP_SUCCESS) {
+    int out_rc = ls_fail(
+        err, rc == LDAP_TIMEOUT ? LS_CONNECT_TIMED_OUT : LS_CONNECT_FAILED,
+        host, port, ldap_err2string(rc));
+    ldap_unbind_ext_s(ld, NULL, NULL);
+    return out_rc;
+  }
+
+  /* LDAP_OPT_X_TLS_PEERCERT fills a caller-provided struct berval (not a
+   * pointer to one) with a malloc'd copy of the DER cert; free bv_val. */
+  struct berval der = {0, NULL};
+  if (ldap_get_option(ld, LDAP_OPT_X_TLS_PEERCERT, &der) != LDAP_OPT_SUCCESS ||
+      !der.bv_val) {
+    ldap_unbind_ext_s(ld, NULL, NULL);
+    return ls_fail(err, LS_CONNECT_FAILED, host, port,
+                   "the server did not present a certificate");
+  }
+  const unsigned char *p = (const unsigned char *)der.bv_val;
+  X509 *cert = d2i_X509(NULL, &p, (long)der.bv_len);
+  ldap_memfree(der.bv_val);
+  ldap_unbind_ext_s(ld, NULL, NULL);
+  if (!cert) {
+    return ls_fail(err, LS_DECODE_FAILED, host, port,
+                   "could not parse the server certificate");
+  }
+
+  X509_NAME *subject = X509_get_subject_name(cert);
+  X509_NAME *issuer = X509_get_issuer_name(cert);
+  out->subject = x509_name_string(subject);
+  out->issuer = x509_name_string(issuer);
+  out->sha256 = x509_sha256_hex(cert);
+  out->not_before = asn1_time_string(X509_get0_notBefore(cert));
+  out->not_after = asn1_time_string(X509_get0_notAfter(cert));
+  out->self_signed = X509_NAME_cmp(subject, issuer) == 0;
+
+  out->expired = false;
+  if (X509_cmp_current_time(X509_get0_notAfter(cert)) < 0) out->expired = true;
+  if (X509_cmp_current_time(X509_get0_notBefore(cert)) > 0) out->expired = true;
+
+  out->host_mismatch = false;
+  if (host && *host &&
+      X509_check_host(cert, host, strlen(host), 0, NULL) != 1) {
+    out->host_mismatch = true;
+  }
+
+  X509_free(cert);
+  return LS_OK;
+}
+
+void ls_cert_info_dispose(LSCertInfo *info) {
+  if (!info) return;
+  free(info->subject);
+  free(info->issuer);
+  free(info->sha256);
+  free(info->not_before);
+  free(info->not_after);
+  memset(info, 0, sizeof *info);
 }
 
 /* ── DN helpers (naive first-comma split, matching the old code) ───── */

@@ -204,6 +204,8 @@ struct LDIFEditorView: View {
         let host = connection.host
         let port = UInt16(clamping: connection.port)
         let ssl = connection.useSSL
+        let sTLS = connection.useStartTLS
+        let pin = connection.trustedCertSHA256
         let bind = connection.bindDN
         let pw = password
         let dn = record.dn
@@ -211,7 +213,9 @@ struct LDIFEditorView: View {
         switch record.change {
         case .add(let attributes):
             return ("add", {
-                try await addEntry(host: host, port: port, useSsl: ssl, bindDn: bind, password: pw,
+                try await addEntry(host: host, port: port, useSsl: ssl,
+                                   startTLS: sTLS, pinnedCertSHA256: pin,
+                                   bindDn: bind, password: pw,
                                    dn: dn,
                                    attributes: attributes.map {
                                        LdapAttribute(name: $0.name, value: $0.value, isBinary: $0.isBinary)
@@ -219,11 +223,15 @@ struct LDIFEditorView: View {
             })
         case .delete:
             return ("delete", {
-                try await deleteEntry(host: host, port: port, useSsl: ssl, bindDn: bind, password: pw, dn: dn)
+                try await deleteEntry(host: host, port: port, useSsl: ssl,
+                                      startTLS: sTLS, pinnedCertSHA256: pin,
+                                      bindDn: bind, password: pw, dn: dn)
             })
         case .modify(let ops):
             return ("modify", {
-                try await modifyEntry(host: host, port: port, useSsl: ssl, bindDn: bind, password: pw,
+                try await modifyEntry(host: host, port: port, useSsl: ssl,
+                                      startTLS: sTLS, pinnedCertSHA256: pin,
+                                      bindDn: bind, password: pw,
                                       dn: dn,
                                       ops: ops.map { op in
                                           LdapModOp(kind: op.kind.bridged,
@@ -233,7 +241,9 @@ struct LDIFEditorView: View {
             })
         case .modrdn(let newRDN, let deleteOldRDN, let newSuperior):
             return ("modrdn", {
-                try await renameEntry(host: host, port: port, useSsl: ssl, bindDn: bind, password: pw,
+                try await renameEntry(host: host, port: port, useSsl: ssl,
+                                      startTLS: sTLS, pinnedCertSHA256: pin,
+                                      bindDn: bind, password: pw,
                                       dn: dn, newRDN: newRDN, deleteOldRDN: deleteOldRDN,
                                       newSuperior: newSuperior)
             })

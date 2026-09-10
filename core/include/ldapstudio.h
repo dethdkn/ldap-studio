@@ -35,7 +35,12 @@ typedef enum {
   LS_MODIFY_FAILED,
   LS_HASH_FAILED,
   LS_DECODE_FAILED,
-  LS_ENCODE_FAILED
+  LS_ENCODE_FAILED,
+  /* TLS/StartTLS handshake rejected the server's certificate (untrusted
+   * issuer, self-signed, expired, name mismatch) or it didn't match the
+   * per-connection pinned fingerprint. The app answers this by probing the
+   * certificate and offering to trust it. */
+  LS_TLS_UNTRUSTED
 } LSErrorKind;
 
 /*
@@ -146,6 +151,39 @@ typedef enum {
  * in its own Resources. Pass NULL to fall back to OpenSSL's default. The
  * path is copied. Call before opening any ldaps:// connection. */
 void ls_set_tls_cacert(const char *path);
+
+/* Per-connection TLS policy, applied by the next connect the same sticky
+ * way ls_set_tls_cacert is (the Swift layer sets it immediately before
+ * every operation). `start_tls` upgrades a plain ldap:// connection with
+ * StartTLS after connecting (ignored for ldaps://). When `pinned_sha256`
+ * is non-NULL (lowercase hex SHA-256 of the server's leaf certificate,
+ * DER), library chain verification is turned off and the connection is
+ * accepted only if the presented leaf matches — trust-on-first-use for
+ * self-signed / private-CA servers. `allow_untrusted` turns verification
+ * off without pinning; the app only uses it transiently. Pass
+ * start_tls=false, allow_untrusted=false, pinned_sha256=NULL to reset. */
+void ls_set_tls_policy(bool start_tls, bool allow_untrusted,
+                       const char *pinned_sha256);
+
+/* Connects with certificate verification disabled purely to read back the
+ * server's leaf certificate, so the app can show it and ask the user
+ * whether to trust it. Returns LS_OK even when the cert wouldn't normally
+ * validate; the booleans say why it wouldn't. All strings are owned by
+ * the struct — release with ls_cert_info_dispose. */
+typedef struct {
+  char *subject;
+  char *issuer;
+  char *sha256; /* lowercase hex, no separators */
+  char *not_before;
+  char *not_after;
+  bool self_signed;
+  bool expired;
+  bool host_mismatch;
+} LSCertInfo;
+
+int ls_probe_certificate(const char *host, uint16_t port, bool use_ssl,
+                         bool start_tls, LSCertInfo *out, LSError *err);
+void ls_cert_info_dispose(LSCertInfo *info);
 
 int ls_test_connection(const char *host, uint16_t port, bool use_ssl,
                        const char *bind_dn, const char *password, LSError *err);

@@ -13,6 +13,7 @@ struct ExportableConnection: Codable {
     var host: String
     var port: Int
     var useSSL: Bool
+    var useStartTLS: Bool
     var baseDN: String
     var bindDN: String
     var password: String
@@ -24,14 +25,15 @@ struct ExportableConnection: Codable {
     var passwordIsBase64: Bool
 
     enum CodingKeys: String, CodingKey {
-        case name, host, port, useSSL, baseDN, bindDN, password, passwordIsBase64
+        case name, host, port, useSSL, useStartTLS, baseDN, bindDN, password, passwordIsBase64
     }
 
-    init(name: String, host: String, port: Int, useSSL: Bool, baseDN: String, bindDN: String, password: String, passwordIsBase64: Bool = false) {
+    init(name: String, host: String, port: Int, useSSL: Bool, useStartTLS: Bool = false, baseDN: String, bindDN: String, password: String, passwordIsBase64: Bool = false) {
         self.name = name
         self.host = host
         self.port = port
         self.useSSL = useSSL
+        self.useStartTLS = useStartTLS
         self.baseDN = baseDN
         self.bindDN = bindDN
         self.password = password
@@ -46,6 +48,7 @@ struct ExportableConnection: Codable {
         host = try container.decode(String.self, forKey: .host)
         port = try container.decode(Int.self, forKey: .port)
         useSSL = try container.decode(Bool.self, forKey: .useSSL)
+        useStartTLS = try container.decodeIfPresent(Bool.self, forKey: .useStartTLS) ?? false
         baseDN = try container.decodeIfPresent(String.self, forKey: .baseDN) ?? ""
         bindDN = try container.decode(String.self, forKey: .bindDN)
         password = try container.decode(String.self, forKey: .password)
@@ -58,6 +61,7 @@ struct ExportableConnection: Codable {
         try container.encode(host, forKey: .host)
         try container.encode(port, forKey: .port)
         try container.encode(useSSL, forKey: .useSSL)
+        try container.encode(useStartTLS, forKey: .useStartTLS)
         try container.encode(baseDN, forKey: .baseDN)
         try container.encode(bindDN, forKey: .bindDN)
         try container.encode(password, forKey: .password)
@@ -81,6 +85,7 @@ extension ExportableConnection {
             host: connection.host,
             port: connection.port,
             useSSL: connection.useSSL,
+            useStartTLS: connection.useStartTLS,
             baseDN: connection.baseDN,
             bindDN: connection.bindDN,
             password: password,

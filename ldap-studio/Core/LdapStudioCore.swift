@@ -158,6 +158,10 @@ public enum ConnectionError: Error, CustomStringConvertible {
     case BindFailed(reason: String)
     case SearchFailed(reason: String)
     case ModifyFailed(reason: String)
+    /// TLS/StartTLS rejected the server's certificate, or it didn't match
+    /// the fingerprint trusted for this connection. The UI answers this by
+    /// probing the certificate and offering "Trust for this connection".
+    case TLSUntrusted(host: String, port: UInt16, reason: String)
 
     public var description: String {
         switch self {
@@ -168,6 +172,8 @@ public enum ConnectionError: Error, CustomStringConvertible {
         case let .BindFailed(reason):   return "Bind failed: \(reason)"
         case let .SearchFailed(reason): return "Search failed: \(reason)"
         case let .ModifyFailed(reason): return "Modify failed: \(reason)"
+        case let .TLSUntrusted(host, port, reason):
+            return "The certificate for \(host):\(port) isn't trusted: \(reason)"
         }
     }
     public var errorDescription: String? { description }
@@ -217,6 +223,7 @@ private func swiftError(_ err: inout LSError) -> Error {
     switch err.kind {
     case LS_CONNECT_FAILED:    return ConnectionError.ConnectFailed(host: host, port: err.port, reason: reason)
     case LS_CONNECT_TIMED_OUT: return ConnectionError.ConnectTimedOut(host: host, port: err.port)
+    case LS_TLS_UNTRUSTED:     return ConnectionError.TLSUntrusted(host: host, port: err.port, reason: reason)
     case LS_BIND_FAILED:       return ConnectionError.BindFailed(reason: reason)
     case LS_SEARCH_FAILED:     return ConnectionError.SearchFailed(reason: reason)
     case LS_MODIFY_FAILED:     return ConnectionError.ModifyFailed(reason: reason)
@@ -322,11 +329,73 @@ private func background<T>(_ work: @escaping () -> Result<T, Error>) async throw
     }
 }
 
+/// Same, but pushes this connection's TLS policy (StartTLS, pinned cert)
+/// into the C layer first — it's sticky global state that the next
+/// connect reads, so every operation sets it explicitly, which also
+/// resets it for the plain-`ldap://` and plain-`ldaps://` callers that
+/// pass the defaults.
+private func background<T>(startTLS: Bool, pinnedCertSHA256: String?,
+                          _ work: @escaping () -> Result<T, Error>) async throws -> T {
+    try await background {
+        setTLSPolicy(startTLS: startTLS,
+                     allowUntrusted: pinnedCertSHA256 != nil,
+                     pinnedCertSHA256: pinnedCertSHA256)
+        return work()
+    }
+}
+
+/// Sets the per-connection TLS policy in the C core. `allowUntrusted`
+/// only makes sense together with a pin (verification off, the pin is
+/// what's trusted); with no pin it's plain chain verification.
+public func setTLSPolicy(startTLS: Bool, allowUntrusted: Bool, pinnedCertSHA256: String?) {
+    if let pin = pinnedCertSHA256 {
+        pin.withCString { ls_set_tls_policy(startTLS, allowUntrusted, $0) }
+    } else {
+        ls_set_tls_policy(startTLS, allowUntrusted, nil)
+    }
+}
+
+/// The server's leaf certificate as read back with verification disabled —
+/// for the "Trust for this connection" dialog.
+public struct LdapCertificate: Sendable, Equatable {
+    public let subject: String
+    public let issuer: String
+    /// Lowercase hex SHA-256 of the DER cert — what gets pinned.
+    public let sha256: String
+    public let notBefore: String
+    public let notAfter: String
+    public let selfSigned: Bool
+    public let expired: Bool
+    public let hostMismatch: Bool
+}
+
+public func probeCertificate(host: String, port: UInt16, useSsl: Bool,
+                             startTLS: Bool) async throws -> LdapCertificate {
+    try await background {
+        var err = LSError()
+        var info = LSCertInfo()
+        let rc = ls_probe_certificate(host, port, useSsl, startTLS, &info, &err)
+        guard rc == 0 else { return .failure(swiftError(&err)) }
+        defer { ls_cert_info_dispose(&info) }
+        return .success(LdapCertificate(
+            subject: str(info.subject),
+            issuer: str(info.issuer),
+            sha256: str(info.sha256),
+            notBefore: str(info.not_before),
+            notAfter: str(info.not_after),
+            selfSigned: info.self_signed,
+            expired: info.expired,
+            hostMismatch: info.host_mismatch
+        ))
+    }
+}
+
 // MARK: - Public API (same signatures the app already calls)
 
 public func testConnection(host: String, port: UInt16, useSsl: Bool,
+                           startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                            bindDn: String, password: String) async throws {
-    try await background {
+    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc = ls_test_connection(host, port, useSsl, bindDn, password, &err)
         return rc == 0 ? .success(()) : .failure(swiftError(&err))
@@ -334,9 +403,10 @@ public func testConnection(host: String, port: UInt16, useSsl: Bool,
 }
 
 public func fetchRootEntry(host: String, port: UInt16, useSsl: Bool,
+                           startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                            bindDn: String, password: String,
                            baseDn: String) async throws -> LdapEntry {
-    try await background {
+    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         var out: UnsafeMutablePointer<LSEntry>?
         let rc = ls_fetch_root_entry(host, port, useSsl, bindDn, password, baseDn, &out, &err)
@@ -348,9 +418,10 @@ public func fetchRootEntry(host: String, port: UInt16, useSsl: Bool,
 }
 
 public func searchDirectory(host: String, port: UInt16, useSsl: Bool,
+                            startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                             bindDn: String, password: String, baseDn: String,
                             scope: LdapSearchScope, filter: String) async throws -> [LdapEntry] {
-    try await background {
+    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         var out: UnsafeMutablePointer<LSEntry>?
         var count = 0
@@ -368,8 +439,9 @@ public func searchDirectory(host: String, port: UInt16, useSsl: Bool,
 }
 
 public func fetchSchema(host: String, port: UInt16, useSsl: Bool,
+                        startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                         bindDn: String, password: String) async throws -> LdapSchema {
-    try await background {
+    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         var out: UnsafeMutablePointer<LSSchema>?
         let rc = ls_fetch_schema(host, port, useSsl, bindDn, password, &out, &err)
@@ -391,8 +463,9 @@ public func fetchSchema(host: String, port: UInt16, useSsl: Bool,
 }
 
 public func deleteEntry(host: String, port: UInt16, useSsl: Bool,
+                        startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                         bindDn: String, password: String, dn: String) async throws {
-    try await background {
+    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc = ls_delete_entry(host, port, useSsl, bindDn, password, dn, &err)
         return rc == 0 ? .success(()) : .failure(swiftError(&err))
@@ -400,9 +473,10 @@ public func deleteEntry(host: String, port: UInt16, useSsl: Bool,
 }
 
 public func addAttributeValue(host: String, port: UInt16, useSsl: Bool,
+                              startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                               bindDn: String, password: String, dn: String,
                               attribute: String, value: String) async throws {
-    try await background {
+    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc = ls_add_attribute_value(host, port, useSsl, bindDn, password,
                                         dn, attribute, value, &err)
@@ -411,10 +485,11 @@ public func addAttributeValue(host: String, port: UInt16, useSsl: Bool,
 }
 
 public func modifyAttributeValue(host: String, port: UInt16, useSsl: Bool,
+                                 startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                                  bindDn: String, password: String, dn: String,
                                  attribute: String, oldValue: String, newValue: String,
                                  isBinary: Bool) async throws {
-    try await background {
+    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc = ls_modify_attribute_value(host, port, useSsl, bindDn, password,
                                            dn, attribute, oldValue, newValue, isBinary, &err)
@@ -423,9 +498,10 @@ public func modifyAttributeValue(host: String, port: UInt16, useSsl: Bool,
 }
 
 public func setAttributeValue(host: String, port: UInt16, useSsl: Bool,
+                              startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                               bindDn: String, password: String, dn: String,
                               attribute: String, value: String, isBinary: Bool) async throws {
-    try await background {
+    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc = ls_set_attribute_value(host, port, useSsl, bindDn, password,
                                         dn, attribute, value, isBinary, &err)
@@ -434,9 +510,10 @@ public func setAttributeValue(host: String, port: UInt16, useSsl: Bool,
 }
 
 public func deleteAttributeValue(host: String, port: UInt16, useSsl: Bool,
+                                 startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                                  bindDn: String, password: String, dn: String,
                                  attribute: String, value: String, isBinary: Bool) async throws {
-    try await background {
+    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc = ls_delete_attribute_value(host, port, useSsl, bindDn, password,
                                            dn, attribute, value, isBinary, &err)
@@ -445,9 +522,10 @@ public func deleteAttributeValue(host: String, port: UInt16, useSsl: Bool,
 }
 
 public func moveEntry(host: String, port: UInt16, useSsl: Bool,
+                      startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                       bindDn: String, password: String,
                       dn: String, newSuperior: String) async throws {
-    try await background {
+    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc = ls_move_entry(host, port, useSsl, bindDn, password, dn, newSuperior, &err)
         return rc == 0 ? .success(()) : .failure(swiftError(&err))
@@ -455,10 +533,11 @@ public func moveEntry(host: String, port: UInt16, useSsl: Bool,
 }
 
 public func renameEntry(host: String, port: UInt16, useSsl: Bool,
+                        startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                         bindDn: String, password: String, dn: String,
                         newRDN: String, deleteOldRDN: Bool,
                         newSuperior: String?) async throws {
-    try await background {
+    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc = ls_rename_entry(host, port, useSsl, bindDn, password, dn,
                                  newRDN, deleteOldRDN, newSuperior ?? "", &err)
@@ -493,6 +572,7 @@ public struct LdapModOp {
 
 /// One LDAP Modify with every op applied together (LDIF `changetype: modify`).
 public func modifyEntry(host: String, port: UInt16, useSsl: Bool,
+                        startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                         bindDn: String, password: String, dn: String,
                         ops: [LdapModOp]) async throws {
     let flatValues = ops.flatMap(\.values)
@@ -519,7 +599,7 @@ public func modifyEntry(host: String, port: UInt16, useSsl: Bool,
     }
 
     let count = ops.count
-    try await background {
+    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc: Int32 = cValues.withUnsafeBufferPointer { valBuf in
             var cOps: [LSModOp] = []
@@ -543,6 +623,7 @@ public func modifyEntry(host: String, port: UInt16, useSsl: Bool,
 }
 
 public func addEntry(host: String, port: UInt16, useSsl: Bool,
+                     startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                      bindDn: String, password: String, dn: String,
                      attributes: [LdapAttribute]) async throws {
     // Build a C LSAttribute[] whose char* fields stay valid for the call.
@@ -559,7 +640,7 @@ public func addEntry(host: String, port: UInt16, useSsl: Bool,
     }
 
     let count = cAttrs.count
-    try await background {
+    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc: Int32 = cAttrs.withUnsafeBufferPointer { buf in
             ls_add_entry(host, port, useSsl, bindDn, password, dn,
