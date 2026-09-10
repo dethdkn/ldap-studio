@@ -5,10 +5,18 @@
 //  Created by Gabriel Rosa on 07/08/26.
 //
 
+import AppKit
 import SwiftUI
 
 @main
 struct ldap_studioApp: App {
+    init() {
+        // This is a multi-window utility app, not a document app — macOS
+        // window tabbing (and the empty "New Tab") makes no sense here, so
+        // turn it off entirely. Also drops "Show Tab Bar" from the View menu.
+        NSWindow.allowsAutomaticWindowTabbing = false
+    }
+
     var body: some Scene {
         WindowGroup {
             Home()
