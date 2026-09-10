@@ -16,7 +16,7 @@ I use LDAP at [CBPF](https://cbpf.br), the research center I work at. The only r
 
 > ⚠️ I also wanted to learn Swift and C. I'm still learning both, so this app was built with the help of AI.
 
-## Installation
+## Installation / Updating
 
 1. Download the latest release from the [Releases page](https://github.com/dethdkn/ldap-studio/releases), e.g. `ldap-studio-vx.x.x.zip`.
 2. Extract the zip and move `ldap-studio.app` to your `/Applications` folder.
@@ -26,6 +26,10 @@ I use LDAP at [CBPF](https://cbpf.br), the research center I work at. The only r
      ```bash
      xattr -cr /Applications/ldap-studio.app
      ```
+
+### Updating
+
+To update, just download the newest version from the [Releases page](https://github.com/dethdkn/ldap-studio/releases) and replace the `ldap-studio.app` in your `/Applications` folder with it.
 
 ## Features
 
