@@ -141,6 +141,8 @@ struct EntryDetailView: View {
 
     private var isGroup: Bool { GroupMembersSheet.isGroup(entry) }
 
+    private var isReadOnly: Bool { connection.isReadOnly }
+
     private func valueSuggestions(for attributeName: String) -> [String] {
         guard attributeName.caseInsensitiveCompare("objectClass") == .orderedSame else { return [] }
         return schema?.allObjectClassNames ?? []
@@ -301,10 +303,10 @@ struct EntryDetailView: View {
         }
         .focusedSceneValue(\.entryDetailCommands, EntryDetailCommands(
             addAttribute: { isShowingAddAttribute = true },
-            editAttribute: (selectedAttribute?.isBinary == false && selectedAttribute?.isOperational == false)
+            editAttribute: (!isReadOnly && selectedAttribute?.isBinary == false && selectedAttribute?.isOperational == false)
                 ? { beginEdit(selectedAttribute) } : nil,
             deleteAttribute: selectedAttribute.flatMap { attribute in
-                attribute.isOperational ? nil : { attributePendingDeletion = attribute }
+                (isReadOnly || attribute.isOperational) ? nil : { attributePendingDeletion = attribute }
             },
             moveDN: { isShowingMovePicker = true },
             copyDN: { isShowingCopyPicker = true },
@@ -314,14 +316,15 @@ struct EntryDetailView: View {
             copyFull: selectedAttribute.map { attribute in { copyToPasteboard("\(attribute.name): \(attribute.value)") } },
             copyAttributeName: selectedAttribute.map { attribute in { copyToPasteboard(attribute.name) } },
             copyValue: selectedAttribute.map { attribute in { copyToPasteboard(attribute.value) } },
-            setPassword: selectedAttribute?.name.caseInsensitiveCompare("userPassword") == .orderedSame ? {
+            setPassword: (!isReadOnly && selectedAttribute?.name.caseInsensitiveCompare("userPassword") == .orderedSame) ? {
                 attributeBeingPasswordSet = selectedAttribute
             } : nil,
-            setPhoto: selectedAttribute?.name.caseInsensitiveCompare("jpegPhoto") == .orderedSame ? {
+            setPhoto: (!isReadOnly && selectedAttribute?.name.caseInsensitiveCompare("jpegPhoto") == .orderedSame) ? {
                 if let selectedAttribute { setPhoto(for: selectedAttribute) }
             } : nil,
             toggleOperational: { showOperational.toggle() },
-            showsOperational: showOperational
+            showsOperational: showOperational,
+            isReadOnly: isReadOnly
         ))
     }
 
@@ -333,6 +336,7 @@ struct EntryDetailView: View {
                 Image(systemName: "plus")
             }
             .help("Add Attribute")
+            .disabled(isReadOnly)
 
             Button {
                 beginEdit(selectedAttribute)
@@ -340,7 +344,7 @@ struct EntryDetailView: View {
                 Image(systemName: "pencil")
             }
             .help("Edit Attribute")
-            .disabled(selectedAttribute == nil || selectedAttribute?.isBinary == true
+            .disabled(isReadOnly || selectedAttribute == nil || selectedAttribute?.isBinary == true
                 || selectedAttribute?.isOperational == true)
 
             Button {
@@ -349,7 +353,7 @@ struct EntryDetailView: View {
                 Image(systemName: "trash")
             }
             .help("Delete Attribute")
-            .disabled(selectedAttribute == nil || selectedAttribute?.isOperational == true)
+            .disabled(isReadOnly || selectedAttribute == nil || selectedAttribute?.isOperational == true)
 
             Divider().frame(height: 16)
 
@@ -359,6 +363,7 @@ struct EntryDetailView: View {
                 Image(systemName: "arrow.turn.up.right")
             }
             .help("Move to… (⇧⌘M)")
+            .disabled(isReadOnly)
 
             Button {
                 isShowingCopyPicker = true
@@ -366,6 +371,7 @@ struct EntryDetailView: View {
                 Image(systemName: "square.on.square")
             }
             .help("Copy to… (⇧⌘D)")
+            .disabled(isReadOnly)
 
             Button {
                 actions.exportLDIF(entry)
@@ -388,6 +394,7 @@ struct EntryDetailView: View {
                     Image(systemName: "person.2.badge.gearshape")
                 }
                 .help("Edit Members (⇧⌘U)")
+                .disabled(isReadOnly)
             }
 
             Divider().frame(height: 16)
@@ -525,6 +532,7 @@ struct EntryDetailView: View {
                 host: connection.host,
                 port: UInt16(clamping: connection.port),
                 useSsl: connection.useSSL,
+                readOnly: connection.isReadOnly,
                 startTLS: connection.useStartTLS,
                 pinnedCertSHA256: connection.trustedCertSHA256,
                 bindDn: connection.bindDN,
@@ -546,6 +554,7 @@ struct EntryDetailView: View {
                 host: connection.host,
                 port: UInt16(clamping: connection.port),
                 useSsl: connection.useSSL,
+                readOnly: connection.isReadOnly,
                 startTLS: connection.useStartTLS,
                 pinnedCertSHA256: connection.trustedCertSHA256,
                 bindDn: connection.bindDN,
@@ -597,6 +606,7 @@ struct EntryDetailView: View {
                 host: connection.host,
                 port: UInt16(clamping: connection.port),
                 useSsl: connection.useSSL,
+                readOnly: connection.isReadOnly,
                 startTLS: connection.useStartTLS,
                 pinnedCertSHA256: connection.trustedCertSHA256,
                 bindDn: connection.bindDN,

@@ -112,7 +112,7 @@ struct GroupMembersSheet: View {
                             personRow(person.displayName, person.dn)
                             Spacer()
                             Button("Add") { add(person) }
-                                .disabled(isBusy || currentDNs.contains(person.dn))
+                                .disabled(isBusy || connection.isReadOnly || currentDNs.contains(person.dn))
                         }
                     }
                 }
@@ -149,7 +149,7 @@ struct GroupMembersSheet: View {
                                 Image(systemName: "minus.circle.fill").foregroundStyle(.red)
                             }
                             .buttonStyle(.borderless)
-                            .disabled(isBusy)
+                            .disabled(isBusy || connection.isReadOnly)
                         }
                     }
                 }
@@ -263,6 +263,7 @@ struct GroupMembersSheet: View {
                 host: connection.host,
                 port: UInt16(clamping: connection.port),
                 useSsl: connection.useSSL,
+                readOnly: connection.isReadOnly,
                 startTLS: connection.useStartTLS,
                 pinnedCertSHA256: connection.trustedCertSHA256,
                 bindDn: connection.bindDN,
@@ -285,6 +286,7 @@ struct GroupMembersSheet: View {
                 host: connection.host,
                 port: UInt16(clamping: connection.port),
                 useSsl: connection.useSSL,
+                readOnly: connection.isReadOnly,
                 startTLS: connection.useStartTLS,
                 pinnedCertSHA256: connection.trustedCertSHA256,
                 bindDn: connection.bindDN,

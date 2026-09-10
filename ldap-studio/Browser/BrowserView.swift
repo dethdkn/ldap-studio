@@ -83,7 +83,7 @@ struct BrowserView: View {
             }
         }
         .frame(minWidth: 700, minHeight: 420)
-        .navigationTitle("Ldap Studio - \(connection.name)")
+        .navigationTitle("Ldap Studio - \(connection.name)\(connection.isReadOnly ? "  (Read-Only)" : "")")
         .task {
             await loadDirectory()
         }

@@ -36,7 +36,7 @@ struct AppMenuCommands: Commands {
                 directoryCommands?.newEntry()
             }
             .keyboardShortcut("n", modifiers: isBrowsing ? .command : [.command, .shift])
-            .disabled(directoryCommands == nil)
+            .disabled(directoryCommands == nil || directoryCommands?.isReadOnly == true)
         }
 
         CommandGroup(after: .newItem) {
@@ -50,7 +50,7 @@ struct AppMenuCommands: Commands {
             Button("Import LDIF…") {
                 directoryCommands?.importLDIF()
             }
-            .disabled(directoryCommands == nil)
+            .disabled(directoryCommands == nil || directoryCommands?.isReadOnly == true)
 
             Button("Open LDIF…") {
                 ldifEditorCommands?.openFile()
@@ -117,7 +117,7 @@ struct AppMenuCommands: Commands {
                 ldifEditorCommands?.run()
             }
             .keyboardShortcut("r", modifiers: [.command, .shift])
-            .disabled(ldifEditorCommands == nil)
+            .disabled(ldifEditorCommands == nil || ldifEditorCommands?.isReadOnly == true)
 
             Button("Advanced Search…") {
                 directoryCommands?.advancedSearch()
@@ -169,13 +169,13 @@ struct AppMenuCommands: Commands {
                 entryDetailCommands?.moveDN()
             }
             .keyboardShortcut("m", modifiers: [.command, .shift])
-            .disabled(entryDetailCommands == nil)
+            .disabled(entryDetailCommands == nil || entryDetailCommands?.isReadOnly == true)
 
             Button("Copy to…") {
                 entryDetailCommands?.copyDN()
             }
             .keyboardShortcut("d", modifiers: [.command, .shift])
-            .disabled(entryDetailCommands == nil)
+            .disabled(entryDetailCommands == nil || entryDetailCommands?.isReadOnly == true)
 
             Button("Copy DN") {
                 directoryCommands?.copyDN?()
@@ -206,7 +206,7 @@ struct AppMenuCommands: Commands {
             Button("Add Attribute…") {
                 entryDetailCommands?.addAttribute()
             }
-            .disabled(entryDetailCommands == nil)
+            .disabled(entryDetailCommands == nil || entryDetailCommands?.isReadOnly == true)
 
             Button(entryDetailCommands?.showsOperational == true
                 ? "Hide Operational Attributes" : "Show Operational Attributes") {

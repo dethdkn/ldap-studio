@@ -28,6 +28,7 @@ struct NewConnectionSheet: View {
     @State private var baseDN: String
     @State private var bindDN: String
     @State private var password: String
+    @State private var isReadOnly: Bool
     /// Kept from the existing connection unless the user clears it here.
     @State private var trustedCertSHA256: String?
 
@@ -53,6 +54,7 @@ struct NewConnectionSheet: View {
         _baseDN = State(initialValue: existingConnection?.baseDN ?? "")
         _bindDN = State(initialValue: existingConnection?.bindDN ?? "")
         _password = State(initialValue: existingConnection.flatMap { KeychainService.readPassword(for: $0.id) } ?? "")
+        _isReadOnly = State(initialValue: existingConnection?.isReadOnly ?? false)
         _trustedCertSHA256 = State(initialValue: existingConnection?.trustedCertSHA256)
     }
 
@@ -71,7 +73,9 @@ struct NewConnectionSheet: View {
             baseDN: baseDN,
             bindDN: bindDN,
             trustedCertSHA256: trustedCertSHA256,
-            bookmarks: existingConnection?.bookmarks ?? []
+            bookmarks: existingConnection?.bookmarks ?? [],
+            isFavorite: existingConnection?.isFavorite ?? false,
+            isReadOnly: isReadOnly
         )
     }
 
@@ -94,6 +98,8 @@ struct NewConnectionSheet: View {
                 TextField("Base DN", text: $baseDN)
                 TextField("Bind DN", text: $bindDN)
                 SecureField("Password", text: $password)
+
+                Toggle("Read-only (block all writes)", isOn: $isReadOnly)
 
                 if let fingerprint = trustedCertSHA256 {
                     LabeledContent("Trusted certificate") {

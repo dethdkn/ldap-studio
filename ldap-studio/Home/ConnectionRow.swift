@@ -37,8 +37,19 @@ struct ConnectionRow: View {
                 .frame(width: 28)
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(connection.name)
-                    .font(.headline)
+                HStack(spacing: 5) {
+                    Text(connection.name)
+                        .font(.headline)
+                    if connection.isReadOnly {
+                        Image(systemName: "lock.fill")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                        Text("read-only")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .help(connection.isReadOnly ? "Read-only — writes are blocked" : "")
                 HStack(spacing: 4) {
                     Text("\(connection.host):\(connection.port)")
                         .font(.subheadline)

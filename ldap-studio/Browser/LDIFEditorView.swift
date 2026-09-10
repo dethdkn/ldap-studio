@@ -39,12 +39,13 @@ struct LDIFEditorView: View {
             resultsPane
         }
         .frame(minWidth: 620, minHeight: 500)
-        .navigationTitle("LDIF Editor — \(connection.name)")
+        .navigationTitle("LDIF Editor — \(connection.name)\(connection.isReadOnly ? "  (Read-Only)" : "")")
         .task(id: text) { await validate() }
         .focusedSceneValue(\.ldifEditorCommands, LDIFEditorCommands(
             openFile: { openFile() },
             saveFile: { saveFile() },
-            run: { run() }
+            run: { run() },
+            isReadOnly: connection.isReadOnly
         ))
         .toolbar {
             ToolbarItemGroup {
@@ -63,7 +64,8 @@ struct LDIFEditorView: View {
                 } label: {
                     Label("Run", systemImage: "play.fill")
                 }
-                .disabled(isRunning || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                .disabled(connection.isReadOnly || isRunning
+                    || text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
         }
     }
@@ -204,6 +206,7 @@ struct LDIFEditorView: View {
         let host = connection.host
         let port = UInt16(clamping: connection.port)
         let ssl = connection.useSSL
+        let ro = connection.isReadOnly
         let sTLS = connection.useStartTLS
         let pin = connection.trustedCertSHA256
         let bind = connection.bindDN
@@ -213,7 +216,7 @@ struct LDIFEditorView: View {
         switch record.change {
         case .add(let attributes):
             return ("add", {
-                try await addEntry(host: host, port: port, useSsl: ssl,
+                try await addEntry(host: host, port: port, useSsl: ssl, readOnly: ro,
                                    startTLS: sTLS, pinnedCertSHA256: pin,
                                    bindDn: bind, password: pw,
                                    dn: dn,
@@ -223,13 +226,13 @@ struct LDIFEditorView: View {
             })
         case .delete:
             return ("delete", {
-                try await deleteEntry(host: host, port: port, useSsl: ssl,
+                try await deleteEntry(host: host, port: port, useSsl: ssl, readOnly: ro,
                                       startTLS: sTLS, pinnedCertSHA256: pin,
                                       bindDn: bind, password: pw, dn: dn)
             })
         case .modify(let ops):
             return ("modify", {
-                try await modifyEntry(host: host, port: port, useSsl: ssl,
+                try await modifyEntry(host: host, port: port, useSsl: ssl, readOnly: ro,
                                       startTLS: sTLS, pinnedCertSHA256: pin,
                                       bindDn: bind, password: pw,
                                       dn: dn,
@@ -241,7 +244,7 @@ struct LDIFEditorView: View {
             })
         case .modrdn(let newRDN, let deleteOldRDN, let newSuperior):
             return ("modrdn", {
-                try await renameEntry(host: host, port: port, useSsl: ssl,
+                try await renameEntry(host: host, port: port, useSsl: ssl, readOnly: ro,
                                       startTLS: sTLS, pinnedCertSHA256: pin,
                                       bindDn: bind, password: pw,
                                       dn: dn, newRDN: newRDN, deleteOldRDN: deleteOldRDN,

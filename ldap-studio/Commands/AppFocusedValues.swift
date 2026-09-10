@@ -40,6 +40,8 @@ struct DirectoryCommands {
     var toggleBookmark: (() -> Void)?
     /// Whether the selected entry is already bookmarked (for the menu label).
     var isSelectedBookmarked: Bool
+    /// The connection is read-only — write menu items disable themselves.
+    var isReadOnly: Bool
     /// The following act on the tree's selected entry — nil when nothing is
     /// selected, and `setPassword` / `setPhoto` are also nil when the
     /// entry's object classes don't allow that attribute.
@@ -57,6 +59,7 @@ struct LDIFEditorCommands {
     var openFile: () -> Void
     var saveFile: () -> Void
     var run: () -> Void
+    var isReadOnly: Bool = false
 }
 
 struct EntryDetailCommands {
@@ -76,6 +79,8 @@ struct EntryDetailCommands {
     /// Shows/hides the server-maintained operational attributes.
     var toggleOperational: () -> Void
     var showsOperational: Bool
+    /// The connection is read-only — write menu items disable themselves.
+    var isReadOnly: Bool = false
 }
 
 private struct ConnectionCommandsKey: FocusedValueKey {

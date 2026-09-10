@@ -167,6 +167,9 @@ struct ConnectionListPanel: View {
             Button("Edit", systemImage: "pencil") {
                 connectionToEdit = connection
             }
+            Button("Duplicate", systemImage: "plus.square.on.square") {
+                duplicate(connection)
+            }
         }
 
         if targets.allSatisfy(\.isFavorite) {
@@ -199,6 +202,20 @@ struct ConnectionListPanel: View {
         ) {
             connectionsPendingDeletion = targets
             isShowingDeleteConfirmation = true
+        }
+    }
+
+    /// Copies a connection (new id, name auto-suffixed by the store) along
+    /// with its keychain password. The copy isn't carried over as a
+    /// favorite.
+    private func duplicate(_ connection: SavedConnection) {
+        var copy = connection
+        copy.id = UUID()
+        copy.isFavorite = false
+        let password = KeychainService.readPassword(for: connection.id) ?? ""
+        store.add(copy)
+        if !password.isEmpty {
+            KeychainService.savePassword(password, for: copy.id)
         }
     }
 

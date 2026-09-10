@@ -85,6 +85,8 @@ struct DirectoryTreeView: View {
 
     private var bookmarkSet: Set<String> { Set(bookmarks) }
 
+    private var isReadOnly: Bool { connection.isReadOnly }
+
     var body: some View {
         VStack(spacing: 0) {
             toolbar
@@ -199,18 +201,21 @@ struct DirectoryTreeView: View {
             goToDN: { openGoTo() },
             toggleBookmark: selectedEntry.map { entry in { onToggleBookmark(entry.dn) } },
             isSelectedBookmarked: selectedEntry.map { bookmarks.contains($0.dn) } ?? false,
+            isReadOnly: isReadOnly,
             refreshSelected: selectedEntry.map { entry in { refresh(entry) } },
-            renameSelected: selectedEntry.map { entry in { entryForRename = entry } },
+            renameSelected: (selectedEntry != nil && !isReadOnly)
+                ? { if let entry = selectedEntry { entryForRename = entry } } : nil,
             copyDN: selectedEntry.map { entry in { copyToPasteboard(entry.dn) } },
             setPassword: selectedEntry.flatMap { entry in
-                canSet("userPassword", on: entry) ? { entryForPasswordSet = entry } : nil
+                (!isReadOnly && canSet("userPassword", on: entry)) ? { entryForPasswordSet = entry } : nil
             },
             setPhoto: selectedEntry.flatMap { entry in
-                canSet("jpegPhoto", on: entry) ? { setPhoto(for: entry) } : nil
+                (!isReadOnly && canSet("jpegPhoto", on: entry)) ? { setPhoto(for: entry) } : nil
             },
-            deleteSelected: selectedEntry.map { entry in { entryPendingDeletion = entry } },
+            deleteSelected: (selectedEntry != nil && !isReadOnly)
+                ? { if let entry = selectedEntry { entryPendingDeletion = entry } } : nil,
             editMembers: selectedEntry.flatMap { entry in
-                GroupMembersSheet.isGroup(entry) ? { groupForMembersEditing = entry } : nil
+                (!isReadOnly && GroupMembersSheet.isGroup(entry)) ? { groupForMembersEditing = entry } : nil
             }
         ))
     }
@@ -223,6 +228,7 @@ struct DirectoryTreeView: View {
                 Image(systemName: "plus")
             }
             .help("New Entry (⌘N)")
+            .disabled(isReadOnly)
 
             Button {
                 importLDIF()
@@ -230,6 +236,7 @@ struct DirectoryTreeView: View {
                 Image(systemName: "square.and.arrow.down")
             }
             .help("Import LDIF")
+            .disabled(isReadOnly)
 
             Button {
                 openWindow(id: "schema", value: connection)
@@ -347,6 +354,7 @@ struct DirectoryTreeView: View {
             Label("New Entry…", systemImage: "plus")
         }
         .keyboardShortcut("n", modifiers: .command)
+        .disabled(isReadOnly)
 
         Button {
             // Deferred to the next run loop tick so the context menu has
@@ -359,6 +367,7 @@ struct DirectoryTreeView: View {
             Label("Rename…", systemImage: "pencil.line")
         }
         .keyboardShortcut("e", modifiers: [.command, .shift])
+        .disabled(isReadOnly)
 
         Button {
             refresh(entry)
@@ -397,7 +406,7 @@ struct DirectoryTreeView: View {
             Label("Set Password…", systemImage: "key")
         }
         .keyboardShortcut("k", modifiers: [.command, .shift])
-        .disabled(!canSet("userPassword", on: entry))
+        .disabled(isReadOnly || !canSet("userPassword", on: entry))
 
         Button {
             setPhoto(for: entry)
@@ -405,7 +414,7 @@ struct DirectoryTreeView: View {
             Label("Set Photo…", systemImage: "photo")
         }
         .keyboardShortcut("i", modifiers: [.command, .shift])
-        .disabled(!canSet("jpegPhoto", on: entry))
+        .disabled(isReadOnly || !canSet("jpegPhoto", on: entry))
 
         if GroupMembersSheet.isGroup(entry) {
             Button {
@@ -416,6 +425,7 @@ struct DirectoryTreeView: View {
                 Label("Edit Members…", systemImage: "person.2.badge.gearshape")
             }
             .keyboardShortcut("u", modifiers: [.command, .shift])
+            .disabled(isReadOnly)
         }
 
         Divider()
@@ -428,6 +438,7 @@ struct DirectoryTreeView: View {
             Label("Move to…", systemImage: "arrow.turn.up.right")
         }
         .keyboardShortcut("m", modifiers: [.command, .shift])
+        .disabled(isReadOnly)
 
         Button {
             DispatchQueue.main.async {
@@ -437,6 +448,7 @@ struct DirectoryTreeView: View {
             Label("Copy to…", systemImage: "square.on.square")
         }
         .keyboardShortcut("d", modifiers: [.command, .shift])
+        .disabled(isReadOnly)
 
         Button {
             copyToPasteboard(entry.dn)
@@ -464,6 +476,7 @@ struct DirectoryTreeView: View {
             Label("Delete", systemImage: "trash")
         }
         .keyboardShortcut(.delete, modifiers: .command)
+        .disabled(isReadOnly)
     }
 
     /// Whether `attribute` may be set on `entry`, per the loaded schema.

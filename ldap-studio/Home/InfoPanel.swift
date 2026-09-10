@@ -114,7 +114,8 @@ struct InfoPanel: View {
                 baseDN: item.baseDN,
                 bindDN: item.bindDN,
                 bookmarks: item.bookmarks,
-                isFavorite: item.isFavorite
+                isFavorite: item.isFavorite,
+                isReadOnly: item.isReadOnly
             )
             KeychainService.savePassword(item.decodedPassword, for: connection.id)
             store.add(connection)

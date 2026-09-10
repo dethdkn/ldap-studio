@@ -162,6 +162,9 @@ public enum ConnectionError: Error, CustomStringConvertible {
     /// the fingerprint trusted for this connection. The UI answers this by
     /// probing the certificate and offering "Trust for this connection".
     case TLSUntrusted(host: String, port: UInt16, reason: String)
+    /// A write was attempted on a connection marked read-only. Blocked
+    /// before it ever reaches the server.
+    case ReadOnly
 
     public var description: String {
         switch self {
@@ -174,6 +177,8 @@ public enum ConnectionError: Error, CustomStringConvertible {
         case let .ModifyFailed(reason): return "Modify failed: \(reason)"
         case let .TLSUntrusted(host, port, reason):
             return "The certificate for \(host):\(port) isn't trusted: \(reason)"
+        case .ReadOnly:
+            return "This connection is read-only. Turn off read-only mode in its settings to make changes."
         }
     }
     public var errorDescription: String? { description }
@@ -465,8 +470,10 @@ public func fetchSchema(host: String, port: UInt16, useSsl: Bool,
 }
 
 public func deleteEntry(host: String, port: UInt16, useSsl: Bool,
+                        readOnly: Bool = false,
                         startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                         bindDn: String, password: String, dn: String) async throws {
+    guard !readOnly else { throw ConnectionError.ReadOnly }
     try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc = ls_delete_entry(host, port, useSsl, bindDn, password, dn, &err)
@@ -475,9 +482,11 @@ public func deleteEntry(host: String, port: UInt16, useSsl: Bool,
 }
 
 public func addAttributeValue(host: String, port: UInt16, useSsl: Bool,
+                              readOnly: Bool = false,
                               startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                               bindDn: String, password: String, dn: String,
                               attribute: String, value: String) async throws {
+    guard !readOnly else { throw ConnectionError.ReadOnly }
     try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc = ls_add_attribute_value(host, port, useSsl, bindDn, password,
@@ -487,10 +496,12 @@ public func addAttributeValue(host: String, port: UInt16, useSsl: Bool,
 }
 
 public func modifyAttributeValue(host: String, port: UInt16, useSsl: Bool,
+                                 readOnly: Bool = false,
                                  startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                                  bindDn: String, password: String, dn: String,
                                  attribute: String, oldValue: String, newValue: String,
                                  isBinary: Bool) async throws {
+    guard !readOnly else { throw ConnectionError.ReadOnly }
     try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc = ls_modify_attribute_value(host, port, useSsl, bindDn, password,
@@ -500,9 +511,11 @@ public func modifyAttributeValue(host: String, port: UInt16, useSsl: Bool,
 }
 
 public func setAttributeValue(host: String, port: UInt16, useSsl: Bool,
+                              readOnly: Bool = false,
                               startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                               bindDn: String, password: String, dn: String,
                               attribute: String, value: String, isBinary: Bool) async throws {
+    guard !readOnly else { throw ConnectionError.ReadOnly }
     try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc = ls_set_attribute_value(host, port, useSsl, bindDn, password,
@@ -512,9 +525,11 @@ public func setAttributeValue(host: String, port: UInt16, useSsl: Bool,
 }
 
 public func deleteAttributeValue(host: String, port: UInt16, useSsl: Bool,
+                                 readOnly: Bool = false,
                                  startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                                  bindDn: String, password: String, dn: String,
                                  attribute: String, value: String, isBinary: Bool) async throws {
+    guard !readOnly else { throw ConnectionError.ReadOnly }
     try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc = ls_delete_attribute_value(host, port, useSsl, bindDn, password,
@@ -524,9 +539,11 @@ public func deleteAttributeValue(host: String, port: UInt16, useSsl: Bool,
 }
 
 public func moveEntry(host: String, port: UInt16, useSsl: Bool,
+                      readOnly: Bool = false,
                       startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                       bindDn: String, password: String,
                       dn: String, newSuperior: String) async throws {
+    guard !readOnly else { throw ConnectionError.ReadOnly }
     try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc = ls_move_entry(host, port, useSsl, bindDn, password, dn, newSuperior, &err)
@@ -535,10 +552,12 @@ public func moveEntry(host: String, port: UInt16, useSsl: Bool,
 }
 
 public func renameEntry(host: String, port: UInt16, useSsl: Bool,
+                        readOnly: Bool = false,
                         startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                         bindDn: String, password: String, dn: String,
                         newRDN: String, deleteOldRDN: Bool,
                         newSuperior: String?) async throws {
+    guard !readOnly else { throw ConnectionError.ReadOnly }
     try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc = ls_rename_entry(host, port, useSsl, bindDn, password, dn,
@@ -574,9 +593,11 @@ public struct LdapModOp {
 
 /// One LDAP Modify with every op applied together (LDIF `changetype: modify`).
 public func modifyEntry(host: String, port: UInt16, useSsl: Bool,
+                        readOnly: Bool = false,
                         startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                         bindDn: String, password: String, dn: String,
                         ops: [LdapModOp]) async throws {
+    guard !readOnly else { throw ConnectionError.ReadOnly }
     let flatValues = ops.flatMap(\.values)
     let valueStrings = flatValues.map { strdup($0.value) }
     let attrStrings: [UnsafeMutablePointer<CChar>] = ops.map { strdup($0.attribute)! }
@@ -625,9 +646,11 @@ public func modifyEntry(host: String, port: UInt16, useSsl: Bool,
 }
 
 public func addEntry(host: String, port: UInt16, useSsl: Bool,
+                     readOnly: Bool = false,
                      startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                      bindDn: String, password: String, dn: String,
                      attributes: [LdapAttribute]) async throws {
+    guard !readOnly else { throw ConnectionError.ReadOnly }
     // Build a C LSAttribute[] whose char* fields stay valid for the call.
     let names = attributes.map { strdup($0.name) }
     let values = attributes.map { strdup($0.value) }
