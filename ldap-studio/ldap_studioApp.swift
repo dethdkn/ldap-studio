@@ -8,8 +8,17 @@
 import AppKit
 import SwiftUI
 
+/// Fires the one-per-day update check once the app is actually up.
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        Task { await UpdateChecker.shared.checkOnLaunch() }
+    }
+}
+
 @main
 struct ldap_studioApp: App {
+    @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
+
     /// One store for the whole app — the Home window edits it, and the
     /// browser windows read it (and write back a trusted certificate when
     /// the user accepts one). Injected into every scene below.

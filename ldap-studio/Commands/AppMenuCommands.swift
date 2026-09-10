@@ -23,6 +23,10 @@ struct AppMenuCommands: Commands {
             Button("About Ldap Studio") {
                 openWindow(id: "about")
             }
+            Divider()
+            Button("Check for Updates…") {
+                Task { await UpdateChecker.shared.check(userInitiated: true) }
+            }
         }
 
         CommandGroup(replacing: .newItem) {
