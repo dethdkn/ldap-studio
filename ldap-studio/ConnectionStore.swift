@@ -9,6 +9,10 @@ import Foundation
 final class ConnectionStore {
     private(set) var connections: [SavedConnection] = []
 
+    init() {
+        load()
+    }
+
     private var fileURL: URL {
         let directory = FileManager.default
             .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]

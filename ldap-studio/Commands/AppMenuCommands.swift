@@ -120,6 +120,18 @@ struct AppMenuCommands: Commands {
             .keyboardShortcut("f", modifiers: [.command, .shift])
             .disabled(directoryCommands == nil)
 
+            Button("Go to DN…") {
+                directoryCommands?.goToDN()
+            }
+            .keyboardShortcut("l", modifiers: .command)
+            .disabled(directoryCommands == nil)
+
+            Button(directoryCommands?.isSelectedBookmarked == true ? "Remove Bookmark" : "Bookmark Entry") {
+                directoryCommands?.toggleBookmark?()
+            }
+            .keyboardShortcut("d", modifiers: .command)
+            .disabled(directoryCommands?.toggleBookmark == nil)
+
             Divider()
 
             Button("Rename…") {

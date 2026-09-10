@@ -70,7 +70,8 @@ struct NewConnectionSheet: View {
             useStartTLS: encryption == .startTLS,
             baseDN: baseDN,
             bindDN: bindDN,
-            trustedCertSHA256: trustedCertSHA256
+            trustedCertSHA256: trustedCertSHA256,
+            bookmarks: existingConnection?.bookmarks ?? []
         )
     }
 

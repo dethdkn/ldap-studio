@@ -21,10 +21,12 @@ struct SavedConnection: Identifiable, Codable, Hashable {
     /// to trust for this connection, when it wouldn't validate against the
     /// system trust store. `nil` = normal chain verification.
     var trustedCertSHA256: String?
+    /// DNs the user pinned for quick jumping, newest first.
+    var bookmarks: [String]
 
     init(id: UUID = UUID(), name: String, host: String, port: Int, useSSL: Bool,
          useStartTLS: Bool = false, baseDN: String, bindDN: String,
-         trustedCertSHA256: String? = nil) {
+         trustedCertSHA256: String? = nil, bookmarks: [String] = []) {
         self.id = id
         self.name = name
         self.host = host
@@ -34,10 +36,11 @@ struct SavedConnection: Identifiable, Codable, Hashable {
         self.baseDN = baseDN
         self.bindDN = bindDN
         self.trustedCertSHA256 = trustedCertSHA256
+        self.bookmarks = bookmarks
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, host, port, useSSL, useStartTLS, baseDN, bindDN, trustedCertSHA256
+        case id, name, host, port, useSSL, useStartTLS, baseDN, bindDN, trustedCertSHA256, bookmarks
     }
 
     // Custom decoding so older saved files (from before `baseDN` /
@@ -55,6 +58,7 @@ struct SavedConnection: Identifiable, Codable, Hashable {
         baseDN = try container.decodeIfPresent(String.self, forKey: .baseDN) ?? ""
         bindDN = try container.decode(String.self, forKey: .bindDN)
         trustedCertSHA256 = try container.decodeIfPresent(String.self, forKey: .trustedCertSHA256)
+        bookmarks = try container.decodeIfPresent([String].self, forKey: .bookmarks) ?? []
     }
 
     func encode(to encoder: Encoder) throws {
@@ -68,5 +72,6 @@ struct SavedConnection: Identifiable, Codable, Hashable {
         try container.encode(baseDN, forKey: .baseDN)
         try container.encode(bindDN, forKey: .bindDN)
         try container.encodeIfPresent(trustedCertSHA256, forKey: .trustedCertSHA256)
+        if !bookmarks.isEmpty { try container.encode(bookmarks, forKey: .bookmarks) }
     }
 }

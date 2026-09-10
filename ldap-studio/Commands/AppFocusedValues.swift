@@ -30,6 +30,12 @@ struct DirectoryCommands {
     var openSchema: () -> Void
     var openLDIFEditor: () -> Void
     var advancedSearch: () -> Void
+    /// Opens the "Go to DN" quick-jump.
+    var goToDN: () -> Void
+    /// Pins/unpins the selected entry's DN; nil when nothing is selected.
+    var toggleBookmark: (() -> Void)?
+    /// Whether the selected entry is already bookmarked (for the menu label).
+    var isSelectedBookmarked: Bool
     /// The following act on the tree's selected entry — nil when nothing is
     /// selected, and `setPassword` / `setPhoto` are also nil when the
     /// entry's object classes don't allow that attribute.

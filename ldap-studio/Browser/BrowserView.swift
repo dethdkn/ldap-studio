@@ -54,6 +54,8 @@ struct BrowserView: View {
                         selection: $selection,
                         connection: connection,
                         schema: schema,
+                        bookmarks: connection.bookmarks,
+                        onToggleBookmark: toggleBookmark,
                         reload: { dn in await reload(selecting: dn) }
                     )
                     .navigationSplitViewColumnWidth(min: 200, ideal: 260)
@@ -64,6 +66,8 @@ struct BrowserView: View {
                             root: root,
                             connection: connection,
                             schema: schema,
+                            isBookmarked: selection.map(connection.bookmarks.contains) ?? false,
+                            onToggleBookmark: { if let dn = selection { toggleBookmark(dn) } },
                             reload: { dn in await reload(selecting: dn) }
                         )
                     } else {
@@ -102,6 +106,16 @@ struct BrowserView: View {
         Task {
             await loadDirectory()
         }
+    }
+
+    /// Pin or unpin `dn` in this connection's bookmark list, then persist.
+    private func toggleBookmark(_ dn: String) {
+        if let index = connection.bookmarks.firstIndex(of: dn) {
+            connection.bookmarks.remove(at: index)
+        } else {
+            connection.bookmarks.insert(dn, at: 0)
+        }
+        store.update(connection)
     }
 
     private func loadDirectory() async {

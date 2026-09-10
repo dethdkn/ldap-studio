@@ -14,6 +14,10 @@ struct DirectoryTreeView: View {
     /// Optional — feeds the attribute/object-class autocomplete in New
     /// Entry; nil just means no suggestions, never a blocker.
     let schema: LdapSchema?
+    /// This connection's pinned DNs, and the callback to add/remove one.
+    /// `BrowserView` owns the list and persists it.
+    let bookmarks: [String]
+    let onToggleBookmark: (String) -> Void
     @Environment(\.openWindow) private var openWindow
     /// Same contract as `EntryDetailView`'s `reload`: refetches the whole
     /// directory from the server and reselects the given dn if it still
@@ -51,6 +55,11 @@ struct DirectoryTreeView: View {
     @State private var searchText = ""
     @State private var advancedSearchRequest: AdvancedSearchRequest?
 
+    @State private var isShowingGoTo = false
+    @State private var goToText = ""
+    @State private var goToError: String?
+    @FocusState private var goToFieldFocused: Bool
+
     /// Which nodes are expanded — `OutlineGroup`'s simple form manages this
     /// internally with no way to control it from outside, so revealing a
     /// search result (expanding its ancestors, then scrolling to it) needs
@@ -74,6 +83,8 @@ struct DirectoryTreeView: View {
         return root.find(id: selection)
     }
 
+    private var bookmarkSet: Set<String> { Set(bookmarks) }
+
     var body: some View {
         VStack(spacing: 0) {
             toolbar
@@ -83,7 +94,7 @@ struct DirectoryTreeView: View {
             ScrollViewReader { proxy in
                 List(selection: $selection) {
                     if let filteredRoot {
-                        DirectoryOutlineRow(entry: filteredRoot, expandedIDs: $expandedIDs)
+                        DirectoryOutlineRow(entry: filteredRoot, expandedIDs: $expandedIDs, bookmarks: bookmarkSet)
                     }
                 }
                 .contextMenu(forSelectionType: DirectoryEntry.ID.self) { ids in
@@ -183,6 +194,9 @@ struct DirectoryTreeView: View {
             advancedSearch: {
                 advancedSearchRequest = AdvancedSearchRequest(baseDN: selection ?? root.dn)
             },
+            goToDN: { openGoTo() },
+            toggleBookmark: selectedEntry.map { entry in { onToggleBookmark(entry.dn) } },
+            isSelectedBookmarked: selectedEntry.map { bookmarks.contains($0.dn) } ?? false,
             refreshSelected: selectedEntry.map { entry in { refresh(entry) } },
             renameSelected: selectedEntry.map { entry in { entryForRename = entry } },
             copyDN: selectedEntry.map { entry in { copyToPasteboard(entry.dn) } },
@@ -206,7 +220,7 @@ struct DirectoryTreeView: View {
             } label: {
                 Image(systemName: "plus")
             }
-            .help("New Entry")
+            .help("New Entry (⌘N)")
 
             Button {
                 importLDIF()
@@ -231,6 +245,18 @@ struct DirectoryTreeView: View {
 
             Spacer()
 
+            Button {
+                openGoTo()
+            } label: {
+                Image(systemName: "arrow.right.to.line")
+            }
+            .help("Go to DN (⌘L)")
+            .popover(isPresented: $isShowingGoTo, arrowEdge: .bottom) {
+                goToPopover
+            }
+
+            bookmarksMenu
+
             TextField("Search", text: $searchText)
                 .textFieldStyle(.roundedBorder)
                 .frame(width: 140)
@@ -240,11 +266,67 @@ struct DirectoryTreeView: View {
             } label: {
                 Image(systemName: "slider.horizontal.3")
             }
-            .help("Advanced Search")
+            .help("Advanced Search (⇧⌘F)")
         }
         .buttonStyle(.borderless)
         .padding(.horizontal, 8)
         .padding(.vertical, 6)
+    }
+
+    private var bookmarksMenu: some View {
+        Menu {
+            if bookmarks.isEmpty {
+                Text("No bookmarks")
+            } else {
+                ForEach(bookmarks, id: \.self) { dn in
+                    Button {
+                        goTo(dn)
+                    } label: {
+                        Text(Self.rdn(of: dn))
+                    }
+                    .help(dn)
+                }
+            }
+            if let selectedEntry {
+                Divider()
+                Button {
+                    onToggleBookmark(selectedEntry.dn)
+                } label: {
+                    Label(
+                        bookmarks.contains(selectedEntry.dn)
+                            ? "Remove Bookmark for “\(selectedEntry.name)”"
+                            : "Bookmark “\(selectedEntry.name)”",
+                        systemImage: bookmarks.contains(selectedEntry.dn) ? "bookmark.slash" : "bookmark"
+                    )
+                }
+            }
+        } label: {
+            Image(systemName: bookmarks.isEmpty ? "bookmark" : "bookmark.fill")
+        }
+        .menuIndicator(.hidden)
+        .frame(width: 28)
+        .help("Bookmarks (⌘D)")
+    }
+
+    private var goToPopover: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Go to DN").font(.caption).foregroundStyle(.secondary)
+            TextField("cn=…,dc=…", text: $goToText)
+                .textFieldStyle(.roundedBorder)
+                .frame(width: 340)
+                .focused($goToFieldFocused)
+                .onSubmit { goTo(goToText) }
+            if let goToError {
+                Text(goToError).font(.caption).foregroundStyle(.red)
+            }
+            HStack {
+                Spacer()
+                Button("Go") { goTo(goToText) }
+                    .keyboardShortcut(.defaultAction)
+                    .disabled(goToText.trimmingCharacters(in: .whitespaces).isEmpty)
+            }
+        }
+        .padding(12)
     }
 
     @ViewBuilder
@@ -291,6 +373,16 @@ struct DirectoryTreeView: View {
             Label("Advanced Search…", systemImage: "magnifyingglass")
         }
         .keyboardShortcut("f", modifiers: [.command, .shift])
+
+        Button {
+            onToggleBookmark(entry.dn)
+        } label: {
+            Label(
+                bookmarks.contains(entry.dn) ? "Remove Bookmark" : "Add Bookmark",
+                systemImage: bookmarks.contains(entry.dn) ? "bookmark.slash" : "bookmark"
+            )
+        }
+        .keyboardShortcut("d", modifiers: .command)
 
         Divider()
 
@@ -513,6 +605,54 @@ struct DirectoryTreeView: View {
         selection = dn
     }
 
+    private func openGoTo() {
+        goToText = selectedEntry?.dn ?? ""
+        goToError = nil
+        isShowingGoTo = true
+        DispatchQueue.main.async { goToFieldFocused = true }
+    }
+
+    /// Jump to `input` if a matching entry exists in the loaded tree — an
+    /// exact dn match first, then a whitespace/case-insensitive one so a
+    /// pasted dn that differs only cosmetically still lands.
+    private func goTo(_ input: String) {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        let target = root.find(id: trimmed)?.dn ?? firstDN(matching: trimmed)
+        if let target {
+            reveal(target)
+            isShowingGoTo = false
+            goToText = ""
+            goToError = nil
+        } else {
+            goToError = "No entry with that DN in this directory."
+        }
+    }
+
+    private static func normalizeDN(_ dn: String) -> String {
+        dn.lowercased()
+            .split(separator: ",")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .joined(separator: ",")
+    }
+
+    private func firstDN(matching input: String) -> String? {
+        let target = Self.normalizeDN(input)
+        var match: String?
+        func walk(_ entry: DirectoryEntry) {
+            if match != nil { return }
+            if Self.normalizeDN(entry.dn) == target { match = entry.dn; return }
+            for child in entry.children ?? [] { walk(child) }
+        }
+        walk(root)
+        return match
+    }
+
+    /// The leftmost `attr=value` of a dn — the label shown for a bookmark.
+    private static func rdn(of dn: String) -> String {
+        String(dn.split(separator: ",").first ?? Substring(dn))
+    }
+
     /// Every suffix of `dn` after stripping one RDN component at a time —
     /// e.g. for "uid=x,ou=People,dc=corp,dc=com" that's
     /// ["ou=People,dc=corp,dc=com", "dc=corp,dc=com", "dc=com"]. The dn
@@ -535,6 +675,7 @@ struct DirectoryTreeView: View {
 private struct DirectoryOutlineRow: View {
     let entry: DirectoryEntry
     @Binding var expandedIDs: Set<DirectoryEntry.ID>
+    let bookmarks: Set<String>
 
     private var isExpanded: Binding<Bool> {
         Binding(
@@ -553,17 +694,30 @@ private struct DirectoryOutlineRow: View {
         if let children = entry.children, !children.isEmpty {
             DisclosureGroup(isExpanded: isExpanded) {
                 ForEach(children) { child in
-                    DirectoryOutlineRow(entry: child, expandedIDs: $expandedIDs)
+                    DirectoryOutlineRow(entry: child, expandedIDs: $expandedIDs, bookmarks: bookmarks)
                 }
             } label: {
-                Label("\(entry.name) (\(children.count))", systemImage: entry.icon)
+                rowLabel(name: "\(entry.name) (\(children.count))")
                     .tag(entry.id)
             }
             .id(entry.id)
         } else {
-            Label(entry.name, systemImage: entry.icon)
+            rowLabel(name: entry.name)
                 .tag(entry.id)
                 .id(entry.id)
+        }
+    }
+
+    private func rowLabel(name: String) -> some View {
+        HStack(spacing: 4) {
+            Label(name, systemImage: entry.icon)
+            if bookmarks.contains(entry.id) {
+                Spacer(minLength: 4)
+                Image(systemName: "bookmark.fill")
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .help("Bookmarked")
+            }
         }
     }
 }
@@ -574,6 +728,8 @@ private struct DirectoryOutlineRow: View {
         selection: .constant(nil),
         connection: SavedConnection(name: "Preview", host: "localhost", port: 389, useSSL: false, baseDN: "", bindDN: ""),
         schema: nil,
+        bookmarks: ["ou=People,dc=corp,dc=example,dc=com"],
+        onToggleBookmark: { _ in },
         reload: { _ in }
     )
     .frame(width: 260, height: 400)

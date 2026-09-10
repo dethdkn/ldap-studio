@@ -14,6 +14,10 @@ struct EntryDetailView: View {
     /// Optional — feeds Add Attribute's autocomplete; nil just means no
     /// suggestions, never a blocker.
     let schema: LdapSchema?
+    /// Whether this entry's DN is pinned, and the toggle — owned/persisted
+    /// by `BrowserView`.
+    let isBookmarked: Bool
+    let onToggleBookmark: () -> Void
     /// Tells `BrowserView` to refetch the whole directory from the server —
     /// every write below goes straight to LDAP, so the tree is reloaded from
     /// there afterward instead of being patched locally. Pass the dn that
@@ -276,21 +280,28 @@ struct EntryDetailView: View {
             } label: {
                 Image(systemName: "arrow.turn.up.right")
             }
-            .help("Move to…")
+            .help("Move to… (⇧⌘M)")
 
             Button {
                 isShowingCopyPicker = true
             } label: {
                 Image(systemName: "square.on.square")
             }
-            .help("Copy to…")
+            .help("Copy to… (⇧⌘D)")
 
             Button {
                 actions.exportLDIF(entry)
             } label: {
                 Image(systemName: "square.and.arrow.up")
             }
-            .help("Export as LDIF")
+            .help("Export as LDIF (⇧⌘X)")
+
+            Button {
+                onToggleBookmark()
+            } label: {
+                Image(systemName: isBookmarked ? "bookmark.fill" : "bookmark")
+            }
+            .help(isBookmarked ? "Remove Bookmark (⌘D)" : "Bookmark This Entry (⌘D)")
 
             if isGroup {
                 Button {
@@ -298,7 +309,7 @@ struct EntryDetailView: View {
                 } label: {
                     Image(systemName: "person.2.badge.gearshape")
                 }
-                .help("Edit Members")
+                .help("Edit Members (⇧⌘U)")
             }
 
             Divider().frame(height: 16)
@@ -308,7 +319,7 @@ struct EntryDetailView: View {
             } label: {
                 Image(systemName: "arrow.clockwise")
             }
-            .help("Refresh")
+            .help("Refresh (⌘R)")
 
             Spacer()
 
@@ -529,6 +540,8 @@ struct EntryDetailView: View {
         root: .mockRoot,
         connection: SavedConnection(name: "Preview", host: "localhost", port: 389, useSSL: false, baseDN: "", bindDN: ""),
         schema: nil,
+        isBookmarked: false,
+        onToggleBookmark: {},
         reload: { _ in }
     )
     .frame(width: 500, height: 400)
