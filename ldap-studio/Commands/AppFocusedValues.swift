@@ -42,6 +42,8 @@ struct DirectoryCommands {
     var isSelectedBookmarked: Bool
     /// The connection is read-only — write menu items disable themselves.
     var isReadOnly: Bool
+    /// Opens the dedicated Edit Entry window; nil when nothing is selected.
+    var editEntry: (() -> Void)?
     /// The following act on the tree's selected entry — nil when nothing is
     /// selected, and `setPassword` / `setPhoto` are also nil when the
     /// entry's object classes don't allow that attribute.

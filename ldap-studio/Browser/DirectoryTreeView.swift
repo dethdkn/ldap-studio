@@ -202,6 +202,9 @@ struct DirectoryTreeView: View {
             toggleBookmark: selectedEntry.map { entry in { onToggleBookmark(entry.dn) } },
             isSelectedBookmarked: selectedEntry.map { bookmarks.contains($0.dn) } ?? false,
             isReadOnly: isReadOnly,
+            editEntry: selectedEntry.map { entry in
+                { openWindow(id: "editEntry", value: EditEntryRequest(connection: connection, dn: entry.dn)) }
+            },
             refreshSelected: selectedEntry.map { entry in { refresh(entry) } },
             renameSelected: (selectedEntry != nil && !isReadOnly)
                 ? { if let entry = selectedEntry { entryForRename = entry } } : nil,
@@ -310,10 +313,11 @@ struct DirectoryTreeView: View {
                 }
             }
         } label: {
-            Image(systemName: bookmarks.isEmpty ? "bookmark" : "bookmark.fill")
+            Image(systemName: "bookmark")
         }
+        .menuStyle(.borderlessButton)
         .menuIndicator(.hidden)
-        .frame(width: 28)
+        .fixedSize()
         .help("Bookmarks (⌘D)")
     }
 
@@ -345,6 +349,13 @@ struct DirectoryTreeView: View {
         } label: {
             Label("Open", systemImage: "arrow.right.circle")
         }
+
+        Button {
+            openWindow(id: "editEntry", value: EditEntryRequest(connection: connection, dn: entry.dn))
+        } label: {
+            Label("Edit Entry…", systemImage: "square.and.pencil")
+        }
+        .keyboardShortcut("e", modifiers: .command)
 
         Button {
             DispatchQueue.main.async {

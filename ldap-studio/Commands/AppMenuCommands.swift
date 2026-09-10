@@ -103,6 +103,12 @@ struct AppMenuCommands: Commands {
         }
 
         CommandMenu("Entry") {
+            Button("Edit Entry…") {
+                directoryCommands?.editEntry?()
+            }
+            .keyboardShortcut("e", modifiers: .command)
+            .disabled(directoryCommands?.editEntry == nil)
+
             Button("Schema…") {
                 directoryCommands?.openSchema()
             }

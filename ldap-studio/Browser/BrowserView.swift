@@ -47,6 +47,13 @@ struct BrowserView: View {
             content
             logStrip
         }
+        .onReceive(NotificationCenter.default.publisher(for: .ldapEntryDidChange)) { note in
+            // A detached window (Edit Entry, …) wrote to this server — pull
+            // the fresh tree so the detail table reflects it.
+            guard note.userInfo?["endpoint"] as? String == endpoint else { return }
+            let dn = note.userInfo?["dn"] as? String
+            Task { await reload(selecting: dn ?? selection) }
+        }
     }
 
     @ViewBuilder

@@ -53,6 +53,13 @@ struct ldap_studioApp: App {
             }
         }
 
+        WindowGroup(id: "editEntry", for: EditEntryRequest.self) { $request in
+            if let request {
+                EditEntryView(connection: request.connection, dn: request.dn)
+                    .environment(store)
+            }
+        }
+
         Window("About Ldap Studio", id: "about") {
             AboutView()
         }
