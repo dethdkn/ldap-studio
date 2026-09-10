@@ -46,6 +46,10 @@ struct EntryDetailView: View {
     @State private var isPerformingAction = false
     @State private var actionError: String?
 
+    @State private var showOperational = false
+    @State private var operationalRows: [Attribute] = []
+    @State private var isLoadingOperational = false
+
     private var password: String {
         KeychainService.readPassword(for: connection.id) ?? ""
     }
@@ -54,8 +58,26 @@ struct EntryDetailView: View {
         EntryActions(connection: connection)
     }
 
+    /// User attributes from the tree, plus the operational ones fetched on
+    /// demand when the toggle is on.
+    private var allAttributes: [Attribute] {
+        showOperational ? entry.attributes + operationalRows : entry.attributes
+    }
+
     private var filteredAttributes: [Attribute] {
-        let sorted = entry.attributes.sorted(using: sortOrder)
+        // Operational attributes are always pinned above the user ones; the
+        // table's column sort applies within each group.
+        let sorted = allAttributes.sorted { lhs, rhs in
+            if lhs.isOperational != rhs.isOperational { return lhs.isOperational }
+            for comparator in sortOrder {
+                switch comparator.compare(lhs, rhs) {
+                case .orderedAscending: return true
+                case .orderedDescending: return false
+                case .orderedSame: continue
+                }
+            }
+            return false
+        }
         guard !searchText.isEmpty else { return sorted }
         return sorted.filter {
             $0.name.localizedCaseInsensitiveContains(searchText)
@@ -65,7 +87,44 @@ struct EntryDetailView: View {
 
     private var selectedAttribute: Attribute? {
         guard let selection else { return nil }
-        return entry.attributes.first { $0.id == selection }
+        return allAttributes.first { $0.id == selection }
+    }
+
+    /// Re-fetch the entry's operational attributes whenever the toggle
+    /// flips or the entry (or its user attributes) change.
+    private var operationalFetchKey: String {
+        "\(entry.dn)|\(showOperational)|\(entry.attributes.hashValue)"
+    }
+
+    private func loadOperational() async {
+        guard showOperational, !entry.dn.isEmpty else {
+            operationalRows = []
+            return
+        }
+        isLoadingOperational = true
+        defer { isLoadingOperational = false }
+        do {
+            let results = try await searchDirectory(
+                host: connection.host,
+                port: UInt16(clamping: connection.port),
+                useSsl: connection.useSSL,
+                startTLS: connection.useStartTLS,
+                pinnedCertSHA256: connection.trustedCertSHA256,
+                bindDn: connection.bindDN,
+                password: password,
+                baseDn: entry.dn,
+                scope: .base,
+                filter: "(objectClass=*)",
+                includeOperational: true
+            )
+            let userNames = Set(entry.attributes.map { $0.name.lowercased() })
+            operationalRows = (results.first?.attributes ?? [])
+                .filter { !userNames.contains($0.name.lowercased()) }
+                .map { Attribute(name: $0.name, value: $0.value, isBinary: $0.isBinary, isOperational: true) }
+                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        } catch {
+            operationalRows = []
+        }
     }
 
     /// This entry's current objectClass values — used to figure out which
@@ -115,7 +174,18 @@ struct EntryDetailView: View {
             Divider()
 
             Table(filteredAttributes, selection: $selection, sortOrder: $sortOrder) {
-                TableColumn("Attribute", value: \.name)
+                TableColumn("Attribute", value: \.name) { attribute in
+                    HStack(spacing: 4) {
+                        Text(attribute.name)
+                        if attribute.isOperational {
+                            Image(systemName: "lock")
+                                .font(.caption2)
+                                .foregroundStyle(.tertiary)
+                                .help("Operational — maintained by the server, read-only")
+                        }
+                    }
+                    .foregroundStyle(attribute.isOperational ? .secondary : .primary)
+                }
                 TableColumn("Value", sortUsing: KeyPathComparator(\.value)) { attribute in
                     Group {
                         if let image = attribute.decodedImage {
@@ -134,18 +204,20 @@ struct EntryDetailView: View {
                                 .foregroundStyle(.secondary)
                         } else {
                             Text(attribute.value)
+                                .foregroundStyle(attribute.isOperational ? .secondary : .primary)
                         }
                     }
                     .overlay(DoubleClickObserver { attributeBeingViewed = attribute })
                 }
             }
             .contextMenu(forSelectionType: Attribute.ID.self) { ids in
-                if let id = ids.first, let attribute = entry.attributes.first(where: { $0.id == id }) {
+                if let id = ids.first, let attribute = allAttributes.first(where: { $0.id == id }) {
                     contextMenuContent(for: attribute)
                 }
             }
         }
         .disabled(isPerformingAction)
+        .task(id: operationalFetchKey) { await loadOperational() }
         .sheet(item: $attributeBeingViewed) { attribute in
             AttributeValueDetailSheet(attribute: attribute)
         }
@@ -229,8 +301,11 @@ struct EntryDetailView: View {
         }
         .focusedSceneValue(\.entryDetailCommands, EntryDetailCommands(
             addAttribute: { isShowingAddAttribute = true },
-            editAttribute: selectedAttribute?.isBinary == false ? { beginEdit(selectedAttribute) } : nil,
-            deleteAttribute: selectedAttribute.map { attribute in { attributePendingDeletion = attribute } },
+            editAttribute: (selectedAttribute?.isBinary == false && selectedAttribute?.isOperational == false)
+                ? { beginEdit(selectedAttribute) } : nil,
+            deleteAttribute: selectedAttribute.flatMap { attribute in
+                attribute.isOperational ? nil : { attributePendingDeletion = attribute }
+            },
             moveDN: { isShowingMovePicker = true },
             copyDN: { isShowingCopyPicker = true },
             exportLDIF: { actions.exportLDIF(entry) },
@@ -244,7 +319,9 @@ struct EntryDetailView: View {
             } : nil,
             setPhoto: selectedAttribute?.name.caseInsensitiveCompare("jpegPhoto") == .orderedSame ? {
                 if let selectedAttribute { setPhoto(for: selectedAttribute) }
-            } : nil
+            } : nil,
+            toggleOperational: { showOperational.toggle() },
+            showsOperational: showOperational
         ))
     }
 
@@ -263,7 +340,8 @@ struct EntryDetailView: View {
                 Image(systemName: "pencil")
             }
             .help("Edit Attribute")
-            .disabled(selectedAttribute == nil || selectedAttribute?.isBinary == true)
+            .disabled(selectedAttribute == nil || selectedAttribute?.isBinary == true
+                || selectedAttribute?.isOperational == true)
 
             Button {
                 attributePendingDeletion = selectedAttribute
@@ -271,7 +349,7 @@ struct EntryDetailView: View {
                 Image(systemName: "trash")
             }
             .help("Delete Attribute")
-            .disabled(selectedAttribute == nil)
+            .disabled(selectedAttribute == nil || selectedAttribute?.isOperational == true)
 
             Divider().frame(height: 16)
 
@@ -315,11 +393,23 @@ struct EntryDetailView: View {
             Divider().frame(height: 16)
 
             Button {
+                showOperational.toggle()
+            } label: {
+                Image(systemName: showOperational ? "clock.fill" : "clock")
+            }
+            .help("Operational Attributes (⌥⌘O)")
+            .foregroundStyle(showOperational ? Color.accentColor : Color.primary)
+
+            Button {
                 refresh()
             } label: {
                 Image(systemName: "arrow.clockwise")
             }
             .help("Refresh (⌘R)")
+
+            if isLoadingOperational {
+                ProgressView().controlSize(.small)
+            }
 
             Spacer()
 
@@ -340,33 +430,35 @@ struct EntryDetailView: View {
             Label("View Value", systemImage: "eye")
         }
 
-        Button {
-            beginEdit(attribute)
-        } label: {
-            Label("Edit Value", systemImage: "pencil")
-        }
-        .disabled(attribute.isBinary)
-
-        if attribute.name.caseInsensitiveCompare("jpegPhoto") == .orderedSame {
+        if !attribute.isOperational {
             Button {
-                setPhoto(for: attribute)
+                beginEdit(attribute)
             } label: {
-                Label("Set Photo", systemImage: "photo")
+                Label("Edit Value", systemImage: "pencil")
             }
-        }
+            .disabled(attribute.isBinary)
 
-        if attribute.name.caseInsensitiveCompare("userPassword") == .orderedSame {
-            Button {
-                attributeBeingPasswordSet = attribute
+            if attribute.name.caseInsensitiveCompare("jpegPhoto") == .orderedSame {
+                Button {
+                    setPhoto(for: attribute)
+                } label: {
+                    Label("Set Photo", systemImage: "photo")
+                }
+            }
+
+            if attribute.name.caseInsensitiveCompare("userPassword") == .orderedSame {
+                Button {
+                    attributeBeingPasswordSet = attribute
+                } label: {
+                    Label("Set Password", systemImage: "key")
+                }
+            }
+
+            Button(role: .destructive) {
+                attributePendingDeletion = attribute
             } label: {
-                Label("Set Password", systemImage: "key")
+                Label("Delete Value", systemImage: "trash")
             }
-        }
-
-        Button(role: .destructive) {
-            attributePendingDeletion = attribute
-        } label: {
-            Label("Delete Value", systemImage: "trash")
         }
 
         Divider()
@@ -391,7 +483,7 @@ struct EntryDetailView: View {
     }
 
     private func beginEdit(_ attribute: Attribute?) {
-        guard let attribute, !attribute.isBinary else { return }
+        guard let attribute, !attribute.isBinary, !attribute.isOperational else { return }
         editedValue = attribute.value
         attributeBeingEdited = attribute
     }

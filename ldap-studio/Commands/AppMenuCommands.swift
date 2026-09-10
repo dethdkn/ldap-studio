@@ -208,6 +208,15 @@ struct AppMenuCommands: Commands {
             }
             .disabled(entryDetailCommands == nil)
 
+            Button(entryDetailCommands?.showsOperational == true
+                ? "Hide Operational Attributes" : "Show Operational Attributes") {
+                entryDetailCommands?.toggleOperational()
+            }
+            .keyboardShortcut("o", modifiers: [.command, .option])
+            .disabled(entryDetailCommands == nil)
+
+            Divider()
+
             Button("View Value") {
                 entryDetailCommands?.viewValue?()
             }

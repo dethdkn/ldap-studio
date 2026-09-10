@@ -192,10 +192,14 @@ int ls_fetch_root_entry(const char *host, uint16_t port, bool use_ssl,
                         const char *bind_dn, const char *password,
                         const char *base_dn, LSEntry **out, LSError *err);
 
+/* When `include_operational` is true the search also requests "+", so the
+ * server-maintained attributes (createTimestamp, entryUUID, pwdChangedTime,
+ * …) come back alongside the normal user attributes. */
 int ls_search_directory(const char *host, uint16_t port, bool use_ssl,
                         const char *bind_dn, const char *password,
                         const char *base_dn, LSScope scope, const char *filter,
-                        LSEntry **out, size_t *out_count, LSError *err);
+                        bool include_operational, LSEntry **out,
+                        size_t *out_count, LSError *err);
 
 int ls_fetch_schema(const char *host, uint16_t port, bool use_ssl,
                     const char *bind_dn, const char *password, LSSchema **out,

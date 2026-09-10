@@ -73,6 +73,9 @@ struct EntryDetailCommands {
     var copyValue: (() -> Void)?
     var setPassword: (() -> Void)?
     var setPhoto: (() -> Void)?
+    /// Shows/hides the server-maintained operational attributes.
+    var toggleOperational: () -> Void
+    var showsOperational: Bool
 }
 
 private struct ConnectionCommandsKey: FocusedValueKey {

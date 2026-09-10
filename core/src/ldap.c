@@ -553,8 +553,12 @@ static LSEntry build_entry(size_t i, FlatEntry *flat, IdxList *children_of) {
 /* ── searching ───────────────────────────────────────────────────── */
 
 static int run_search(LDAP *ld, const char *base, int scope, const char *filter,
-                      LDAPMessage **res, LSError *err) {
-  char *attrs[] = {(char *)"*", NULL};
+                      bool include_operational, LDAPMessage **res,
+                      LSError *err) {
+  char *user_only[] = {(char *)"*", NULL};
+  char *with_operational[] = {(char *)"*", (char *)"+", NULL};
+  char **attrs = user_only;
+  if (include_operational) attrs = with_operational;
   int rc = ldap_search_ext_s(ld, base ? base : "", scope,
                              (filter && *filter) ? filter : "(objectClass=*)",
                              attrs, 0, NULL, NULL, NULL, LDAP_NO_LIMIT, res);
@@ -579,8 +583,8 @@ int ls_fetch_root_entry(const char *host, uint16_t port, bool use_ssl,
   if (rc != LS_OK) return rc;
 
   LDAPMessage *res = NULL;
-  rc =
-      run_search(ld, base_dn, LDAP_SCOPE_SUBTREE, "(objectClass=*)", &res, err);
+  rc = run_search(ld, base_dn, LDAP_SCOPE_SUBTREE, "(objectClass=*)", false,
+                  &res, err);
   if (rc != LS_OK) {
     ldap_unbind_ext_s(ld, NULL, NULL);
     return rc;
@@ -646,7 +650,8 @@ int ls_fetch_root_entry(const char *host, uint16_t port, bool use_ssl,
 int ls_search_directory(const char *host, uint16_t port, bool use_ssl,
                         const char *bind_dn, const char *password,
                         const char *base_dn, LSScope scope, const char *filter,
-                        LSEntry **out, size_t *out_count, LSError *err) {
+                        bool include_operational, LSEntry **out,
+                        size_t *out_count, LSError *err) {
   *out = NULL;
   *out_count = 0;
 
@@ -662,7 +667,7 @@ int ls_search_directory(const char *host, uint16_t port, bool use_ssl,
   if (rc != LS_OK) return rc;
 
   LDAPMessage *res = NULL;
-  rc = run_search(ld, base_dn, lscope, filter, &res, err);
+  rc = run_search(ld, base_dn, lscope, filter, include_operational, &res, err);
   if (rc != LS_OK) {
     ldap_unbind_ext_s(ld, NULL, NULL);
     return rc;

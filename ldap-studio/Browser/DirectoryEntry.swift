@@ -26,6 +26,9 @@ struct Attribute: Identifiable, Hashable {
     var name: String
     var value: String
     var isBinary: Bool = false
+    /// Server-maintained (createTimestamp, entryUUID, …) — shown only when
+    /// the operational-attributes toggle is on, and never editable.
+    var isOperational: Bool = false
 
     /// Non-nil only when this is a binary attribute whose bytes actually
     /// decode as an image (e.g. jpegPhoto) — other binary data (certificates

@@ -420,13 +420,15 @@ public func fetchRootEntry(host: String, port: UInt16, useSsl: Bool,
 public func searchDirectory(host: String, port: UInt16, useSsl: Bool,
                             startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                             bindDn: String, password: String, baseDn: String,
-                            scope: LdapSearchScope, filter: String) async throws -> [LdapEntry] {
+                            scope: LdapSearchScope, filter: String,
+                            includeOperational: Bool = false) async throws -> [LdapEntry] {
     try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         var out: UnsafeMutablePointer<LSEntry>?
         var count = 0
         let rc = ls_search_directory(host, port, useSsl, bindDn, password, baseDn,
-                                     cScope(scope), filter, &out, &count, &err)
+                                     cScope(scope), filter, includeOperational,
+                                     &out, &count, &err)
         guard rc == 0 else { return .failure(swiftError(&err)) }
         var results: [LdapEntry] = []
         if let out {
