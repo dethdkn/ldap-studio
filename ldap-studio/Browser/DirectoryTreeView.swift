@@ -35,6 +35,7 @@ struct DirectoryTreeView: View {
     @State private var pickerRequest: PickerRequest?
     @State private var entryPendingDeletion: DirectoryEntry?
     @State private var newEntryRequest: NewEntryRequest?
+    @State private var groupForMembersEditing: DirectoryEntry?
 
     @State private var isPerformingAction = false
     @State private var actionError: String?
@@ -150,12 +151,20 @@ struct DirectoryTreeView: View {
                 reveal(dn)
             }
         }
+        .sheet(item: $groupForMembersEditing) { group in
+            GroupMembersSheet(group: group, connection: connection) {
+                await reload(group.dn)
+            }
+        }
         .focusedSceneValue(\.directoryCommands, DirectoryCommands(
             newEntry: { newEntryRequest = NewEntryRequest(parentDN: selection ?? root.dn) },
             importLDIF: { importLDIF() },
             openSchema: { openWindow(id: "schema", value: connection) },
             advancedSearch: { isShowingAdvancedSearch = true },
-            deleteSelected: selectedEntry.map { entry in { entryPendingDeletion = entry } }
+            deleteSelected: selectedEntry.map { entry in { entryPendingDeletion = entry } },
+            editMembers: selectedEntry.flatMap { entry in
+                GroupMembersSheet.isGroup(entry) ? { groupForMembersEditing = entry } : nil
+            }
         ))
     }
 
@@ -237,6 +246,16 @@ struct DirectoryTreeView: View {
             }
         } label: {
             Label("Export as LDIF", systemImage: "square.and.arrow.up")
+        }
+
+        if GroupMembersSheet.isGroup(entry) {
+            Button {
+                DispatchQueue.main.async {
+                    groupForMembersEditing = entry
+                }
+            } label: {
+                Label("Edit Members…", systemImage: "person.2.badge.gearshape")
+            }
         }
 
         Divider()

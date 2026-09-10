@@ -102,6 +102,11 @@ struct AppMenuCommands: Commands {
             }
             .disabled(entryDetailCommands == nil)
 
+            Button("Edit Members…") {
+                directoryCommands?.editMembers?()
+            }
+            .disabled(directoryCommands?.editMembers == nil)
+
             Button("Delete Entry", role: .destructive) {
                 directoryCommands?.deleteSelected?()
             }

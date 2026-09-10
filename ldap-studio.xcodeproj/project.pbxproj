@@ -327,9 +327,9 @@
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"$(SRCROOT)/core/build",
-					"/opt/homebrew/opt/openldap/lib",
+					/opt/homebrew/opt/openldap/lib,
 					"/opt/homebrew/opt/openssl@3/lib",
-					"/opt/homebrew/opt/libxcrypt/lib",
+					/opt/homebrew/opt/libxcrypt/lib,
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0.0;
@@ -339,8 +339,10 @@
 					"-llber",
 					"-lcrypto",
 					"-lcrypt",
-					"-framework", "ImageIO",
-					"-framework", "CoreGraphics",
+					"-framework",
+					ImageIO,
+					"-framework",
+					CoreGraphics,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ldap-studio";
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -381,9 +383,9 @@
 				);
 				LIBRARY_SEARCH_PATHS = (
 					"$(SRCROOT)/core/build",
-					"/opt/homebrew/opt/openldap/lib",
+					/opt/homebrew/opt/openldap/lib,
 					"/opt/homebrew/opt/openssl@3/lib",
-					"/opt/homebrew/opt/libxcrypt/lib",
+					/opt/homebrew/opt/libxcrypt/lib,
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
 				MARKETING_VERSION = 1.0.0;
@@ -393,8 +395,10 @@
 					"-llber",
 					"-lcrypto",
 					"-lcrypt",
-					"-framework", "ImageIO",
-					"-framework", "CoreGraphics",
+					"-framework",
+					ImageIO,
+					"-framework",
+					CoreGraphics,
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ldap-studio";
 				PRODUCT_NAME = "$(TARGET_NAME)";

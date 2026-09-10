@@ -33,6 +33,7 @@ struct EntryDetailView: View {
 
     @State private var isShowingMovePicker = false
     @State private var isShowingCopyPicker = false
+    @State private var isShowingGroupMembers = false
 
     @State private var attributeBeingViewed: Attribute?
 
@@ -74,6 +75,8 @@ struct EntryDetailView: View {
     private var attributeNameSuggestions: [String] {
         schema?.allowedAttributeNames(forObjectClasses: currentObjectClassNames) ?? []
     }
+
+    private var isGroup: Bool { GroupMembersSheet.isGroup(entry) }
 
     private func valueSuggestions(for attributeName: String) -> [String] {
         guard attributeName.caseInsensitiveCompare("objectClass") == .orderedSame else { return [] }
@@ -154,6 +157,11 @@ struct EntryDetailView: View {
                 DestinationPickerSheet(root: pruned, title: "Copy \(entry.name) To", confirmLabel: "Copy") { destinationDN in
                     copy(to: destinationDN)
                 }
+            }
+        }
+        .sheet(isPresented: $isShowingGroupMembers) {
+            GroupMembersSheet(group: entry, connection: connection) {
+                await reload(entry.dn)
             }
         }
         .sheet(isPresented: $isShowingAddAttribute) {
@@ -283,6 +291,15 @@ struct EntryDetailView: View {
                 Image(systemName: "square.and.arrow.up")
             }
             .help("Export as LDIF")
+
+            if isGroup {
+                Button {
+                    isShowingGroupMembers = true
+                } label: {
+                    Image(systemName: "person.2.badge.gearshape")
+                }
+                .help("Edit Members")
+            }
 
             Divider().frame(height: 16)
 

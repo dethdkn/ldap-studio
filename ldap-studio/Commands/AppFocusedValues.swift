@@ -30,6 +30,8 @@ struct DirectoryCommands {
     var openSchema: () -> Void
     var advancedSearch: () -> Void
     var deleteSelected: (() -> Void)?
+    /// Non-nil only when the selected entry is a group.
+    var editMembers: (() -> Void)?
 }
 
 struct EntryDetailCommands {
