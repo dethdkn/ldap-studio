@@ -349,6 +349,41 @@ private func background<T>(startTLS: Bool, pinnedCertSHA256: String?,
     }
 }
 
+/// Wraps an operation so it lands in the Operation Log with timing and
+/// outcome. Any thrown error is recorded and rethrown unchanged.
+private func logged<T>(_ kind: OperationLog.Kind, endpoint: String,
+                       summary: String, detail: String,
+                       _ work: () async throws -> T) async throws -> T {
+    let start = DispatchTime.now()
+    func ms() -> Double {
+        Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000
+    }
+    do {
+        let value = try await work()
+        let elapsed = ms()
+        await MainActor.run {
+            OperationLog.shared.record(endpoint: endpoint, kind: kind, summary: summary,
+                                       detail: detail, millis: elapsed, outcome: .ok)
+        }
+        return value
+    } catch {
+        let elapsed = ms()
+        let message = "\(error)"
+        await MainActor.run {
+            OperationLog.shared.record(endpoint: endpoint, kind: kind, summary: summary,
+                                       detail: detail, millis: elapsed,
+                                       outcome: .failure(message))
+        }
+        throw error
+    }
+}
+
+private func endpoint(_ host: String, _ port: UInt16) -> String { "\(host):\(port)" }
+
+private func abbrev(_ s: String, _ n: Int = 120) -> String {
+    s.count > n ? String(s.prefix(n)) + "…" : s
+}
+
 /// Sets the per-connection TLS policy in the C core. `allowUntrusted`
 /// only makes sense together with a pin (verification off, the pin is
 /// what's trusted); with no pin it's plain chain verification.
@@ -400,10 +435,14 @@ public func probeCertificate(host: String, port: UInt16, useSsl: Bool,
 public func testConnection(host: String, port: UInt16, useSsl: Bool,
                            startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                            bindDn: String, password: String) async throws {
-    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+    try await logged(.connect, endpoint: endpoint(host, port),
+                     summary: "bind \(bindDn.isEmpty ? "anonymous" : bindDn)",
+                     detail: "host: \(host):\(port)\nbind: \(bindDn.isEmpty ? "anonymous" : bindDn)") {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc = ls_test_connection(host, port, useSsl, bindDn, password, &err)
         return rc == 0 ? .success(()) : .failure(swiftError(&err))
+    }
     }
 }
 
@@ -411,7 +450,10 @@ public func fetchRootEntry(host: String, port: UInt16, useSsl: Bool,
                            startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                            bindDn: String, password: String,
                            baseDn: String) async throws -> LdapEntry {
-    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+    try await logged(.search, endpoint: endpoint(host, port),
+                     summary: "load subtree \(baseDn)",
+                     detail: "base: \(baseDn)\nscope: subtree\nfilter: (objectClass=*)") {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         var out: UnsafeMutablePointer<LSEntry>?
         let rc = ls_fetch_root_entry(host, port, useSsl, bindDn, password, baseDn, &out, &err)
@@ -420,6 +462,7 @@ public func fetchRootEntry(host: String, port: UInt16, useSsl: Bool,
         ls_entry_free(out)
         return .success(entry)
     }
+    }
 }
 
 public func searchDirectory(host: String, port: UInt16, useSsl: Bool,
@@ -427,7 +470,10 @@ public func searchDirectory(host: String, port: UInt16, useSsl: Bool,
                             bindDn: String, password: String, baseDn: String,
                             scope: LdapSearchScope, filter: String,
                             includeOperational: Bool = false) async throws -> [LdapEntry] {
-    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+    try await logged(.search, endpoint: endpoint(host, port),
+                     summary: "search \(baseDn)",
+                     detail: "base: \(baseDn)\nscope: \(scope)\nfilter: \(filter)\(includeOperational ? "\nattrs: * +" : "")") {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         var out: UnsafeMutablePointer<LSEntry>?
         var count = 0
@@ -443,12 +489,16 @@ public func searchDirectory(host: String, port: UInt16, useSsl: Bool,
         }
         return .success(results)
     }
+    }
 }
 
 public func fetchSchema(host: String, port: UInt16, useSsl: Bool,
                         startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                         bindDn: String, password: String) async throws -> LdapSchema {
-    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+    try await logged(.schema, endpoint: endpoint(host, port),
+                     summary: "load schema",
+                     detail: "base: cn=Subschema\nscope: base\nattrs: objectClasses attributeTypes") {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         var out: UnsafeMutablePointer<LSSchema>?
         let rc = ls_fetch_schema(host, port, useSsl, bindDn, password, &out, &err)
@@ -467,6 +517,7 @@ public func fetchSchema(host: String, port: UInt16, useSsl: Bool,
         ls_schema_free(out)
         return .success(LdapSchema(objectClasses: classes, attributeTypes: attrs))
     }
+    }
 }
 
 public func deleteEntry(host: String, port: UInt16, useSsl: Bool,
@@ -474,10 +525,14 @@ public func deleteEntry(host: String, port: UInt16, useSsl: Bool,
                         startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                         bindDn: String, password: String, dn: String) async throws {
     guard !readOnly else { throw ConnectionError.ReadOnly }
-    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+    try await logged(.delete, endpoint: endpoint(host, port),
+                     summary: "delete \(dn)",
+                     detail: "dn: \(dn)") {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc = ls_delete_entry(host, port, useSsl, bindDn, password, dn, &err)
         return rc == 0 ? .success(()) : .failure(swiftError(&err))
+    }
     }
 }
 
@@ -487,11 +542,15 @@ public func addAttributeValue(host: String, port: UInt16, useSsl: Bool,
                               bindDn: String, password: String, dn: String,
                               attribute: String, value: String) async throws {
     guard !readOnly else { throw ConnectionError.ReadOnly }
-    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+    try await logged(.modify, endpoint: endpoint(host, port),
+                     summary: "add value: \(attribute) on \(dn)",
+                     detail: "dn: \(dn)\nadd: \(attribute) = \(abbrev(value))") {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc = ls_add_attribute_value(host, port, useSsl, bindDn, password,
                                         dn, attribute, value, &err)
         return rc == 0 ? .success(()) : .failure(swiftError(&err))
+    }
     }
 }
 
@@ -502,11 +561,15 @@ public func modifyAttributeValue(host: String, port: UInt16, useSsl: Bool,
                                  attribute: String, oldValue: String, newValue: String,
                                  isBinary: Bool) async throws {
     guard !readOnly else { throw ConnectionError.ReadOnly }
-    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+    try await logged(.modify, endpoint: endpoint(host, port),
+                     summary: "replace: \(attribute) on \(dn)",
+                     detail: "dn: \(dn)\n\(attribute): \(abbrev(oldValue)) -> \(abbrev(newValue))") {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc = ls_modify_attribute_value(host, port, useSsl, bindDn, password,
                                            dn, attribute, oldValue, newValue, isBinary, &err)
         return rc == 0 ? .success(()) : .failure(swiftError(&err))
+    }
     }
 }
 
@@ -516,11 +579,15 @@ public func setAttributeValue(host: String, port: UInt16, useSsl: Bool,
                               bindDn: String, password: String, dn: String,
                               attribute: String, value: String, isBinary: Bool) async throws {
     guard !readOnly else { throw ConnectionError.ReadOnly }
-    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+    try await logged(.modify, endpoint: endpoint(host, port),
+                     summary: "set: \(attribute) on \(dn)",
+                     detail: "dn: \(dn)\nreplace: \(attribute) = \(abbrev(value))") {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc = ls_set_attribute_value(host, port, useSsl, bindDn, password,
                                         dn, attribute, value, isBinary, &err)
         return rc == 0 ? .success(()) : .failure(swiftError(&err))
+    }
     }
 }
 
@@ -530,11 +597,15 @@ public func deleteAttributeValue(host: String, port: UInt16, useSsl: Bool,
                                  bindDn: String, password: String, dn: String,
                                  attribute: String, value: String, isBinary: Bool) async throws {
     guard !readOnly else { throw ConnectionError.ReadOnly }
-    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+    try await logged(.modify, endpoint: endpoint(host, port),
+                     summary: "delete value: \(attribute) on \(dn)",
+                     detail: "dn: \(dn)\ndelete: \(attribute) = \(abbrev(value))") {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc = ls_delete_attribute_value(host, port, useSsl, bindDn, password,
                                            dn, attribute, value, isBinary, &err)
         return rc == 0 ? .success(()) : .failure(swiftError(&err))
+    }
     }
 }
 
@@ -544,10 +615,14 @@ public func moveEntry(host: String, port: UInt16, useSsl: Bool,
                       bindDn: String, password: String,
                       dn: String, newSuperior: String) async throws {
     guard !readOnly else { throw ConnectionError.ReadOnly }
-    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+    try await logged(.rename, endpoint: endpoint(host, port),
+                     summary: "move \(dn)",
+                     detail: "dn: \(dn)\nnew superior: \(newSuperior)") {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc = ls_move_entry(host, port, useSsl, bindDn, password, dn, newSuperior, &err)
         return rc == 0 ? .success(()) : .failure(swiftError(&err))
+    }
     }
 }
 
@@ -558,11 +633,15 @@ public func renameEntry(host: String, port: UInt16, useSsl: Bool,
                         newRDN: String, deleteOldRDN: Bool,
                         newSuperior: String?) async throws {
     guard !readOnly else { throw ConnectionError.ReadOnly }
-    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+    try await logged(.rename, endpoint: endpoint(host, port),
+                     summary: "rename \(dn)",
+                     detail: "dn: \(dn)\nnew RDN: \(newRDN)\ndelete old RDN: \(deleteOldRDN)\nnew superior: \(newSuperior ?? "(same)")") {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc = ls_rename_entry(host, port, useSsl, bindDn, password, dn,
                                  newRDN, deleteOldRDN, newSuperior ?? "", &err)
         return rc == 0 ? .success(()) : .failure(swiftError(&err))
+    }
     }
 }
 
@@ -622,7 +701,10 @@ public func modifyEntry(host: String, port: UInt16, useSsl: Bool,
     }
 
     let count = ops.count
-    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+    try await logged(.modify, endpoint: endpoint(host, port),
+                     summary: "modify \(dn) (\(ops.count) op\(ops.count == 1 ? "" : "s"))",
+                     detail: "dn: \(dn)\n" + ops.map { "\($0.kind) \($0.attribute)" }.joined(separator: "\n")) {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc: Int32 = cValues.withUnsafeBufferPointer { valBuf in
             var cOps: [LSModOp] = []
@@ -642,6 +724,7 @@ public func modifyEntry(host: String, port: UInt16, useSsl: Bool,
             }
         }
         return rc == 0 ? .success(()) : .failure(swiftError(&err))
+    }
     }
 }
 
@@ -665,13 +748,17 @@ public func addEntry(host: String, port: UInt16, useSsl: Bool,
     }
 
     let count = cAttrs.count
-    try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+    try await logged(.add, endpoint: endpoint(host, port),
+                     summary: "add \(dn)",
+                     detail: "dn: \(dn)\nattributes: \(attributes.map(\.name).joined(separator: ", "))") {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
         var err = LSError()
         let rc: Int32 = cAttrs.withUnsafeBufferPointer { buf in
             ls_add_entry(host, port, useSsl, bindDn, password, dn,
                          buf.baseAddress, count, &err)
         }
         return rc == 0 ? .success(()) : .failure(swiftError(&err))
+    }
     }
 }
 

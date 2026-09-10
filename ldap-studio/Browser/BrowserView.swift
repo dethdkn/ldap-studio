@@ -27,6 +27,13 @@ struct BrowserView: View {
     /// suggestions rather than the whole browser failing to open.
     @State private var schema: LdapSchema?
 
+    @State private var isLogExpanded = false
+    @State private var operationLog = OperationLog.shared
+
+    private var endpoint: String {
+        "\(connection.host):\(UInt16(clamping: connection.port))"
+    }
+
     private var selectedEntryBinding: Binding<DirectoryEntry>? {
         guard let selection, root?.find(id: selection) != nil else { return nil }
         return Binding(
@@ -36,6 +43,14 @@ struct BrowserView: View {
     }
 
     var body: some View {
+        VStack(spacing: 0) {
+            content
+            logStrip
+        }
+    }
+
+    @ViewBuilder
+    private var content: some View {
         Group {
             if let loadError {
                 ContentUnavailableView {
@@ -99,6 +114,62 @@ struct BrowserView: View {
                 retry()
             }
         }
+    }
+
+    private var logStrip: some View {
+        let mine = operationLog.entries.filter { $0.endpoint == endpoint }
+        return VStack(spacing: 0) {
+            Divider()
+
+            Button {
+                withAnimation(.easeOut(duration: 0.15)) { isLogExpanded.toggle() }
+            } label: {
+                HStack(spacing: 7) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .rotationEffect(.degrees(isLogExpanded ? 90 : 0))
+                        .foregroundStyle(.secondary)
+                    Image(systemName: "list.bullet.rectangle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    Text("Operation Log")
+                        .font(.caption.weight(.semibold))
+                    if !mine.isEmpty {
+                        Text("\(mine.count)")
+                            .font(.caption2.weight(.medium).monospacedDigit())
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 5)
+                            .padding(.vertical, 1)
+                            .background(.quaternary, in: Capsule())
+                    }
+                    if let last = mine.last {
+                        Text("·").foregroundStyle(.tertiary)
+                        Text(last.summary)
+                            .foregroundStyle(last.outcome.isOK ? AnyShapeStyle(.secondary) : AnyShapeStyle(Color.red))
+                            .lineLimit(1)
+                            .truncationMode(.middle)
+                    }
+                    Spacer(minLength: 8)
+                    Text("⇧⌘Y")
+                        .font(.caption2)
+                        .foregroundStyle(.tertiary)
+                }
+                .font(.caption)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .keyboardShortcut("y", modifiers: [.command, .shift])
+
+            if isLogExpanded {
+                Divider()
+                OperationLogPanel(endpoint: endpoint)
+                    .frame(height: 220)
+            }
+        }
+        .background(.bar)
     }
 
     private func retry() {
