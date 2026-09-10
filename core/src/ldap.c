@@ -594,6 +594,93 @@ int ls_move_entry(const char *host, uint16_t port, bool use_ssl,
   return LS_OK;
 }
 
+int ls_rename_entry(const char *host, uint16_t port, bool use_ssl,
+                    const char *bind_dn, const char *password, const char *dn,
+                    const char *new_rdn, bool delete_old_rdn,
+                    const char *new_superior, LSError *err) {
+  LDAP *ld = NULL;
+  int rc =
+      ls_connect_and_bind(host, port, use_ssl, bind_dn, password, &ld, err);
+  if (rc != LS_OK) return rc;
+
+  int lrc = ldap_rename_s(ld, dn, new_rdn ? new_rdn : "",
+                          (new_superior && *new_superior) ? new_superior : NULL,
+                          (int)delete_old_rdn, NULL, NULL);
+  ldap_unbind_ext_s(ld, NULL, NULL);
+  if (lrc != LDAP_SUCCESS) return ls_ldap_fail(err, LS_MODIFY_FAILED, lrc);
+  return LS_OK;
+}
+
+/* ── batched modify ─────────────────────────────────────────────── */
+
+static int mod_op_flag(LSModKind kind) {
+  switch (kind) {
+    case LS_MOD_ADD:
+      return LDAP_MOD_ADD;
+    case LS_MOD_DELETE:
+      return LDAP_MOD_DELETE;
+    case LS_MOD_REPLACE:
+      return LDAP_MOD_REPLACE;
+  }
+  return LDAP_MOD_ADD;
+}
+
+/* Fills `mod` (and the berval arrays it points at, all malloc'd) from one
+ * LSModOp. `bvals`/`bptrs` must be freed by the caller along with each
+ * bv_val; a NULL value list (whole-attribute op) leaves modv_bvals NULL. */
+static void build_mod(const LSModOp *op, LDAPMod *mod, struct berval **bvals,
+                      struct berval ***bptrs) {
+  *bvals = NULL;
+  *bptrs = NULL;
+  if (op->value_count > 0) {
+    *bvals = ls_xmalloc(op->value_count * sizeof(struct berval));
+    *bptrs = ls_xmalloc((op->value_count + 1) * sizeof(struct berval *));
+    for (size_t i = 0; i < op->value_count; ++i) {
+      char *bytes = NULL;
+      ber_len_t len = 0;
+      value_bytes(op->values[i].value, op->values[i].is_binary, &bytes, &len);
+      (*bvals)[i].bv_val = bytes;
+      (*bvals)[i].bv_len = len;
+      (*bptrs)[i] = &(*bvals)[i];
+    }
+    (*bptrs)[op->value_count] = NULL;
+  }
+  mod->mod_op = mod_op_flag(op->kind) | LDAP_MOD_BVALUES;
+  mod->mod_type = (char *)op->attribute;
+  mod->mod_vals.modv_bvals = *bptrs;
+}
+
+int ls_modify_entry(const char *host, uint16_t port, bool use_ssl,
+                    const char *bind_dn, const char *password, const char *dn,
+                    const LSModOp *ops, size_t op_count, LSError *err) {
+  LDAPMod *mods = ls_xcalloc(op_count, sizeof(LDAPMod));
+  LDAPMod **modp = ls_xcalloc(op_count + 1, sizeof(LDAPMod *));
+  struct berval **all_bvals = ls_xcalloc(op_count, sizeof(struct berval *));
+  struct berval ***all_bptrs = ls_xcalloc(op_count, sizeof(struct berval **));
+
+  for (size_t i = 0; i < op_count; ++i) {
+    build_mod(&ops[i], &mods[i], &all_bvals[i], &all_bptrs[i]);
+    modp[i] = &mods[i];
+  }
+  modp[op_count] = NULL;
+
+  int rc = run_modify(host, port, use_ssl, bind_dn, password, dn, modp, err);
+
+  for (size_t i = 0; i < op_count; ++i) {
+    if (all_bvals[i]) {
+      for (size_t k = 0; k < ops[i].value_count; ++k)
+        free(all_bvals[i][k].bv_val);
+      free(all_bvals[i]);
+    }
+    free(all_bptrs[i]);
+  }
+  free(all_bvals);
+  free(all_bptrs);
+  free(mods);
+  free(modp);
+  return rc;
+}
+
 /* ── add_entry ───────────────────────────────────────────────────── */
 
 typedef struct {

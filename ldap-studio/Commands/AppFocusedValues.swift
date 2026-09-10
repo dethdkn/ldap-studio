@@ -28,10 +28,17 @@ struct DirectoryCommands {
     var newEntry: () -> Void
     var importLDIF: () -> Void
     var openSchema: () -> Void
+    var openLDIFEditor: () -> Void
     var advancedSearch: () -> Void
     var deleteSelected: (() -> Void)?
     /// Non-nil only when the selected entry is a group.
     var editMembers: (() -> Void)?
+}
+
+struct LDIFEditorCommands {
+    var openFile: () -> Void
+    var saveFile: () -> Void
+    var run: () -> Void
 }
 
 struct EntryDetailCommands {
@@ -62,6 +69,10 @@ private struct DirectoryCommandsKey: FocusedValueKey {
     typealias Value = DirectoryCommands
 }
 
+private struct LDIFEditorCommandsKey: FocusedValueKey {
+    typealias Value = LDIFEditorCommands
+}
+
 private struct EntryDetailCommandsKey: FocusedValueKey {
     typealias Value = EntryDetailCommands
 }
@@ -80,6 +91,11 @@ extension FocusedValues {
     var directoryCommands: DirectoryCommands? {
         get { self[DirectoryCommandsKey.self] }
         set { self[DirectoryCommandsKey.self] = newValue }
+    }
+
+    var ldifEditorCommands: LDIFEditorCommands? {
+        get { self[LDIFEditorCommandsKey.self] }
+        set { self[LDIFEditorCommandsKey.self] = newValue }
     }
 
     var entryDetailCommands: EntryDetailCommands? {

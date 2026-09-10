@@ -196,10 +196,36 @@ int ls_move_entry(const char *host, uint16_t port, bool use_ssl,
                   const char *bind_dn, const char *password, const char *dn,
                   const char *new_superior, LSError *err);
 
+/* Rename / relocate an entry (LDAP ModifyDN). `new_rdn` is the entry's new
+ * RDN (e.g. "cn=Bob"); `new_superior` NULL or empty keeps the current
+ * parent. Used by the LDIF editor's `changetype: modrdn`. */
+int ls_rename_entry(const char *host, uint16_t port, bool use_ssl,
+                    const char *bind_dn, const char *password, const char *dn,
+                    const char *new_rdn, bool delete_old_rdn,
+                    const char *new_superior, LSError *err);
+
 int ls_add_entry(const char *host, uint16_t port, bool use_ssl,
                  const char *bind_dn, const char *password, const char *dn,
                  const LSAttribute *attributes, size_t attribute_count,
                  LSError *err);
+
+/* ── Batched modify (LDIF `changetype: modify`) ────────────────────── */
+
+typedef enum { LS_MOD_ADD = 0, LS_MOD_DELETE, LS_MOD_REPLACE } LSModKind;
+
+typedef struct {
+  LSModKind kind;
+  const char *attribute;
+  /* `values[i].value` (+ is_binary); `name` is ignored. `value_count` may
+   * be 0 — a whole-attribute delete, or replace-with-nothing. */
+  const LSAttribute *values;
+  size_t value_count;
+} LSModOp;
+
+/* Applies every op in one LDAP Modify operation against `dn`. */
+int ls_modify_entry(const char *host, uint16_t port, bool use_ssl,
+                    const char *bind_dn, const char *password, const char *dn,
+                    const LSModOp *ops, size_t op_count, LSError *err);
 
 /* ── Standalone helpers ────────────────────────────────────────────── */
 

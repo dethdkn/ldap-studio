@@ -29,6 +29,12 @@ struct ldap_studioApp: App {
             }
         }
 
+        WindowGroup(id: "ldif", for: SavedConnection.self) { $connection in
+            if let connection {
+                LDIFEditorView(connection: connection)
+            }
+        }
+
         Window("About Ldap Studio", id: "about") {
             AboutView()
         }

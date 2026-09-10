@@ -9,6 +9,7 @@ struct AppMenuCommands: Commands {
     @FocusedValue(\.connectionCommands) private var connectionCommands
     @FocusedValue(\.selectedConnectionCommands) private var selectedConnectionCommands
     @FocusedValue(\.directoryCommands) private var directoryCommands
+    @FocusedValue(\.ldifEditorCommands) private var ldifEditorCommands
     @FocusedValue(\.entryDetailCommands) private var entryDetailCommands
     @Environment(\.openWindow) private var openWindow
 
@@ -45,6 +46,18 @@ struct AppMenuCommands: Commands {
                 directoryCommands?.importLDIF()
             }
             .disabled(directoryCommands == nil)
+
+            Button("Open LDIF…") {
+                ldifEditorCommands?.openFile()
+            }
+            .keyboardShortcut("o", modifiers: .command)
+            .disabled(ldifEditorCommands == nil)
+
+            Button("Save LDIF…") {
+                ldifEditorCommands?.saveFile()
+            }
+            .keyboardShortcut("s", modifiers: .command)
+            .disabled(ldifEditorCommands == nil)
 
             Divider()
 
@@ -83,6 +96,17 @@ struct AppMenuCommands: Commands {
                 directoryCommands?.openSchema()
             }
             .disabled(directoryCommands == nil)
+
+            Button("LDIF Editor…") {
+                directoryCommands?.openLDIFEditor()
+            }
+            .disabled(directoryCommands == nil)
+
+            Button("Run LDIF") {
+                ldifEditorCommands?.run()
+            }
+            .keyboardShortcut("r", modifiers: [.command, .shift])
+            .disabled(ldifEditorCommands == nil)
 
             Button("Advanced Search…") {
                 directoryCommands?.advancedSearch()

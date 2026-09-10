@@ -160,6 +160,7 @@ struct DirectoryTreeView: View {
             newEntry: { newEntryRequest = NewEntryRequest(parentDN: selection ?? root.dn) },
             importLDIF: { importLDIF() },
             openSchema: { openWindow(id: "schema", value: connection) },
+            openLDIFEditor: { openWindow(id: "ldif", value: connection) },
             advancedSearch: { isShowingAdvancedSearch = true },
             deleteSelected: selectedEntry.map { entry in { entryPendingDeletion = entry } },
             editMembers: selectedEntry.flatMap { entry in
@@ -190,6 +191,13 @@ struct DirectoryTreeView: View {
                 Image(systemName: "list.bullet.rectangle")
             }
             .help("Schema")
+
+            Button {
+                openWindow(id: "ldif", value: connection)
+            } label: {
+                Image(systemName: "curlybraces")
+            }
+            .help("LDIF Editor")
 
             Spacer()
 

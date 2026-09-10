@@ -454,6 +454,94 @@ public func moveEntry(host: String, port: UInt16, useSsl: Bool,
     }
 }
 
+public func renameEntry(host: String, port: UInt16, useSsl: Bool,
+                        bindDn: String, password: String, dn: String,
+                        newRDN: String, deleteOldRDN: Bool,
+                        newSuperior: String?) async throws {
+    try await background {
+        var err = LSError()
+        let rc = ls_rename_entry(host, port, useSsl, bindDn, password, dn,
+                                 newRDN, deleteOldRDN, newSuperior ?? "", &err)
+        return rc == 0 ? .success(()) : .failure(swiftError(&err))
+    }
+}
+
+public enum LdapModKind {
+    case add, delete, replace
+    fileprivate var c: LSModKind {
+        switch self {
+        case .add: return LS_MOD_ADD
+        case .delete: return LS_MOD_DELETE
+        case .replace: return LS_MOD_REPLACE
+        }
+    }
+}
+
+public struct LdapModOp {
+    public let kind: LdapModKind
+    public let attribute: String
+    /// Empty for a whole-attribute delete / replace-with-nothing.
+    public let values: [(value: String, isBinary: Bool)]
+
+    public init(kind: LdapModKind, attribute: String,
+                values: [(value: String, isBinary: Bool)]) {
+        self.kind = kind
+        self.attribute = attribute
+        self.values = values
+    }
+}
+
+/// One LDAP Modify with every op applied together (LDIF `changetype: modify`).
+public func modifyEntry(host: String, port: UInt16, useSsl: Bool,
+                        bindDn: String, password: String, dn: String,
+                        ops: [LdapModOp]) async throws {
+    let flatValues = ops.flatMap(\.values)
+    let valueStrings = flatValues.map { strdup($0.value) }
+    let attrStrings: [UnsafeMutablePointer<CChar>] = ops.map { strdup($0.attribute)! }
+    let emptyName = strdup("")
+    defer {
+        valueStrings.forEach { free($0) }
+        attrStrings.forEach { free($0) }
+        free(emptyName)
+    }
+
+    var cValues: [LSAttribute] = []
+    cValues.reserveCapacity(flatValues.count)
+    for (i, v) in flatValues.enumerated() {
+        cValues.append(LSAttribute(name: emptyName, value: valueStrings[i], is_binary: v.isBinary))
+    }
+
+    var offsets: [Int] = []
+    var running = 0
+    for op in ops {
+        offsets.append(running)
+        running += op.values.count
+    }
+
+    let count = ops.count
+    try await background {
+        var err = LSError()
+        let rc: Int32 = cValues.withUnsafeBufferPointer { valBuf in
+            var cOps: [LSModOp] = []
+            cOps.reserveCapacity(count)
+            for (i, op) in ops.enumerated() {
+                let n = op.values.count
+                let base: UnsafePointer<LSAttribute>? =
+                    n == 0 ? nil : valBuf.baseAddress.map { $0 + offsets[i] }
+                cOps.append(LSModOp(kind: op.kind.c,
+                                    attribute: UnsafePointer(attrStrings[i]),
+                                    values: base,
+                                    value_count: n))
+            }
+            return cOps.withUnsafeBufferPointer { opBuf in
+                ls_modify_entry(host, port, useSsl, bindDn, password, dn,
+                                opBuf.baseAddress, opBuf.count, &err)
+            }
+        }
+        return rc == 0 ? .success(()) : .failure(swiftError(&err))
+    }
+}
+
 public func addEntry(host: String, port: UInt16, useSsl: Bool,
                      bindDn: String, password: String, dn: String,
                      attributes: [LdapAttribute]) async throws {
