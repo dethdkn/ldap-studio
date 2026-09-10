@@ -13,6 +13,11 @@ struct AppMenuCommands: Commands {
     @FocusedValue(\.entryDetailCommands) private var entryDetailCommands
     @Environment(\.openWindow) private var openWindow
 
+    /// True when a directory browser window is frontmost — `directoryCommands`
+    /// is only published while one is. Used to point ⌘N at whichever "new"
+    /// makes sense for the current window.
+    private var isBrowsing: Bool { directoryCommands != nil }
+
     var body: some Commands {
         CommandGroup(replacing: .appInfo) {
             Button("About Ldap Studio") {
@@ -24,13 +29,13 @@ struct AppMenuCommands: Commands {
             Button("New Connection…") {
                 connectionCommands?.addConnection()
             }
-            .keyboardShortcut("n", modifiers: .command)
+            .keyboardShortcut("n", modifiers: isBrowsing ? [.command, .shift] : .command)
             .disabled(connectionCommands == nil)
 
             Button("New Entry…") {
                 directoryCommands?.newEntry()
             }
-            .keyboardShortcut("n", modifiers: [.command, .shift])
+            .keyboardShortcut("n", modifiers: isBrowsing ? .command : [.command, .shift])
             .disabled(directoryCommands == nil)
         }
 
@@ -69,6 +74,7 @@ struct AppMenuCommands: Commands {
             Button("Export Entry as LDIF") {
                 entryDetailCommands?.exportLDIF()
             }
+            .keyboardShortcut("x", modifiers: [.command, .shift])
             .disabled(entryDetailCommands == nil)
         }
 
@@ -116,33 +122,67 @@ struct AppMenuCommands: Commands {
 
             Divider()
 
-            Button("Move DN…") {
-                entryDetailCommands?.moveDN()
+            Button("Rename…") {
+                directoryCommands?.renameSelected?()
             }
-            .disabled(entryDetailCommands == nil)
+            .keyboardShortcut("e", modifiers: [.command, .shift])
+            .disabled(directoryCommands?.renameSelected == nil)
 
-            Button("Copy DN…") {
-                entryDetailCommands?.copyDN()
+            Button("Set Password…") {
+                directoryCommands?.setPassword?()
             }
-            .disabled(entryDetailCommands == nil)
+            .keyboardShortcut("k", modifiers: [.command, .shift])
+            .disabled(directoryCommands?.setPassword == nil)
+
+            Button("Set Photo…") {
+                directoryCommands?.setPhoto?()
+            }
+            .keyboardShortcut("i", modifiers: [.command, .shift])
+            .disabled(directoryCommands?.setPhoto == nil)
 
             Button("Edit Members…") {
                 directoryCommands?.editMembers?()
             }
+            .keyboardShortcut("u", modifiers: [.command, .shift])
             .disabled(directoryCommands?.editMembers == nil)
+
+            Divider()
+
+            Button("Move to…") {
+                entryDetailCommands?.moveDN()
+            }
+            .keyboardShortcut("m", modifiers: [.command, .shift])
+            .disabled(entryDetailCommands == nil)
+
+            Button("Copy to…") {
+                entryDetailCommands?.copyDN()
+            }
+            .keyboardShortcut("d", modifiers: [.command, .shift])
+            .disabled(entryDetailCommands == nil)
+
+            Button("Copy DN") {
+                directoryCommands?.copyDN?()
+            }
+            .keyboardShortcut("c", modifiers: [.command, .shift])
+            .disabled(directoryCommands?.copyDN == nil)
 
             Button("Delete Entry", role: .destructive) {
                 directoryCommands?.deleteSelected?()
             }
+            .keyboardShortcut(.delete, modifiers: .command)
             .disabled(directoryCommands?.deleteSelected == nil)
 
             Divider()
 
             Button("Refresh") {
-                entryDetailCommands?.refresh()
+                if let refreshSelected = directoryCommands?.refreshSelected {
+                    refreshSelected()
+                } else {
+                    entryDetailCommands?.refresh()
+                }
             }
             .keyboardShortcut("r", modifiers: .command)
-            .disabled(entryDetailCommands == nil)
+            .disabled(directoryCommands?.refreshSelected == nil && entryDetailCommands == nil)
         }
 
         CommandMenu("Attribute") {

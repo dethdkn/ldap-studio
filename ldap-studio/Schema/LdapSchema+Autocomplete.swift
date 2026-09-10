@@ -35,6 +35,26 @@ extension LdapSchema {
         return result.sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
+    /// Whether the schema actually knows at least one of these object-class
+    /// names. Callers use this to tell "the schema says no" apart from "the
+    /// schema has never heard of these classes" — the latter shouldn't gate
+    /// anything.
+    func recognizesAnyObjectClass(_ objectClassNames: [String]) -> Bool {
+        objectClassNames.contains { name in
+            objectClasses.contains { oc in
+                oc.names.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
+            }
+        }
+    }
+
+    /// Whether an entry with these object classes is allowed to carry
+    /// `attributeName` — i.e. it's in some class's MUST or MAY, inheritance
+    /// included.
+    func permitsAttribute(_ attributeName: String, forObjectClasses objectClassNames: [String]) -> Bool {
+        allowedAttributeNames(forObjectClasses: objectClassNames)
+            .contains { $0.caseInsensitiveCompare(attributeName) == .orderedSame }
+    }
+
     /// Every object class's primary name — for the `objectClass` value
     /// field's own autocomplete.
     var allObjectClassNames: [String] {

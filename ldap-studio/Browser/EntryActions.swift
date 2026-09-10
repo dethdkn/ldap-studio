@@ -128,6 +128,45 @@ struct EntryActions {
         )
     }
 
+    /// Sets `userPassword` on `dn` when there's no specific existing value
+    /// to target — invoked from the tree's context menu rather than a
+    /// selected attribute row. Hashes `plaintext` client-side (same
+    /// guarantee as the row-level variant) and Replaces the attribute,
+    /// adding it if the entry doesn't have one yet.
+    func setPassword(_ plaintext: String, scheme: PasswordScheme, forDN dn: String) async throws {
+        try await setAttributeValue(
+            host: connection.host,
+            port: UInt16(clamping: connection.port),
+            useSsl: connection.useSSL,
+            bindDn: connection.bindDN,
+            password: password,
+            dn: dn,
+            attribute: "userPassword",
+            value: try hashPassword(plaintext: plaintext, scheme: scheme),
+            isBinary: false
+        )
+    }
+
+    /// Renames an entry's RDN in place (the parent DN is unchanged). The
+    /// old RDN attribute value is dropped. Returns the entry's new dn.
+    func rename(_ entry: DirectoryEntry, toRDN newRDN: String) async throws -> String {
+        let parentDN = entry.dn.contains(",")
+            ? String(entry.dn.drop(while: { $0 != "," }).dropFirst())
+            : ""
+        try await renameEntry(
+            host: connection.host,
+            port: UInt16(clamping: connection.port),
+            useSsl: connection.useSSL,
+            bindDn: connection.bindDN,
+            password: password,
+            dn: entry.dn,
+            newRDN: newRDN,
+            deleteOldRDN: true,
+            newSuperior: nil
+        )
+        return parentDN.isEmpty ? newRDN : "\(newRDN),\(parentDN)"
+    }
+
     /// Resizes the image at `fileURL` to a 300x300 JPEG (center-cropped, so
     /// it's never distorted) and makes it the entry's `attribute` value —
     /// a plain Replace, so it works regardless of whatever (possibly

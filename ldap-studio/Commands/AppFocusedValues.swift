@@ -30,6 +30,14 @@ struct DirectoryCommands {
     var openSchema: () -> Void
     var openLDIFEditor: () -> Void
     var advancedSearch: () -> Void
+    /// The following act on the tree's selected entry — nil when nothing is
+    /// selected, and `setPassword` / `setPhoto` are also nil when the
+    /// entry's object classes don't allow that attribute.
+    var refreshSelected: (() -> Void)?
+    var renameSelected: (() -> Void)?
+    var copyDN: (() -> Void)?
+    var setPassword: (() -> Void)?
+    var setPhoto: (() -> Void)?
     var deleteSelected: (() -> Void)?
     /// Non-nil only when the selected entry is a group.
     var editMembers: (() -> Void)?

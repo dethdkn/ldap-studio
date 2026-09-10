@@ -37,6 +37,13 @@ struct Attribute: Identifiable, Hashable {
 }
 
 extension DirectoryEntry {
+    /// This entry's `objectClass` values.
+    var objectClassNames: [String] {
+        attributes
+            .filter { $0.name.caseInsensitiveCompare("objectClass") == .orderedSame }
+            .map(\.value)
+    }
+
     func find(id: DirectoryEntry.ID) -> DirectoryEntry? {
         if self.id == id { return self }
         for child in children ?? [] {

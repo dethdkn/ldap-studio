@@ -276,14 +276,14 @@ struct EntryDetailView: View {
             } label: {
                 Image(systemName: "arrow.turn.up.right")
             }
-            .help("Move DN")
+            .help("Move to…")
 
             Button {
                 isShowingCopyPicker = true
             } label: {
                 Image(systemName: "square.on.square")
             }
-            .help("Copy DN")
+            .help("Copy to…")
 
             Button {
                 actions.exportLDIF(entry)

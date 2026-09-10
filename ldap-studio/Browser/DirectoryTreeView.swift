@@ -32,15 +32,24 @@ struct DirectoryTreeView: View {
         var id: String { parentDN }
     }
 
+    /// Carries which subtree the Advanced Search sheet should start scoped
+    /// to — the entry it was launched from, rather than always the root.
+    private struct AdvancedSearchRequest: Identifiable {
+        let baseDN: String
+        var id: String { baseDN }
+    }
+
     @State private var pickerRequest: PickerRequest?
     @State private var entryPendingDeletion: DirectoryEntry?
     @State private var newEntryRequest: NewEntryRequest?
     @State private var groupForMembersEditing: DirectoryEntry?
+    @State private var entryForRename: DirectoryEntry?
+    @State private var entryForPasswordSet: DirectoryEntry?
 
     @State private var isPerformingAction = false
     @State private var actionError: String?
     @State private var searchText = ""
-    @State private var isShowingAdvancedSearch = false
+    @State private var advancedSearchRequest: AdvancedSearchRequest?
 
     /// Which nodes are expanded — `OutlineGroup`'s simple form manages this
     /// internally with no way to control it from outside, so revealing a
@@ -146,8 +155,8 @@ struct DirectoryTreeView: View {
                 createEntry(dn: dn, attributes: attributes)
             }
         }
-        .sheet(isPresented: $isShowingAdvancedSearch) {
-            AdvancedSearchSheet(connection: connection, defaultBaseDN: root.dn) { dn in
+        .sheet(item: $advancedSearchRequest) { request in
+            AdvancedSearchSheet(connection: connection, defaultBaseDN: request.baseDN) { dn in
                 reveal(dn)
             }
         }
@@ -156,12 +165,33 @@ struct DirectoryTreeView: View {
                 await reload(group.dn)
             }
         }
+        .sheet(item: $entryForRename) { entry in
+            RenameEntrySheet(entry: entry) { newRDN in
+                rename(entry, to: newRDN)
+            }
+        }
+        .sheet(item: $entryForPasswordSet) { entry in
+            SetPasswordSheet { plaintext, scheme in
+                setPassword(plaintext, scheme: scheme, for: entry)
+            }
+        }
         .focusedSceneValue(\.directoryCommands, DirectoryCommands(
             newEntry: { newEntryRequest = NewEntryRequest(parentDN: selection ?? root.dn) },
             importLDIF: { importLDIF() },
             openSchema: { openWindow(id: "schema", value: connection) },
             openLDIFEditor: { openWindow(id: "ldif", value: connection) },
-            advancedSearch: { isShowingAdvancedSearch = true },
+            advancedSearch: {
+                advancedSearchRequest = AdvancedSearchRequest(baseDN: selection ?? root.dn)
+            },
+            refreshSelected: selectedEntry.map { entry in { refresh(entry) } },
+            renameSelected: selectedEntry.map { entry in { entryForRename = entry } },
+            copyDN: selectedEntry.map { entry in { copyToPasteboard(entry.dn) } },
+            setPassword: selectedEntry.flatMap { entry in
+                canSet("userPassword", on: entry) ? { entryForPasswordSet = entry } : nil
+            },
+            setPhoto: selectedEntry.flatMap { entry in
+                canSet("jpegPhoto", on: entry) ? { setPhoto(for: entry) } : nil
+            },
             deleteSelected: selectedEntry.map { entry in { entryPendingDeletion = entry } },
             editMembers: selectedEntry.flatMap { entry in
                 GroupMembersSheet.isGroup(entry) ? { groupForMembersEditing = entry } : nil
@@ -206,7 +236,7 @@ struct DirectoryTreeView: View {
                 .frame(width: 140)
 
             Button {
-                isShowingAdvancedSearch = true
+                advancedSearchRequest = AdvancedSearchRequest(baseDN: selection ?? root.dn)
             } label: {
                 Image(systemName: "slider.horizontal.3")
             }
@@ -225,7 +255,14 @@ struct DirectoryTreeView: View {
             Label("Open", systemImage: "arrow.right.circle")
         }
 
-        Divider()
+        Button {
+            DispatchQueue.main.async {
+                newEntryRequest = NewEntryRequest(parentDN: entry.dn)
+            }
+        } label: {
+            Label("New Entry…", systemImage: "plus")
+        }
+        .keyboardShortcut("n", modifiers: .command)
 
         Button {
             // Deferred to the next run loop tick so the context menu has
@@ -233,28 +270,48 @@ struct DirectoryTreeView: View {
             // presenting synchronously from inside the menu's own action
             // can crash (same issue as NSSavePanel below, and the one
             // ConnectionListPanel's export works around the same way).
-            DispatchQueue.main.async {
-                pickerRequest = PickerRequest(kind: .move, entry: entry)
-            }
+            DispatchQueue.main.async { entryForRename = entry }
         } label: {
-            Label("Move DN", systemImage: "arrow.turn.up.right")
+            Label("Rename…", systemImage: "pencil.line")
         }
+        .keyboardShortcut("e", modifiers: [.command, .shift])
+
+        Button {
+            refresh(entry)
+        } label: {
+            Label("Refresh", systemImage: "arrow.clockwise")
+        }
+        .keyboardShortcut("r", modifiers: .command)
 
         Button {
             DispatchQueue.main.async {
-                pickerRequest = PickerRequest(kind: .copy, entry: entry)
+                advancedSearchRequest = AdvancedSearchRequest(baseDN: entry.dn)
             }
         } label: {
-            Label("Copy DN", systemImage: "square.on.square")
+            Label("Advanced Search…", systemImage: "magnifyingglass")
         }
+        .keyboardShortcut("f", modifiers: [.command, .shift])
+
+        Divider()
+
+        // Shown for every entry, but only enabled when this entry's object
+        // classes actually allow the attribute — the shortcuts here mirror
+        // the Entry menu, which is where they're actually registered.
+        Button {
+            DispatchQueue.main.async { entryForPasswordSet = entry }
+        } label: {
+            Label("Set Password…", systemImage: "key")
+        }
+        .keyboardShortcut("k", modifiers: [.command, .shift])
+        .disabled(!canSet("userPassword", on: entry))
 
         Button {
-            DispatchQueue.main.async {
-                actions.exportLDIF(entry)
-            }
+            setPhoto(for: entry)
         } label: {
-            Label("Export as LDIF", systemImage: "square.and.arrow.up")
+            Label("Set Photo…", systemImage: "photo")
         }
+        .keyboardShortcut("i", modifiers: [.command, .shift])
+        .disabled(!canSet("jpegPhoto", on: entry))
 
         if GroupMembersSheet.isGroup(entry) {
             Button {
@@ -264,7 +321,44 @@ struct DirectoryTreeView: View {
             } label: {
                 Label("Edit Members…", systemImage: "person.2.badge.gearshape")
             }
+            .keyboardShortcut("u", modifiers: [.command, .shift])
         }
+
+        Divider()
+
+        Button {
+            DispatchQueue.main.async {
+                pickerRequest = PickerRequest(kind: .move, entry: entry)
+            }
+        } label: {
+            Label("Move to…", systemImage: "arrow.turn.up.right")
+        }
+        .keyboardShortcut("m", modifiers: [.command, .shift])
+
+        Button {
+            DispatchQueue.main.async {
+                pickerRequest = PickerRequest(kind: .copy, entry: entry)
+            }
+        } label: {
+            Label("Copy to…", systemImage: "square.on.square")
+        }
+        .keyboardShortcut("d", modifiers: [.command, .shift])
+
+        Button {
+            copyToPasteboard(entry.dn)
+        } label: {
+            Label("Copy DN", systemImage: "doc.on.doc")
+        }
+        .keyboardShortcut("c", modifiers: [.command, .shift])
+
+        Button {
+            DispatchQueue.main.async {
+                actions.exportLDIF(entry)
+            }
+        } label: {
+            Label("Export as LDIF", systemImage: "square.and.arrow.up")
+        }
+        .keyboardShortcut("x", modifiers: [.command, .shift])
 
         Divider()
 
@@ -275,6 +369,22 @@ struct DirectoryTreeView: View {
         } label: {
             Label("Delete", systemImage: "trash")
         }
+        .keyboardShortcut(.delete, modifiers: .command)
+    }
+
+    /// Whether `attribute` may be set on `entry`, per the loaded schema.
+    /// With no schema — or object classes the schema doesn't know — this
+    /// stays permissive rather than blocking a legitimate edit.
+    private func canSet(_ attribute: String, on entry: DirectoryEntry) -> Bool {
+        guard let schema else { return true }
+        let objectClasses = entry.objectClassNames
+        guard schema.recognizesAnyObjectClass(objectClasses) else { return true }
+        return schema.permitsAttribute(attribute, forObjectClasses: objectClasses)
+    }
+
+    private func copyToPasteboard(_ string: String) {
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(string, forType: .string)
     }
 
     /// Runs a write against the server, then refreshes the whole tree —
@@ -309,6 +419,50 @@ struct DirectoryTreeView: View {
     private func createEntry(dn: String, attributes: [(name: String, value: String)]) {
         perform(reloadSelecting: dn) {
             try await actions.createEntry(dn: dn, attributes: attributes)
+        }
+    }
+
+    private func refresh(_ entry: DirectoryEntry) {
+        let dn = entry.dn
+        Task {
+            isPerformingAction = true
+            defer { isPerformingAction = false }
+            await reload(dn)
+        }
+    }
+
+    private func rename(_ entry: DirectoryEntry, to newRDN: String) {
+        let parentDN = entry.dn.contains(",")
+            ? String(entry.dn.drop(while: { $0 != "," }).dropFirst())
+            : ""
+        let newDN = parentDN.isEmpty ? newRDN : "\(newRDN),\(parentDN)"
+        perform(reloadSelecting: newDN) {
+            _ = try await actions.rename(entry, toRDN: newRDN)
+        }
+    }
+
+    private func setPassword(_ plaintext: String, scheme: PasswordScheme, for entry: DirectoryEntry) {
+        let dn = entry.dn
+        perform(reloadSelecting: dn) {
+            try await actions.setPassword(plaintext, scheme: scheme, forDN: dn)
+        }
+    }
+
+    private func setPhoto(for entry: DirectoryEntry) {
+        let dn = entry.dn
+        // Deferred so the context menu is fully gone before the panel opens
+        // — same crash guard as the sheet presentations above.
+        DispatchQueue.main.async {
+            let panel = NSOpenPanel()
+            panel.allowedContentTypes = [.image]
+            panel.allowsMultipleSelection = false
+            panel.canChooseDirectories = false
+            panel.begin { response in
+                guard response == .OK, let url = panel.url else { return }
+                perform(reloadSelecting: dn) {
+                    try await actions.setPhoto(fileURL: url, forDN: dn, attribute: "jpegPhoto")
+                }
+            }
         }
     }
 
