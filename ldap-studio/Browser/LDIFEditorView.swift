@@ -18,6 +18,8 @@ struct LDIFEditorView: View {
     @State private var results: [RunResult] = []
     @State private var isRunning = false
     @State private var summary: String?
+    @State private var errorLines: Set<Int> = []
+    @State private var parseHint: String?
 
     private struct RunResult: Identifiable {
         let id = UUID()
@@ -36,8 +38,9 @@ struct LDIFEditorView: View {
             editor
             resultsPane
         }
-        .frame(minWidth: 560, minHeight: 460)
+        .frame(minWidth: 620, minHeight: 500)
         .navigationTitle("LDIF Editor — \(connection.name)")
+        .task(id: text) { await validate() }
         .focusedSceneValue(\.ldifEditorCommands, LDIFEditorCommands(
             openFile: { openFile() },
             saveFile: { saveFile() },
@@ -66,15 +69,51 @@ struct LDIFEditorView: View {
     }
 
     private var editor: some View {
-        TextEditor(text: $text)
-            .font(.system(.body, design: .monospaced))
-            .disableAutocorrection(true)
-            .frame(minHeight: 180)
+        LDIFSyntaxTextView(text: $text, errorLines: errorLines)
+            .frame(minHeight: 200)
+            .overlay(alignment: .topLeading) {
+                if text.isEmpty {
+                    Text("Write LDIF change records — ⇧⌘R to run")
+                        .font(.system(size: 12.5, design: .monospaced))
+                        .foregroundStyle(.tertiary)
+                        .padding(.leading, 62)
+                        .padding(.top, 12)
+                        .allowsHitTesting(false)
+                }
+            }
             .overlay(alignment: .topTrailing) {
                 if isRunning {
                     ProgressView().controlSize(.small).padding(8)
+                } else if let parseHint {
+                    Label(parseHint, systemImage: "exclamationmark.triangle.fill")
+                        .font(.caption)
+                        .foregroundStyle(.orange)
+                        .padding(.horizontal, 8).padding(.vertical, 4)
+                        .background(.thinMaterial, in: Capsule())
+                        .padding(8)
                 }
             }
+    }
+
+    private func validate() async {
+        try? await Task.sleep(for: .milliseconds(250))
+        if Task.isCancelled { return }
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            errorLines = []
+            parseHint = nil
+            return
+        }
+        do {
+            _ = try LDIFChangeParser.parse(text)
+            errorLines = []
+            parseHint = nil
+        } catch let error as LDIFChangeParser.ParseError {
+            errorLines = [error.line]
+            parseHint = error.message
+        } catch {
+            errorLines = []
+            parseHint = nil
+        }
     }
 
     private var resultsPane: some View {
