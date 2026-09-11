@@ -181,6 +181,12 @@ struct AppMenuCommands: Commands {
             .keyboardShortcut("u", modifiers: [.command, .shift])
             .disabled(directoryCommands?.editMembers == nil)
 
+            Button("Test Bind…") {
+                directoryCommands?.testBind?()
+            }
+            .keyboardShortcut("b", modifiers: [.command, .shift])
+            .disabled(directoryCommands?.testBind == nil)
+
             Divider()
 
             Button("Move to…") {

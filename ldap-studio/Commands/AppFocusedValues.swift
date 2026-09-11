@@ -53,6 +53,9 @@ struct DirectoryCommands {
     var copyDN: (() -> Void)?
     var setPassword: (() -> Void)?
     var setPhoto: (() -> Void)?
+    /// Opens the "Test Bind" diagnostic for the selected entry; read-only,
+    /// so it's available regardless of `isReadOnly`.
+    var testBind: (() -> Void)?
     var deleteSelected: (() -> Void)?
     /// Non-nil only when the selected entry is a group.
     var editMembers: (() -> Void)?

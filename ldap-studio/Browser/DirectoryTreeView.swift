@@ -49,6 +49,7 @@ struct DirectoryTreeView: View {
     @State private var groupForMembersEditing: DirectoryEntry?
     @State private var entryForRename: DirectoryEntry?
     @State private var entryForPasswordSet: DirectoryEntry?
+    @State private var entryForTestBind: DirectoryEntry?
 
     @State private var isPerformingAction = false
     @State private var actionError: String?
@@ -148,7 +149,10 @@ struct DirectoryTreeView: View {
         } message: { entry in
             let descendants = entry.subtreeCount - 1
             if descendants > 0 {
-                Text("This permanently deletes \(entry.dn) and \(descendants) \(descendants == 1 ? "entry" : "entries") beneath it from the server — \(entry.subtreeCount) in total. This cannot be undone.")
+                let noun: String = descendants == 1 ? "entry" : "entries"
+                let prefix: String = "This permanently deletes \(entry.dn) and \(descendants) \(noun) beneath it"
+                let suffix: String = "from the server — \(entry.subtreeCount) in total. This cannot be undone."
+                Text("\(prefix) \(suffix)")
             } else {
                 Text("This permanently deletes \(entry.dn) from the server. This cannot be undone.")
             }
@@ -190,6 +194,9 @@ struct DirectoryTreeView: View {
                 setPassword(plaintext, scheme: scheme, for: entry)
             }
         }
+        .sheet(item: $entryForTestBind) { entry in
+            TestBindSheet(connection: connection, dn: entry.dn)
+        }
         .focusedSceneValue(\.directoryCommands, DirectoryCommands(
             newEntry: { newEntryRequest = NewEntryRequest(parentDN: selection ?? root.dn) },
             importLDIF: { importLDIF() },
@@ -215,6 +222,9 @@ struct DirectoryTreeView: View {
             },
             setPhoto: selectedEntry.flatMap { entry in
                 (!isReadOnly && canSet("jpegPhoto", on: entry)) ? { setPhoto(for: entry) } : nil
+            },
+            testBind: selectedEntry.flatMap { entry in
+                hasUserPassword(entry) ? { entryForTestBind = entry } : nil
             },
             deleteSelected: (selectedEntry != nil && !isReadOnly)
                 ? { if let entry = selectedEntry { entryPendingDeletion = entry } } : nil,
@@ -435,6 +445,14 @@ struct DirectoryTreeView: View {
         .keyboardShortcut("i", modifiers: [.command, .shift])
         .disabled(isReadOnly || !canSet("jpegPhoto", on: entry))
 
+        Button {
+            DispatchQueue.main.async { entryForTestBind = entry }
+        } label: {
+            Label("Test Bind…", systemImage: "checkmark.shield")
+        }
+        .keyboardShortcut("b", modifiers: [.command, .shift])
+        .disabled(!hasUserPassword(entry))
+
         if GroupMembersSheet.isGroup(entry) {
             Button {
                 DispatchQueue.main.async {
@@ -506,6 +524,15 @@ struct DirectoryTreeView: View {
         let objectClasses = entry.objectClassNames
         guard schema.recognizesAnyObjectClass(objectClasses) else { return true }
         return schema.permitsAttribute(attribute, forObjectClasses: objectClasses)
+    }
+
+    /// Whether this entry actually has a `userPassword` value — unlike
+    /// `canSet`, this isn't about what the schema *allows* (plain
+    /// `organizationalUnit` legitimately permits `userPassword` per RFC
+    /// 4519, so `ou=test` passes `canSet` too) but about whether trying to
+    /// bind as it means anything.
+    private func hasUserPassword(_ entry: DirectoryEntry) -> Bool {
+        entry.attributes.contains { $0.name.caseInsensitiveCompare("userPassword") == .orderedSame }
     }
 
     private func copyToPasteboard(_ string: String) {
