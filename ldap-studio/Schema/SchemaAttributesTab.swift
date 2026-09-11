@@ -8,6 +8,9 @@ import SwiftUI
 struct SchemaAttributesTab: View {
     let objectClasses: [SchemaObjectClass]
     let attributeTypes: [SchemaAttributeType]
+    /// Set from outside ("Jump to Schema" on an attribute row) to select
+    /// and scroll to an attribute by name; cleared once applied.
+    @Binding var jumpToAttributeName: String?
 
     @State private var searchText = ""
     @State private var objectClassFilter = "All"
@@ -68,21 +71,25 @@ struct SchemaAttributesTab: View {
             }
             .padding(8)
 
-            List(filtered, id: \.oid, selection: $selection) { attribute in
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(attribute.names.first ?? attribute.oid)
-                    Text(attribute.oid)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            ScrollViewReader { proxy in
+                List(filtered, id: \.oid, selection: $selection) { attribute in
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(attribute.names.first ?? attribute.oid)
+                        Text(attribute.oid)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                    .tag(attribute.oid)
                 }
-                .tag(attribute.oid)
-            }
-            .overlay {
-                if filtered.isEmpty {
-                    ContentUnavailableView.search
+                .overlay {
+                    if filtered.isEmpty {
+                        ContentUnavailableView.search
+                    }
                 }
+                .navigationSplitViewColumnWidth(min: 220, ideal: 280)
+                .onAppear { applyJump(proxy) }
+                .onChange(of: jumpToAttributeName) { _, _ in applyJump(proxy) }
             }
-            .navigationSplitViewColumnWidth(min: 220, ideal: 280)
         } detail: {
             if let selected {
                 SchemaAttributeDetail(attribute: selected)
@@ -94,6 +101,24 @@ struct SchemaAttributesTab: View {
                 )
             }
         }
+    }
+
+    private func applyJump(_ proxy: ScrollViewProxy) {
+        guard let name = jumpToAttributeName else { return }
+        // Clear any filter that could hide the match, then select + scroll.
+        objectClassFilter = Self.allFilter
+        searchText = ""
+        guard let match = attributeTypes.first(where: { attribute in
+            attribute.names.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
+        }) else {
+            jumpToAttributeName = nil
+            return
+        }
+        selection = match.oid
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            withAnimation { proxy.scrollTo(match.oid, anchor: .center) }
+        }
+        jumpToAttributeName = nil
     }
 }
 
@@ -174,7 +199,8 @@ private struct SchemaAttributeDetail: View {
                 xOrigin: "Netscape Directory Server",
                 raw: "( 2.16.840.1.113730.3.1.55 NAME 'aci' DESC 'Netscape defined access control information attribute type' SYNTAX 1.3.6.1.4.1.1466.115.121.1.15 USAGE directoryOperation X-ORIGIN 'Netscape Directory Server' )"
             )
-        ]
+        ],
+        jumpToAttributeName: .constant(nil)
     )
     .frame(width: 760, height: 520)
 }

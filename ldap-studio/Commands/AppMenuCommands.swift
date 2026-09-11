@@ -244,16 +244,31 @@ struct AppMenuCommands: Commands {
             Button("View Value") {
                 entryDetailCommands?.viewValue?()
             }
+            .keyboardShortcut("j", modifiers: .command)
             .disabled(entryDetailCommands?.viewValue == nil)
+
+            Button("Jump to Schema") {
+                entryDetailCommands?.jumpToSchema?()
+            }
+            .keyboardShortcut("s", modifiers: [.command, .shift])
+            .disabled(entryDetailCommands?.jumpToSchema == nil)
+
+            Button("Jump to Object Class") {
+                entryDetailCommands?.jumpToObjectClass?()
+            }
+            .keyboardShortcut("s", modifiers: [.command, .option])
+            .disabled(entryDetailCommands?.jumpToObjectClass == nil)
 
             Button("Edit Value…") {
                 entryDetailCommands?.editAttribute?()
             }
+            .keyboardShortcut("e", modifiers: [.command, .option])
             .disabled(entryDetailCommands?.editAttribute == nil)
 
             Button("Delete Value", role: .destructive) {
                 entryDetailCommands?.deleteAttribute?()
             }
+            .keyboardShortcut(.delete, modifiers: [.command, .option])
             .disabled(entryDetailCommands?.deleteAttribute == nil)
 
             Divider()
@@ -261,16 +276,19 @@ struct AppMenuCommands: Commands {
             Button("Copy") {
                 entryDetailCommands?.copyFull?()
             }
+            .keyboardShortcut("c", modifiers: .command)
             .disabled(entryDetailCommands?.copyFull == nil)
 
             Button("Copy Attribute") {
                 entryDetailCommands?.copyAttributeName?()
             }
+            .keyboardShortcut("c", modifiers: [.command, .option])
             .disabled(entryDetailCommands?.copyAttributeName == nil)
 
             Button("Copy Value") {
                 entryDetailCommands?.copyValue?()
             }
+            .keyboardShortcut("v", modifiers: [.command, .shift])
             .disabled(entryDetailCommands?.copyValue == nil)
 
             Divider()
@@ -278,11 +296,13 @@ struct AppMenuCommands: Commands {
             Button("Set Password…") {
                 entryDetailCommands?.setPassword?()
             }
+            .keyboardShortcut("k", modifiers: [.command, .option])
             .disabled(entryDetailCommands?.setPassword == nil)
 
             Button("Set Photo…") {
                 entryDetailCommands?.setPhoto?()
             }
+            .keyboardShortcut("p", modifiers: [.command, .option])
             .disabled(entryDetailCommands?.setPhoto == nil)
         }
     }

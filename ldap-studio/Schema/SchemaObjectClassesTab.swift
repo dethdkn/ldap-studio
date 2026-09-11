@@ -7,6 +7,10 @@ import SwiftUI
 
 struct SchemaObjectClassesTab: View {
     let objectClasses: [SchemaObjectClass]
+    /// Set from outside ("Jump to Object Class" on an `objectClass`
+    /// attribute row) to select and scroll to a class by name; cleared
+    /// once applied.
+    @Binding var jumpToObjectClassName: String?
 
     @State private var searchText = ""
     @State private var selection: String?
@@ -35,14 +39,18 @@ struct SchemaObjectClassesTab: View {
                     .textFieldStyle(.roundedBorder)
                     .padding(8)
 
-                List(filtered, id: \.oid, selection: $selection) { objectClass in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(objectClass.names.first ?? objectClass.oid)
-                        Text(objectClass.oid)
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
+                ScrollViewReader { proxy in
+                    List(filtered, id: \.oid, selection: $selection) { objectClass in
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(objectClass.names.first ?? objectClass.oid)
+                            Text(objectClass.oid)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .tag(objectClass.oid)
                     }
-                    .tag(objectClass.oid)
+                    .onAppear { applyJump(proxy) }
+                    .onChange(of: jumpToObjectClassName) { _, _ in applyJump(proxy) }
                 }
             }
             .navigationSplitViewColumnWidth(min: 220, ideal: 280)
@@ -57,6 +65,22 @@ struct SchemaObjectClassesTab: View {
                 )
             }
         }
+    }
+
+    private func applyJump(_ proxy: ScrollViewProxy) {
+        guard let name = jumpToObjectClassName else { return }
+        searchText = ""
+        guard let match = objectClasses.first(where: { objectClass in
+            objectClass.names.contains { $0.caseInsensitiveCompare(name) == .orderedSame }
+        }) else {
+            jumpToObjectClassName = nil
+            return
+        }
+        selection = match.oid
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            withAnimation { proxy.scrollTo(match.oid, anchor: .center) }
+        }
+        jumpToObjectClassName = nil
     }
 }
 
@@ -121,6 +145,6 @@ private struct SchemaObjectClassDetail: View {
             xOrigin: "RFC 4524",
             raw: "( 0.9.2342.19200300.100.4.5 NAME 'account' SUP top STRUCTURAL MUST uid MAY ( description $ seeAlso $ l $ o $ ou $ host ) X-ORIGIN 'RFC 4524' )"
         )
-    ])
+    ], jumpToObjectClassName: .constant(nil))
     .frame(width: 760, height: 520)
 }

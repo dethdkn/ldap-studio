@@ -77,6 +77,11 @@ struct EntryDetailCommands {
     var exportLDIF: () -> Void
     var refresh: () -> Void
     var viewValue: (() -> Void)?
+    /// Opens the Schema window scrolled to the selected attribute's type.
+    var jumpToSchema: (() -> Void)?
+    /// Opens the Schema window scrolled to the class named in the selected
+    /// `objectClass` value row; nil when the selection isn't one.
+    var jumpToObjectClass: (() -> Void)?
     var copyFull: (() -> Void)?
     var copyAttributeName: (() -> Void)?
     var copyValue: (() -> Void)?

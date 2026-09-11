@@ -50,6 +50,8 @@ struct EntryDetailView: View {
     @State private var operationalRows: [Attribute] = []
     @State private var isLoadingOperational = false
 
+    @Environment(\.openWindow) private var openWindow
+
     private var password: String {
         KeychainService.readPassword(for: connection.id) ?? ""
     }
@@ -313,6 +315,11 @@ struct EntryDetailView: View {
             exportLDIF: { actions.exportLDIF(entry) },
             refresh: { refresh() },
             viewValue: selectedAttribute.map { attribute in { attributeBeingViewed = attribute } },
+            jumpToSchema: selectedAttribute.map { attribute in { jumpToSchema(attribute) } },
+            jumpToObjectClass: selectedAttribute.flatMap { attribute in
+                attribute.name.caseInsensitiveCompare("objectClass") == .orderedSame
+                    ? { jumpToObjectClass(attribute) } : nil
+            },
             copyFull: selectedAttribute.map { attribute in { copyToPasteboard("\(attribute.name): \(attribute.value)") } },
             copyAttributeName: selectedAttribute.map { attribute in { copyToPasteboard(attribute.name) } },
             copyValue: selectedAttribute.map { attribute in { copyToPasteboard(attribute.value) } },
@@ -436,6 +443,22 @@ struct EntryDetailView: View {
         } label: {
             Label("View Value", systemImage: "eye")
         }
+        .keyboardShortcut("j", modifiers: .command)
+
+        Button {
+            jumpToSchema(attribute)
+        } label: {
+            Label("Jump to Schema", systemImage: "list.bullet.rectangle")
+        }
+        .keyboardShortcut("s", modifiers: [.command, .shift])
+
+        Button {
+            jumpToObjectClass(attribute)
+        } label: {
+            Label("Jump to Object Class", systemImage: "square.stack.3d.up")
+        }
+        .keyboardShortcut("s", modifiers: [.command, .option])
+        .disabled(attribute.name.caseInsensitiveCompare("objectClass") != .orderedSame)
 
         if !attribute.isOperational {
             Button {
@@ -443,6 +466,7 @@ struct EntryDetailView: View {
             } label: {
                 Label("Edit Value", systemImage: "pencil")
             }
+            .keyboardShortcut("e", modifiers: [.command, .option])
             .disabled(attribute.isBinary)
 
             if attribute.name.caseInsensitiveCompare("jpegPhoto") == .orderedSame {
@@ -451,6 +475,7 @@ struct EntryDetailView: View {
                 } label: {
                     Label("Set Photo", systemImage: "photo")
                 }
+                .keyboardShortcut("p", modifiers: [.command, .option])
             }
 
             if attribute.name.caseInsensitiveCompare("userPassword") == .orderedSame {
@@ -459,6 +484,7 @@ struct EntryDetailView: View {
                 } label: {
                     Label("Set Password", systemImage: "key")
                 }
+                .keyboardShortcut("k", modifiers: [.command, .option])
             }
 
             Button(role: .destructive) {
@@ -466,6 +492,7 @@ struct EntryDetailView: View {
             } label: {
                 Label("Delete Value", systemImage: "trash")
             }
+            .keyboardShortcut(.delete, modifiers: [.command, .option])
         }
 
         Divider()
@@ -475,24 +502,46 @@ struct EntryDetailView: View {
         } label: {
             Label("Copy", systemImage: "doc.on.doc")
         }
+        .keyboardShortcut("c", modifiers: .command)
 
         Button {
             copyToPasteboard(attribute.name)
         } label: {
             Label("Copy Attribute", systemImage: "tag")
         }
+        .keyboardShortcut("c", modifiers: [.command, .option])
 
         Button {
             copyToPasteboard(attribute.value)
         } label: {
             Label("Copy Value", systemImage: "doc.plaintext")
         }
+        .keyboardShortcut("v", modifiers: [.command, .shift])
     }
 
     private func beginEdit(_ attribute: Attribute?) {
         guard let attribute, !attribute.isBinary, !attribute.isOperational else { return }
         editedValue = attribute.value
         attributeBeingEdited = attribute
+    }
+
+    /// Opens (or brings forward) the Schema window for this connection and
+    /// selects `attribute`'s type on the Attributes tab.
+    private func jumpToSchema(_ attribute: Attribute?) {
+        guard let attribute else { return }
+        let endpoint = "\(connection.host):\(UInt16(clamping: connection.port))"
+        SchemaJumpCoordinator.shared.jump(toAttribute: attribute.name, endpoint: endpoint)
+        openWindow(id: "schema", value: connection)
+    }
+
+    /// Same as `jumpToSchema`, but for an `objectClass` value row — jumps
+    /// to that specific class (e.g. `inetOrgPerson`) on the Object Classes
+    /// tab rather than to the `objectClass` attribute type itself.
+    private func jumpToObjectClass(_ attribute: Attribute?) {
+        guard let attribute, attribute.name.caseInsensitiveCompare("objectClass") == .orderedSame else { return }
+        let endpoint = "\(connection.host):\(UInt16(clamping: connection.port))"
+        SchemaJumpCoordinator.shared.jump(toObjectClass: attribute.value, endpoint: endpoint)
+        openWindow(id: "schema", value: connection)
     }
 
     private func copyToPasteboard(_ string: String) {
