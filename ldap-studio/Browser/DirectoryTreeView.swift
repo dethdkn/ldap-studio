@@ -195,6 +195,7 @@ struct DirectoryTreeView: View {
             importLDIF: { importLDIF() },
             openSchema: { openWindow(id: "schema", value: connection) },
             openLDIFEditor: { openWindow(id: "ldif", value: connection) },
+            openServerInfo: { openWindow(id: "serverInfo", value: connection) },
             advancedSearch: {
                 advancedSearchRequest = AdvancedSearchRequest(baseDN: selection ?? root.dn)
             },
@@ -254,6 +255,13 @@ struct DirectoryTreeView: View {
                 Image(systemName: "curlybraces")
             }
             .help("LDIF Editor")
+
+            Button {
+                openWindow(id: "serverInfo", value: connection)
+            } label: {
+                Image(systemName: "server.rack")
+            }
+            .help("Server Info (⌘I)")
 
             Spacer()
 

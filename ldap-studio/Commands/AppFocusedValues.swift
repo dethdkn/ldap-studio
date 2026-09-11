@@ -33,6 +33,7 @@ struct DirectoryCommands {
     var importLDIF: () -> Void
     var openSchema: () -> Void
     var openLDIFEditor: () -> Void
+    var openServerInfo: () -> Void
     var advancedSearch: () -> Void
     /// Opens the "Go to DN" quick-jump.
     var goToDN: () -> Void

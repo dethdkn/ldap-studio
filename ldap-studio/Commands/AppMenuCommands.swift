@@ -100,6 +100,14 @@ struct AppMenuCommands: Commands {
 
             Divider()
 
+            Button("Server Info…") {
+                directoryCommands?.openServerInfo()
+            }
+            .keyboardShortcut("i", modifiers: .command)
+            .disabled(directoryCommands == nil)
+
+            Divider()
+
             Button("Delete", role: .destructive) {
                 selectedConnectionCommands?.delete?()
             }

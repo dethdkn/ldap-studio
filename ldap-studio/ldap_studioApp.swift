@@ -69,6 +69,13 @@ struct ldap_studioApp: App {
             }
         }
 
+        WindowGroup(id: "serverInfo", for: SavedConnection.self) { $connection in
+            if let connection {
+                ServerInfoView(connection: connection)
+                    .environment(store)
+            }
+        }
+
         Window("About Ldap Studio", id: "about") {
             AboutView()
         }
