@@ -352,12 +352,25 @@ struct EntryDetailView: View {
         return schema?.allObjectClassNames ?? []
     }
 
+    private var entryPhoto: NSImage? {
+        entry.attributes.first { $0.name.caseInsensitiveCompare("jpegPhoto") == .orderedSame }?.decodedImage
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 10) {
-                Image(systemName: entry.icon)
-                    .font(.title)
-                    .foregroundStyle(Color.accentColor)
+                if let entryPhoto {
+                    Image(nsImage: entryPhoto)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: 48, height: 48)
+                        .clipShape(Circle())
+                } else {
+                    Image(systemName: entry.icon)
+                        .font(.system(size: 34))
+                        .foregroundStyle(Color.accentColor)
+                        .frame(width: 48, height: 48)
+                }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(entry.name)
                         .font(.title2.bold())
