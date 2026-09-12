@@ -7,6 +7,108 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Fields are sourced from whichever password-policy convention the server
+/// actually implements — OpenLDAP's ppolicy overlay (`pwdAccountLockedTime`,
+/// `pwdChangedTime`, `pwdFailureTime`) or 389 Directory Server's own plugin
+/// (`accountUnlockTime`, `passwordExpirationTime`, `passwordRetryCount`) —
+/// so the card renders whatever is actually present, from either.
+private struct PasswordPolicyStatus {
+    var lockedAt: Date?
+    var locksUntil: Date?
+    var changedAt: Date?
+    var expiresAt: Date?
+    var failureCount: Int?
+    var lastFailureAt: Date?
+    var mustReset: Bool
+
+    var isLocked: Bool { lockedAt != nil || locksUntil != nil }
+}
+
+private struct PasswordPolicyCard: View {
+    let status: PasswordPolicyStatus
+
+    /// Magnitude only ("1 mo", "3 days") — the phrasing ("since", "until",
+    /// "ago") is composed by hand below, since `RelativeDateTimeFormatter`
+    /// already bakes a direction word into its output and doubling up on it
+    /// produces nonsense like "until in 1 mo".
+    private static let magnitude: DateComponentsFormatter = {
+        let formatter = DateComponentsFormatter()
+        formatter.allowedUnits = [.year, .month, .weekOfMonth, .day, .hour, .minute]
+        formatter.unitsStyle = .abbreviated
+        formatter.maximumUnitCount = 1
+        return formatter
+    }()
+
+    private static func magnitude(since date: Date) -> String {
+        magnitude.string(from: abs(date.timeIntervalSinceNow)) ?? ""
+    }
+
+    var body: some View {
+        HStack(spacing: 16) {
+            labeled(
+                status.isLocked ? "Locked" : "Not Locked",
+                systemImage: status.isLocked ? "lock.fill" : "lock.open",
+                tint: status.isLocked ? .red : .secondary,
+                detail: status.lockedAt.map { "\(Self.magnitude(since: $0)) ago" }
+                    ?? status.locksUntil.map { "unlocks in \(Self.magnitude(since: $0))" }
+            )
+
+            if let changedAt = status.changedAt {
+                Divider().frame(height: 18)
+                labeled(
+                    "Changed",
+                    systemImage: "clock.arrow.circlepath",
+                    tint: .secondary,
+                    detail: "\(Self.magnitude(since: changedAt)) ago"
+                )
+            }
+
+            if let expiresAt = status.expiresAt {
+                Divider().frame(height: 18)
+                let expired = expiresAt < .now
+                labeled(
+                    expired ? "Expired" : "Expires",
+                    systemImage: "hourglass",
+                    tint: expired ? .red : .secondary,
+                    detail: expired ? "\(Self.magnitude(since: expiresAt)) ago" : "in \(Self.magnitude(since: expiresAt))"
+                )
+            }
+
+            if let failureCount = status.failureCount {
+                Divider().frame(height: 18)
+                labeled(
+                    failureCount == 1 ? "1 Failed Attempt" : "\(failureCount) Failed Attempts",
+                    systemImage: "exclamationmark.triangle",
+                    tint: failureCount > 0 ? .orange : .secondary,
+                    detail: status.lastFailureAt.map { "last \(Self.magnitude(since: $0)) ago" }
+                )
+            }
+
+            if status.mustReset {
+                Divider().frame(height: 18)
+                labeled("Must Change Password", systemImage: "arrow.triangle.2.circlepath", tint: .orange, detail: nil)
+            }
+
+            Spacer()
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func labeled(_ title: String, systemImage: String, tint: Color, detail: String?) -> some View {
+        HStack(spacing: 6) {
+            Image(systemName: systemImage).foregroundStyle(tint)
+            VStack(alignment: .leading, spacing: 0) {
+                Text(title).font(.callout).foregroundStyle(tint)
+                if let detail {
+                    Text(detail).font(.caption2).foregroundStyle(.secondary)
+                }
+            }
+        }
+    }
+}
+
 struct EntryDetailView: View {
     @Binding var entry: DirectoryEntry
     let root: DirectoryEntry
@@ -49,6 +151,15 @@ struct EntryDetailView: View {
     @State private var showOperational = false
     @State private var operationalRows: [Attribute] = []
     @State private var isLoadingOperational = false
+
+    @State private var passwordPolicyRows: [Attribute] = []
+
+    /// Bumped by `refresh()` to force the operational/password-policy
+    /// fetches below to re-run even when the entry's own DN and user
+    /// attributes haven't changed — server-side-only values like
+    /// `passwordExpirationTime` aren't reflected in `entry.attributes` at
+    /// all, so nothing else would tell those `.task(id:)`s to restart.
+    @State private var refreshToken = 0
 
     @Environment(\.openWindow) private var openWindow
 
@@ -95,7 +206,7 @@ struct EntryDetailView: View {
     /// Re-fetch the entry's operational attributes whenever the toggle
     /// flips or the entry (or its user attributes) change.
     private var operationalFetchKey: String {
-        "\(entry.dn)|\(showOperational)|\(entry.attributes.hashValue)"
+        "\(entry.dn)|\(showOperational)|\(entry.attributes.hashValue)|\(refreshToken)"
     }
 
     private func loadOperational() async {
@@ -127,6 +238,97 @@ struct EntryDetailView: View {
         } catch {
             operationalRows = []
         }
+    }
+
+    private var hasUserPassword: Bool {
+        entry.attributes.contains { $0.name.caseInsensitiveCompare("userPassword") == .orderedSame }
+    }
+
+    /// Re-fetch the password-policy operational attributes whenever the
+    /// entry (or its password) changes; only entries with a `userPassword`
+    /// can carry them, so this stays a no-op for everything else.
+    private var passwordPolicyFetchKey: String { "\(entry.dn)|\(hasUserPassword)|\(refreshToken)" }
+
+    /// OpenLDAP's ppolicy overlay (`pwd*`) and 389 Directory Server's own
+    /// password-policy plugin use entirely different attribute names for the
+    /// same concepts — recognize both so the card works on either server.
+    private static let passwordPolicyAttributeNames: Set<String> = [
+        "pwdaccountlockedtime", "pwdchangedtime", "pwdfailuretime", "pwdreset",
+        "accountunlocktime", "passwordexpirationtime", "passwordretrycount", "retrycountresettime",
+    ]
+
+    private func loadPasswordPolicy() async {
+        guard hasUserPassword, !entry.dn.isEmpty else {
+            passwordPolicyRows = []
+            return
+        }
+        do {
+            let results = try await searchDirectory(
+                host: connection.host,
+                port: UInt16(clamping: connection.port),
+                useSsl: connection.useSSL,
+                startTLS: connection.useStartTLS,
+                pinnedCertSHA256: connection.trustedCertSHA256,
+                bindDn: connection.bindDN,
+                password: password,
+                baseDn: entry.dn,
+                scope: .base,
+                filter: "(objectClass=*)",
+                includeOperational: true
+            )
+            passwordPolicyRows = (results.first?.attributes ?? [])
+                .filter { Self.passwordPolicyAttributeNames.contains($0.name.lowercased()) }
+                .map { Attribute(name: $0.name, value: $0.value, isBinary: $0.isBinary, isOperational: true) }
+        } catch {
+            passwordPolicyRows = []
+        }
+    }
+
+    private var passwordPolicyStatus: PasswordPolicyStatus? {
+        guard !passwordPolicyRows.isEmpty else { return nil }
+        func value(_ name: String) -> String? {
+            passwordPolicyRows.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.value
+        }
+        let lockedAt = value("pwdAccountLockedTime").flatMap(Self.parseGeneralizedTime)
+        let changedAt = value("pwdChangedTime").flatMap(Self.parseGeneralizedTime)
+        let failureTimes = passwordPolicyRows
+            .filter { $0.name.caseInsensitiveCompare("pwdFailureTime") == .orderedSame }
+            .compactMap { Self.parseGeneralizedTime($0.value) }
+            .sorted(by: >)
+        let mustReset = value("pwdReset")?.caseInsensitiveCompare("TRUE") == .orderedSame
+
+        // 389 DS: an unlock time in the future means still locked; one in
+        // the past (or the epoch sentinel it uses when never locked) reads
+        // as not locked.
+        let locksUntil = value("accountUnlockTime")
+            .flatMap(Self.parseGeneralizedTime)
+            .flatMap { $0 > .now ? $0 : nil }
+        let expiresAt = value("passwordExpirationTime").flatMap(Self.parseGeneralizedTime)
+        let retryCount = value("passwordRetryCount").flatMap(Int.init)
+        let failureCount = failureTimes.isEmpty ? retryCount : failureTimes.count
+
+        guard lockedAt != nil || locksUntil != nil || changedAt != nil || expiresAt != nil
+            || failureCount != nil || mustReset else { return nil }
+
+        return PasswordPolicyStatus(
+            lockedAt: lockedAt,
+            locksUntil: locksUntil,
+            changedAt: changedAt,
+            expiresAt: expiresAt,
+            failureCount: failureCount,
+            lastFailureAt: failureTimes.first,
+            mustReset: mustReset
+        )
+    }
+
+    /// LDAP GeneralizedTime, e.g. "20250911123456Z" — ppolicy attributes are
+    /// always written in UTC with no fractional seconds.
+    private static func parseGeneralizedTime(_ raw: String) -> Date? {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        formatter.dateFormat = "yyyyMMddHHmmss'Z'"
+        return formatter.date(from: raw)
     }
 
     /// This entry's current objectClass values — used to figure out which
@@ -170,6 +372,12 @@ struct EntryDetailView: View {
                 }
             }
             .padding()
+
+            if let status = passwordPolicyStatus {
+                PasswordPolicyCard(status: status)
+                    .padding(.horizontal)
+                    .padding(.bottom, 10)
+            }
 
             Divider()
 
@@ -222,6 +430,7 @@ struct EntryDetailView: View {
         }
         .disabled(isPerformingAction)
         .task(id: operationalFetchKey) { await loadOperational() }
+        .task(id: passwordPolicyFetchKey) { await loadPasswordPolicy() }
         .sheet(item: $attributeBeingViewed) { attribute in
             AttributeValueDetailSheet(attribute: attribute)
         }
@@ -567,6 +776,7 @@ struct EntryDetailView: View {
 
     private func refresh() {
         let dn = entry.dn
+        refreshToken += 1
         Task {
             isPerformingAction = true
             defer { isPerformingAction = false }
