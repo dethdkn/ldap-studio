@@ -289,8 +289,8 @@ struct EntryDetailView: View {
         func value(_ name: String) -> String? {
             passwordPolicyRows.first { $0.name.caseInsensitiveCompare(name) == .orderedSame }?.value
         }
-        let lockedAt = value("pwdAccountLockedTime").flatMap(Self.parseGeneralizedTime)
-        let changedAt = value("pwdChangedTime").flatMap(Self.parseGeneralizedTime)
+        let lockedAt = value("pwdAccountLockedTime").flatMap { Self.parseGeneralizedTime($0) }
+        let changedAt = value("pwdChangedTime").flatMap { Self.parseGeneralizedTime($0) }
         let failureTimes = passwordPolicyRows
             .filter { $0.name.caseInsensitiveCompare("pwdFailureTime") == .orderedSame }
             .compactMap { Self.parseGeneralizedTime($0.value) }
@@ -301,9 +301,9 @@ struct EntryDetailView: View {
         // the past (or the epoch sentinel it uses when never locked) reads
         // as not locked.
         let locksUntil = value("accountUnlockTime")
-            .flatMap(Self.parseGeneralizedTime)
+            .flatMap { Self.parseGeneralizedTime($0) }
             .flatMap { $0 > .now ? $0 : nil }
-        let expiresAt = value("passwordExpirationTime").flatMap(Self.parseGeneralizedTime)
+        let expiresAt = value("passwordExpirationTime").flatMap { Self.parseGeneralizedTime($0) }
         let retryCount = value("passwordRetryCount").flatMap(Int.init)
         let failureCount = failureTimes.isEmpty ? retryCount : failureTimes.count
 
@@ -363,13 +363,13 @@ struct EntryDetailView: View {
                     Image(nsImage: entryPhoto)
                         .resizable()
                         .scaledToFill()
-                        .frame(width: 48, height: 48)
+                        .frame(width: 32, height: 32)
                         .clipShape(Circle())
                 } else {
                     Image(systemName: entry.icon)
-                        .font(.system(size: 34))
+                        .font(.title)
                         .foregroundStyle(Color.accentColor)
-                        .frame(width: 48, height: 48)
+                        .frame(width: 32, height: 32)
                 }
                 VStack(alignment: .leading, spacing: 2) {
                     Text(entry.name)

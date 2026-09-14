@@ -59,7 +59,7 @@ struct InfoPanel: View {
 
             Spacer()
             VStack(spacing: 4) {
-                Text("© Gabriel Rosa")
+                Text("© Ldap Studio")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
