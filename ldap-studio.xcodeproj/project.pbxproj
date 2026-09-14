@@ -332,7 +332,7 @@
 					/opt/homebrew/opt/libxcrypt/lib,
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.1.1;
+				MARKETING_VERSION = 1.2.0;
 				OTHER_LDFLAGS = (
 					"$(SRCROOT)/core/build/libldapstudio.a",
 					"-lldap",
@@ -388,7 +388,7 @@
 					/opt/homebrew/opt/libxcrypt/lib,
 				);
 				MACOSX_DEPLOYMENT_TARGET = 26.0;
-				MARKETING_VERSION = 1.1.1;
+				MARKETING_VERSION = 1.2.0;
 				OTHER_LDFLAGS = (
 					"$(SRCROOT)/core/build/libldapstudio.a",
 					"-lldap",
