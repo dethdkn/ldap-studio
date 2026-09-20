@@ -17,6 +17,7 @@ struct ExportableConnection: Codable {
     var baseDN: String
     var bindDN: String
     var bookmarks: [String]
+    var savedFilters: [SavedLDAPFilter]
     var isFavorite: Bool
     var isReadOnly: Bool
     var password: String
@@ -28,10 +29,10 @@ struct ExportableConnection: Codable {
     var passwordIsBase64: Bool
 
     enum CodingKeys: String, CodingKey {
-        case name, host, port, useSSL, useStartTLS, baseDN, bindDN, bookmarks, isFavorite, isReadOnly, password, passwordIsBase64
+        case name, host, port, useSSL, useStartTLS, baseDN, bindDN, bookmarks, savedFilters, isFavorite, isReadOnly, password, passwordIsBase64
     }
 
-    init(name: String, host: String, port: Int, useSSL: Bool, useStartTLS: Bool = false, baseDN: String, bindDN: String, bookmarks: [String] = [], isFavorite: Bool = false, isReadOnly: Bool = false, password: String, passwordIsBase64: Bool = false) {
+    init(name: String, host: String, port: Int, useSSL: Bool, useStartTLS: Bool = false, baseDN: String, bindDN: String, bookmarks: [String] = [], savedFilters: [SavedLDAPFilter] = [], isFavorite: Bool = false, isReadOnly: Bool = false, password: String, passwordIsBase64: Bool = false) {
         self.name = name
         self.host = host
         self.port = port
@@ -40,6 +41,7 @@ struct ExportableConnection: Codable {
         self.baseDN = baseDN
         self.bindDN = bindDN
         self.bookmarks = bookmarks
+        self.savedFilters = savedFilters
         self.isFavorite = isFavorite
         self.isReadOnly = isReadOnly
         self.password = password
@@ -58,6 +60,7 @@ struct ExportableConnection: Codable {
         baseDN = try container.decodeIfPresent(String.self, forKey: .baseDN) ?? ""
         bindDN = try container.decode(String.self, forKey: .bindDN)
         bookmarks = try container.decodeIfPresent([String].self, forKey: .bookmarks) ?? []
+        savedFilters = try container.decodeIfPresent([SavedLDAPFilter].self, forKey: .savedFilters) ?? []
         isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
         isReadOnly = try container.decodeIfPresent(Bool.self, forKey: .isReadOnly) ?? false
         password = try container.decode(String.self, forKey: .password)
@@ -74,6 +77,7 @@ struct ExportableConnection: Codable {
         try container.encode(baseDN, forKey: .baseDN)
         try container.encode(bindDN, forKey: .bindDN)
         try container.encode(bookmarks, forKey: .bookmarks)
+        if !savedFilters.isEmpty { try container.encode(savedFilters, forKey: .savedFilters) }
         try container.encode(isFavorite, forKey: .isFavorite)
         try container.encode(isReadOnly, forKey: .isReadOnly)
         try container.encode(password, forKey: .password)
@@ -101,6 +105,7 @@ extension ExportableConnection {
             baseDN: connection.baseDN,
             bindDN: connection.bindDN,
             bookmarks: connection.bookmarks,
+            savedFilters: connection.savedFilters,
             isFavorite: connection.isFavorite,
             isReadOnly: connection.isReadOnly,
             password: password,

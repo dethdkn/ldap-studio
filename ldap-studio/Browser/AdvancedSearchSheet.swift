@@ -14,6 +14,7 @@ struct AdvancedSearchSheet: View {
     let root: DirectoryEntry
     let onSelect: (String) -> Void
     let reload: (String?) async -> Void
+    let onUpdateSavedFilters: ([SavedLDAPFilter]) -> Void
 
     @Environment(\.dismiss) private var dismiss
 
@@ -28,19 +29,25 @@ struct AdvancedSearchSheet: View {
     @State private var isPerformingAction = false
     @State private var isConfirmingDelete = false
     @State private var isChoosingMoveDestination = false
+    @State private var savedFilters: [SavedLDAPFilter]
+    @State private var isNamingPinnedFilter = false
+    @State private var pinnedFilterName = ""
 
     init(
         connection: SavedConnection,
         root: DirectoryEntry,
         defaultBaseDN: String,
         onSelect: @escaping (String) -> Void,
-        reload: @escaping (String?) async -> Void
+        reload: @escaping (String?) async -> Void,
+        onUpdateSavedFilters: @escaping ([SavedLDAPFilter]) -> Void
     ) {
         self.connection = connection
         self.root = root
         self.onSelect = onSelect
         self.reload = reload
+        self.onUpdateSavedFilters = onUpdateSavedFilters
         _baseDN = State(initialValue: defaultBaseDN)
+        _savedFilters = State(initialValue: connection.savedFilters)
     }
 
     private var isValid: Bool {
@@ -54,11 +61,31 @@ struct AdvancedSearchSheet: View {
     private var selectedResultEntries: [DirectoryEntry] {
         results
             .filter { selection.contains($0.dn) }
-            .map(DirectoryEntry.init(ldapEntry:))
+            .map { DirectoryEntry(ldapEntry: $0) }
     }
 
     private var selectedEntryCount: Int {
         selectedEntries.reduce(0) { $0 + $1.subtreeCount }
+    }
+
+    private var currentSavedFilter: SavedLDAPFilter? {
+        savedFilters.first { $0.filter == normalizedFilter }
+    }
+
+    private var normalizedFilter: String {
+        filter.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var pinnedFilters: [SavedLDAPFilter] {
+        savedFilters
+            .filter(\.isPinned)
+            .sorted { ($0.name ?? $0.filter).localizedCaseInsensitiveCompare($1.name ?? $1.filter) == .orderedAscending }
+    }
+
+    private var recentFilters: [SavedLDAPFilter] {
+        savedFilters
+            .filter { !$0.isPinned }
+            .sorted { $0.lastUsed > $1.lastUsed }
     }
 
     var body: some View {
@@ -76,9 +103,22 @@ struct AdvancedSearchSheet: View {
                     Text("One Level").tag(LdapSearchScope.oneLevel)
                     Text("Subtree").tag(LdapSearchScope.subtree)
                 }
-                TextField("Filter", text: $filter)
-                    .font(.system(.body, design: .monospaced))
-                    .onSubmit(search)
+                HStack {
+                    TextField("Filter", text: $filter)
+                        .font(.system(.body, design: .monospaced))
+                        .onSubmit(search)
+
+                    filterHistoryMenu
+
+                    Button {
+                        togglePinnedFilter()
+                    } label: {
+                        Image(systemName: currentSavedFilter?.isPinned == true ? "star.fill" : "star")
+                    }
+                    .buttonStyle(.borderless)
+                    .help(currentSavedFilter?.isPinned == true ? "Unpin Filter" : "Name and Pin Filter")
+                    .disabled(normalizedFilter.isEmpty)
+                }
             }
             .formStyle(.grouped)
             .frame(height: 150)
@@ -197,6 +237,55 @@ struct AdvancedSearchSheet: View {
                 }
             }
         }
+        .alert("Pin Filter", isPresented: $isNamingPinnedFilter) {
+            TextField("Name (optional)", text: $pinnedFilterName)
+            Button("Pin") { pinCurrentFilter() }
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("Pinned filters are saved for this connection.")
+        }
+    }
+
+    @ViewBuilder
+    private var filterHistoryMenu: some View {
+        Menu {
+            if !pinnedFilters.isEmpty {
+                Section("Pinned") {
+                    ForEach(pinnedFilters) { item in
+                        Button {
+                            filter = item.filter
+                        } label: {
+                            Label(item.name ?? item.filter, systemImage: "star.fill")
+                        }
+                    }
+                }
+            }
+
+            if !recentFilters.isEmpty {
+                Section("Recent") {
+                    ForEach(recentFilters) { item in
+                        Button(item.filter) { filter = item.filter }
+                    }
+                }
+                Divider()
+                Button("Clear Recent Filters", role: .destructive) {
+                    saveFilters(savedFilters.filter(\.isPinned))
+                }
+            }
+
+            if pinnedFilters.isEmpty && recentFilters.isEmpty {
+                Text("No Saved Filters")
+            }
+        } label: {
+            HStack(spacing: 4) {
+                Image(systemName: "star.fill")
+                Image(systemName: "clock.arrow.circlepath")
+                Text("Pinned & Recent")
+            }
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Saved and Recent Filters")
     }
 
     private func search() {
@@ -204,6 +293,7 @@ struct AdvancedSearchSheet: View {
         isSearching = true
         errorMessage = nil
         selection.removeAll()
+        recordCurrentFilter()
         Task {
             defer {
                 isSearching = false
@@ -227,6 +317,59 @@ struct AdvancedSearchSheet: View {
                 results = []
             }
         }
+    }
+
+    private func recordCurrentFilter() {
+        guard !normalizedFilter.isEmpty else { return }
+        var updated = savedFilters
+        if let index = updated.firstIndex(where: { $0.filter == normalizedFilter }) {
+            updated[index].lastUsed = .now
+        } else {
+            updated.append(SavedLDAPFilter(filter: normalizedFilter))
+        }
+        saveFilters(updated)
+    }
+
+    private func togglePinnedFilter() {
+        if let currentSavedFilter, currentSavedFilter.isPinned {
+            var updated = savedFilters
+            guard let index = updated.firstIndex(where: { $0.id == currentSavedFilter.id }) else { return }
+            updated[index].isPinned = false
+            updated[index].name = nil
+            updated[index].lastUsed = .now
+            saveFilters(updated)
+        } else {
+            pinnedFilterName = currentSavedFilter?.name ?? ""
+            isNamingPinnedFilter = true
+        }
+    }
+
+    private func pinCurrentFilter() {
+        guard !normalizedFilter.isEmpty else { return }
+        let name = pinnedFilterName.trimmingCharacters(in: .whitespacesAndNewlines)
+        var updated = savedFilters
+        if let index = updated.firstIndex(where: { $0.filter == normalizedFilter }) {
+            updated[index].name = name.isEmpty ? nil : name
+            updated[index].isPinned = true
+            updated[index].lastUsed = .now
+        } else {
+            updated.append(SavedLDAPFilter(
+                name: name.isEmpty ? nil : name,
+                filter: normalizedFilter,
+                isPinned: true
+            ))
+        }
+        saveFilters(updated)
+    }
+
+    private func saveFilters(_ filters: [SavedLDAPFilter]) {
+        let pinned = filters.filter(\.isPinned)
+        let recent = filters
+            .filter { !$0.isPinned }
+            .sorted { $0.lastUsed > $1.lastUsed }
+            .prefix(10)
+        savedFilters = pinned + recent
+        onUpdateSavedFilters(savedFilters)
     }
 
     private func deleteSelected() {
@@ -277,6 +420,7 @@ struct AdvancedSearchSheet: View {
         root: .mockRoot,
         defaultBaseDN: "dc=example,dc=com",
         onSelect: { _ in },
-        reload: { _ in }
+        reload: { _ in },
+        onUpdateSavedFilters: { _ in }
     )
 }

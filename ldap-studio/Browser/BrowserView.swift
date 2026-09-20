@@ -78,6 +78,7 @@ struct BrowserView: View {
                         schema: schema,
                         bookmarks: connection.bookmarks,
                         onToggleBookmark: toggleBookmark,
+                        onUpdateSavedFilters: updateSavedFilters,
                         reload: { dn in await reload(selecting: dn) }
                     )
                     .navigationSplitViewColumnWidth(min: 200, ideal: 260)
@@ -193,6 +194,11 @@ struct BrowserView: View {
         } else {
             connection.bookmarks.insert(dn, at: 0)
         }
+        store.update(connection)
+    }
+
+    private func updateSavedFilters(_ filters: [SavedLDAPFilter]) {
+        connection.savedFilters = filters
         store.update(connection)
     }
 

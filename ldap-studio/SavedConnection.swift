@@ -5,6 +5,14 @@
 
 import Foundation
 
+struct SavedLDAPFilter: Identifiable, Codable, Hashable {
+    var id: UUID = UUID()
+    var name: String?
+    var filter: String
+    var isPinned: Bool = false
+    var lastUsed: Date = .now
+}
+
 struct SavedConnection: Identifiable, Codable, Hashable {
     var id: UUID
     var name: String
@@ -23,6 +31,10 @@ struct SavedConnection: Identifiable, Codable, Hashable {
     var trustedCertSHA256: String?
     /// DNs the user pinned for quick jumping, newest first.
     var bookmarks: [String]
+    /// Named/pinned filters and the recent Advanced Search history for this
+    /// connection. Unpinned history is kept newest first and bounded by the
+    /// search UI; pinned filters are never evicted.
+    var savedFilters: [SavedLDAPFilter]
     /// Pinned to the top of the connection list with a star.
     var isFavorite: Bool
     /// Every write path is blocked for this connection — a guard against
@@ -32,6 +44,7 @@ struct SavedConnection: Identifiable, Codable, Hashable {
     init(id: UUID = UUID(), name: String, host: String, port: Int, useSSL: Bool,
          useStartTLS: Bool = false, baseDN: String, bindDN: String,
          trustedCertSHA256: String? = nil, bookmarks: [String] = [],
+         savedFilters: [SavedLDAPFilter] = [],
          isFavorite: Bool = false, isReadOnly: Bool = false) {
         self.id = id
         self.name = name
@@ -43,12 +56,13 @@ struct SavedConnection: Identifiable, Codable, Hashable {
         self.bindDN = bindDN
         self.trustedCertSHA256 = trustedCertSHA256
         self.bookmarks = bookmarks
+        self.savedFilters = savedFilters
         self.isFavorite = isFavorite
         self.isReadOnly = isReadOnly
     }
 
     enum CodingKeys: String, CodingKey {
-        case id, name, host, port, useSSL, useStartTLS, baseDN, bindDN, trustedCertSHA256, bookmarks, isFavorite, isReadOnly
+        case id, name, host, port, useSSL, useStartTLS, baseDN, bindDN, trustedCertSHA256, bookmarks, savedFilters, isFavorite, isReadOnly
     }
 
     // Custom decoding so older saved files (from before `baseDN` /
@@ -67,6 +81,7 @@ struct SavedConnection: Identifiable, Codable, Hashable {
         bindDN = try container.decode(String.self, forKey: .bindDN)
         trustedCertSHA256 = try container.decodeIfPresent(String.self, forKey: .trustedCertSHA256)
         bookmarks = try container.decodeIfPresent([String].self, forKey: .bookmarks) ?? []
+        savedFilters = try container.decodeIfPresent([SavedLDAPFilter].self, forKey: .savedFilters) ?? []
         isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
         isReadOnly = try container.decodeIfPresent(Bool.self, forKey: .isReadOnly) ?? false
     }
@@ -83,6 +98,7 @@ struct SavedConnection: Identifiable, Codable, Hashable {
         try container.encode(bindDN, forKey: .bindDN)
         try container.encodeIfPresent(trustedCertSHA256, forKey: .trustedCertSHA256)
         if !bookmarks.isEmpty { try container.encode(bookmarks, forKey: .bookmarks) }
+        if !savedFilters.isEmpty { try container.encode(savedFilters, forKey: .savedFilters) }
         if isFavorite { try container.encode(true, forKey: .isFavorite) }
         if isReadOnly { try container.encode(true, forKey: .isReadOnly) }
     }

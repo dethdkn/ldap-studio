@@ -114,6 +114,7 @@ struct InfoPanel: View {
                 baseDN: item.baseDN,
                 bindDN: item.bindDN,
                 bookmarks: item.bookmarks,
+                savedFilters: item.savedFilters,
                 isFavorite: item.isFavorite,
                 isReadOnly: item.isReadOnly
             )

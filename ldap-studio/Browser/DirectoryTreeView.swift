@@ -18,6 +18,7 @@ struct DirectoryTreeView: View {
     /// `BrowserView` owns the list and persists it.
     let bookmarks: [String]
     let onToggleBookmark: (String) -> Void
+    let onUpdateSavedFilters: ([SavedLDAPFilter]) -> Void
     @Environment(\.openWindow) private var openWindow
     /// Same contract as `EntryDetailView`'s `reload`: refetches the whole
     /// directory from the server and reselects the given dn if it still
@@ -180,7 +181,8 @@ struct DirectoryTreeView: View {
                 root: root,
                 defaultBaseDN: request.baseDN,
                 onSelect: reveal,
-                reload: reload
+                reload: reload,
+                onUpdateSavedFilters: onUpdateSavedFilters
             )
         }
         .sheet(item: $groupForMembersEditing) { group in
@@ -802,6 +804,7 @@ private struct DirectoryOutlineRow: View {
         schema: nil,
         bookmarks: ["ou=People,dc=corp,dc=example,dc=com"],
         onToggleBookmark: { _ in },
+        onUpdateSavedFilters: { _ in },
         reload: { _ in }
     )
     .frame(width: 260, height: 400)

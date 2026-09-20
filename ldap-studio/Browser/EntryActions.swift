@@ -242,7 +242,7 @@ struct EntryActions {
     /// with the blank line expected by LDIF readers.
     func exportLDIF(_ entries: [DirectoryEntry]) {
         guard !entries.isEmpty else { return }
-        let ldif = entries.map(Self.ldifText).joined(separator: "\n")
+        let ldif = entries.map { Self.ldifText(for: $0) }.joined(separator: "\n")
         let suggestedName = entries.count == 1 ? entries[0].name
             .replacingOccurrences(of: "=", with: "_")
             .replacingOccurrences(of: " ", with: "_") : "ldap-search-results"
