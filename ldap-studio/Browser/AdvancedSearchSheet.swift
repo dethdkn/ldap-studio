@@ -12,6 +12,7 @@ import SwiftUI
 struct AdvancedSearchSheet: View {
     let connection: SavedConnection
     let root: DirectoryEntry
+    let schema: LdapSchema?
     let onSelect: (String) -> Void
     let reload: (String?) async -> Void
     let onUpdateSavedFilters: ([SavedLDAPFilter]) -> Void
@@ -32,10 +33,14 @@ struct AdvancedSearchSheet: View {
     @State private var savedFilters: [SavedLDAPFilter]
     @State private var isNamingPinnedFilter = false
     @State private var pinnedFilterName = ""
+    @State private var filterEditorMode: LDAPFilterEditorMode = .raw
+    @State private var filterJoin: LDAPFilterJoin = .and
+    @State private var filterClauses = [LDAPFilterClause()]
 
     init(
         connection: SavedConnection,
         root: DirectoryEntry,
+        schema: LdapSchema?,
         defaultBaseDN: String,
         onSelect: @escaping (String) -> Void,
         reload: @escaping (String?) async -> Void,
@@ -43,6 +48,7 @@ struct AdvancedSearchSheet: View {
     ) {
         self.connection = connection
         self.root = root
+        self.schema = schema
         self.onSelect = onSelect
         self.reload = reload
         self.onUpdateSavedFilters = onUpdateSavedFilters
@@ -51,7 +57,7 @@ struct AdvancedSearchSheet: View {
     }
 
     private var isValid: Bool {
-        !baseDN.isEmpty && !filter.isEmpty
+        !baseDN.isEmpty && !normalizedFilter.isEmpty
     }
 
     private var selectedEntries: [DirectoryEntry] {
@@ -73,7 +79,21 @@ struct AdvancedSearchSheet: View {
     }
 
     private var normalizedFilter: String {
-        filter.trimmingCharacters(in: .whitespacesAndNewlines)
+        effectiveFilter?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }
+
+    private var effectiveFilter: String? {
+        guard filterEditorMode == .builder else { return filter }
+        let generated = filterClauses.compactMap(\.filter)
+        guard generated.count == filterClauses.count, !generated.isEmpty else { return nil }
+        if generated.count == 1 { return generated[0] }
+        return "(\(filterJoin.marker)\(generated.joined()))"
+    }
+
+    private var attributeSuggestions: [String] {
+        schema?.attributeTypes
+            .flatMap(\.names)
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending } ?? []
     }
 
     private var pinnedFilters: [SavedLDAPFilter] {
@@ -103,13 +123,35 @@ struct AdvancedSearchSheet: View {
                     Text("One Level").tag(LdapSearchScope.oneLevel)
                     Text("Subtree").tag(LdapSearchScope.subtree)
                 }
-                HStack {
+                Picker("Filter Editor", selection: $filterEditorMode) {
+                    Text("Raw").tag(LDAPFilterEditorMode.raw)
+                    Text("Builder").tag(LDAPFilterEditorMode.builder)
+                }
+                .pickerStyle(.segmented)
+
+                if filterEditorMode == .raw {
                     TextField("Filter", text: $filter)
                         .font(.system(.body, design: .monospaced))
                         .onSubmit(search)
+                } else {
+                    LDAPFilterBuilder(
+                        join: $filterJoin,
+                        clauses: $filterClauses,
+                        attributeSuggestions: attributeSuggestions
+                    )
 
+                    LabeledContent("Generated Filter") {
+                        Text(effectiveFilter ?? "Complete every rule to generate a filter")
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(effectiveFilter == nil ? .secondary : .primary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+
+                HStack {
+                    Spacer()
                     filterHistoryMenu
-
                     Button {
                         togglePinnedFilter()
                     } label: {
@@ -121,7 +163,7 @@ struct AdvancedSearchSheet: View {
                 }
             }
             .formStyle(.grouped)
-            .frame(height: 150)
+            .frame(height: filterEditorMode == .raw ? 205 : 380)
 
             Divider()
 
@@ -205,7 +247,7 @@ struct AdvancedSearchSheet: View {
             }
             .padding()
         }
-        .frame(width: 760, height: 560)
+        .frame(width: 800, height: filterEditorMode == .raw ? 620 : 795)
         .overlay {
             if isPerformingAction {
                 ZStack {
@@ -253,7 +295,7 @@ struct AdvancedSearchSheet: View {
                 Section("Pinned") {
                     ForEach(pinnedFilters) { item in
                         Button {
-                            filter = item.filter
+                            applySavedFilter(item)
                         } label: {
                             Label(item.name ?? item.filter, systemImage: "star.fill")
                         }
@@ -264,7 +306,7 @@ struct AdvancedSearchSheet: View {
             if !recentFilters.isEmpty {
                 Section("Recent") {
                     ForEach(recentFilters) { item in
-                        Button(item.filter) { filter = item.filter }
+                        Button(item.filter) { applySavedFilter(item) }
                     }
                 }
                 Divider()
@@ -290,6 +332,7 @@ struct AdvancedSearchSheet: View {
 
     private func search() {
         guard isValid, !isSearching else { return }
+        let searchFilter = normalizedFilter
         isSearching = true
         errorMessage = nil
         selection.removeAll()
@@ -310,13 +353,18 @@ struct AdvancedSearchSheet: View {
                     password: KeychainService.readPassword(for: connection.id) ?? "",
                     baseDn: baseDN,
                     scope: scope,
-                    filter: filter
+                    filter: searchFilter
                 )
             } catch {
                 errorMessage = "\(error)"
                 results = []
             }
         }
+    }
+
+    private func applySavedFilter(_ item: SavedLDAPFilter) {
+        filter = item.filter
+        filterEditorMode = .raw
     }
 
     private func recordCurrentFilter() {
@@ -418,6 +466,7 @@ struct AdvancedSearchSheet: View {
     AdvancedSearchSheet(
         connection: SavedConnection(name: "Preview", host: "localhost", port: 389, useSSL: false, baseDN: "dc=example,dc=com", bindDN: ""),
         root: .mockRoot,
+        schema: nil,
         defaultBaseDN: "dc=example,dc=com",
         onSelect: { _ in },
         reload: { _ in },

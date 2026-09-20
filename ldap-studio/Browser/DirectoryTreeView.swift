@@ -179,6 +179,7 @@ struct DirectoryTreeView: View {
             AdvancedSearchSheet(
                 connection: connection,
                 root: root,
+                schema: schema,
                 defaultBaseDN: request.baseDN,
                 onSelect: reveal,
                 reload: reload,
