@@ -212,6 +212,16 @@ struct AppMenuCommands: Commands {
             .keyboardShortcut("c", modifiers: [.command, .shift])
             .disabled(directoryCommands?.copyDN == nil)
 
+            Button("Copy as LDIF") {
+                if let copySelectedLDIF = directoryCommands?.copySelectedLDIF {
+                    copySelectedLDIF()
+                } else {
+                    entryDetailCommands?.copyLDIF()
+                }
+            }
+            .keyboardShortcut("c", modifiers: [.command, .shift, .option])
+            .disabled(directoryCommands?.copySelectedLDIF == nil && entryDetailCommands == nil)
+
             Button("Delete Entry", role: .destructive) {
                 directoryCommands?.deleteSelected?()
             }

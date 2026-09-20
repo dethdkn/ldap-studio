@@ -51,6 +51,7 @@ struct DirectoryCommands {
     var refreshSelected: (() -> Void)?
     var renameSelected: (() -> Void)?
     var copyDN: (() -> Void)?
+    var copySelectedLDIF: (() -> Void)?
     /// Exports every selected tree entry into one LDIF file.
     var exportSelected: (() -> Void)?
     var setPassword: (() -> Void)?
@@ -77,6 +78,7 @@ struct EntryDetailCommands {
     var moveDN: () -> Void
     var copyDN: () -> Void
     var exportLDIF: () -> Void
+    var copyLDIF: () -> Void
     var refresh: () -> Void
     var viewValue: (() -> Void)?
     /// Opens the Schema window scrolled to the selected attribute's type.

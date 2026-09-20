@@ -286,6 +286,7 @@ struct DirectoryTreeView: View {
             renameSelected: (selectedEntry != nil && !isReadOnly)
                 ? { if let entry = selectedEntry { entryForRename = entry } } : nil,
             copyDN: selectedEntry.map { entry in { copyToPasteboard(entry.dn) } },
+            copySelectedLDIF: treeSelection.isEmpty ? nil : { actions.copyLDIF(selectedEntries) },
             exportSelected: treeSelection.isEmpty ? nil : { actions.exportLDIF(selectedEntries) },
             setPassword: selectedEntry.flatMap { entry in
                 (!isReadOnly && canSet("userPassword", on: entry)) ? { entryForPasswordSet = entry } : nil
@@ -328,6 +329,14 @@ struct DirectoryTreeView: View {
                 Image(systemName: "square.and.arrow.up")
             }
             .help("Export Selected as LDIF")
+            .disabled(treeSelection.isEmpty)
+
+            Button {
+                actions.copyLDIF(selectedEntries)
+            } label: {
+                Image(systemName: "doc.on.clipboard")
+            }
+            .help("Copy Selected as LDIF")
             .disabled(treeSelection.isEmpty)
 
             Button(role: .destructive) {
@@ -453,6 +462,13 @@ struct DirectoryTreeView: View {
         } label: {
             Label("Export \(entries.count) Entries as LDIF", systemImage: "square.and.arrow.up")
         }
+
+        Button {
+            actions.copyLDIF(entries)
+        } label: {
+            Label("Copy \(entries.count) Entries as LDIF", systemImage: "doc.on.clipboard")
+        }
+        .keyboardShortcut("c", modifiers: [.command, .shift, .option])
 
         Divider()
 
@@ -608,6 +624,13 @@ struct DirectoryTreeView: View {
             Label("Export as LDIF", systemImage: "square.and.arrow.up")
         }
         .keyboardShortcut("x", modifiers: [.command, .shift])
+
+        Button {
+            actions.copyLDIF(entry)
+        } label: {
+            Label("Copy as LDIF", systemImage: "doc.on.clipboard")
+        }
+        .keyboardShortcut("c", modifiers: [.command, .shift, .option])
 
         Divider()
 

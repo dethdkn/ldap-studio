@@ -12,6 +12,7 @@ import UniformTypeIdentifiers
 /// of drifting apart.
 struct EntryActions {
     let connection: SavedConnection
+    private static let clipboardWarningThreshold = 1_048_576
 
     private var password: String {
         KeychainService.readPassword(for: connection.id) ?? ""
@@ -270,6 +271,34 @@ struct EntryActions {
     /// with the blank line expected by LDIF readers.
     func exportLDIF(_ entries: [DirectoryEntry]) {
         exportLDIF(entries, suggestedName: nil)
+    }
+
+    func copyLDIF(_ entry: DirectoryEntry) {
+        copyLDIF([entry])
+    }
+
+    /// Copies one or more LDIF records. The pasteboard can technically hold
+    /// large values, but multi-megabyte clipboard contents are expensive for
+    /// receiving apps, so require explicit confirmation above 1 MiB.
+    func copyLDIF(_ entries: [DirectoryEntry]) {
+        guard !entries.isEmpty else { return }
+        let ldif = entries.map { Self.ldifText(for: $0) }.joined(separator: "\n")
+        let byteCount = ldif.lengthOfBytes(using: .utf8)
+
+        DispatchQueue.main.async {
+            if byteCount > Self.clipboardWarningThreshold {
+                let alert = NSAlert()
+                alert.alertStyle = .warning
+                alert.messageText = "Large LDIF Clipboard Content"
+                alert.informativeText = "This LDIF is \(ByteCountFormatter.string(fromByteCount: Int64(byteCount), countStyle: .file)). Copying it may temporarily slow this app or the app where you paste it."
+                alert.addButton(withTitle: "Copy Anyway")
+                alert.addButton(withTitle: "Cancel")
+                guard alert.runModal() == .alertFirstButtonReturn else { return }
+            }
+
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(ldif, forType: .string)
+        }
     }
 
     private func exportLDIF(_ entries: [DirectoryEntry], suggestedName: String?) {

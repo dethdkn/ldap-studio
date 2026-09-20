@@ -535,6 +535,7 @@ struct EntryDetailView: View {
             moveDN: { isShowingMovePicker = true },
             copyDN: { isShowingCopyPicker = true },
             exportLDIF: { actions.exportLDIF(entry) },
+            copyLDIF: { actions.copyLDIF(entry) },
             refresh: { refresh() },
             viewValue: selectedAttribute.map { attribute in { attributeBeingViewed = attribute } },
             jumpToSchema: selectedAttribute.map { attribute in { jumpToSchema(attribute) } },
@@ -608,6 +609,13 @@ struct EntryDetailView: View {
                 Image(systemName: "square.and.arrow.up")
             }
             .help("Export as LDIF (⇧⌘X)")
+
+            Button {
+                actions.copyLDIF(entry)
+            } label: {
+                Image(systemName: "doc.on.clipboard")
+            }
+            .help("Copy as LDIF")
 
             Button {
                 onToggleBookmark()
