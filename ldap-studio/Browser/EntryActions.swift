@@ -235,10 +235,17 @@ struct EntryActions {
     }
 
     func exportLDIF(_ entry: DirectoryEntry) {
-        let ldif = Self.ldifText(for: entry)
-        let suggestedName = entry.name
+        exportLDIF([entry])
+    }
+
+    /// Writes a multi-entry selection to one LDIF file, separating records
+    /// with the blank line expected by LDIF readers.
+    func exportLDIF(_ entries: [DirectoryEntry]) {
+        guard !entries.isEmpty else { return }
+        let ldif = entries.map(Self.ldifText).joined(separator: "\n")
+        let suggestedName = entries.count == 1 ? entries[0].name
             .replacingOccurrences(of: "=", with: "_")
-            .replacingOccurrences(of: " ", with: "_")
+            .replacingOccurrences(of: " ", with: "_") : "ldap-search-results"
 
         DispatchQueue.main.async {
             let panel = NSSavePanel()

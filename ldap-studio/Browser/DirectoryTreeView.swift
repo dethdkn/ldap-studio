@@ -175,9 +175,13 @@ struct DirectoryTreeView: View {
             }
         }
         .sheet(item: $advancedSearchRequest) { request in
-            AdvancedSearchSheet(connection: connection, defaultBaseDN: request.baseDN) { dn in
-                reveal(dn)
-            }
+            AdvancedSearchSheet(
+                connection: connection,
+                root: root,
+                defaultBaseDN: request.baseDN,
+                onSelect: reveal,
+                reload: reload
+            )
         }
         .sheet(item: $groupForMembersEditing) { group in
             GroupMembersSheet(group: group, connection: connection) {

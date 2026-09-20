@@ -79,10 +79,25 @@ extension DirectoryEntry {
     /// removed — used by the move/copy destination picker so an entry can't
     /// be relocated into itself or one of its own descendants.
     func pruned(removing excludedID: DirectoryEntry.ID) -> DirectoryEntry? {
-        guard id != excludedID else { return nil }
+        pruned(removing: [excludedID])
+    }
+
+    /// Removes several subtrees at once. Bulk Move uses this to prevent any
+    /// selected entry from being chosen as its own destination.
+    func pruned(removing excludedIDs: Set<DirectoryEntry.ID>) -> DirectoryEntry? {
+        guard !excludedIDs.contains(id) else { return nil }
         var copy = self
-        copy.children = children?.compactMap { $0.pruned(removing: excludedID) }
+        copy.children = children?.compactMap { $0.pruned(removing: excludedIDs) }
         return copy
+    }
+
+    /// Resolves a multi-selection to non-overlapping operation roots. Once a
+    /// selected node is found its selected descendants are intentionally not
+    /// returned: moving or recursively deleting the parent already includes
+    /// that entire subtree.
+    func operationRoots(in selectedIDs: Set<DirectoryEntry.ID>) -> [DirectoryEntry] {
+        if selectedIDs.contains(id) { return [self] }
+        return (children ?? []).flatMap { $0.operationRoots(in: selectedIDs) }
     }
 
     /// Returns a copy of the tree containing only entries whose dn matches
