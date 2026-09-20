@@ -3,6 +3,7 @@
 //  ldap-studio
 //
 
+import AppKit
 import SwiftUI
 
 struct AboutView: View {
@@ -16,7 +17,7 @@ struct AboutView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Image("ldap-studio")
+            Image(nsImage: NSApplication.shared.applicationIconImage)
                 .resizable()
                 .frame(width: 96, height: 96)
 

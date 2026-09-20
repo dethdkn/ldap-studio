@@ -20,7 +20,7 @@ struct InfoPanel: View {
         VStack(spacing: 16) {
             Spacer()
 
-            Image("ldap-studio")
+            Image(nsImage: NSApplication.shared.applicationIconImage)
                 .resizable()
                 .frame(width: 96, height: 96)
 
