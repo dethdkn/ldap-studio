@@ -11,6 +11,7 @@ struct InfoPanel: View {
     @Environment(ConnectionStore.self) private var store
 
     @State private var isPresentingNewConnection = false
+    @State private var isCheckingForUpdates = false
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
@@ -30,6 +31,16 @@ struct InfoPanel: View {
                 Text("Version \(appVersion)")
                     .font(.callout)
                     .foregroundStyle(.secondary)
+                Button(isCheckingForUpdates ? "Checking for Updates…" : "Check for Updates…") {
+                    isCheckingForUpdates = true
+                    Task {
+                        await UpdateChecker.shared.check(userInitiated: true)
+                        isCheckingForUpdates = false
+                    }
+                }
+                .buttonStyle(.link)
+                .font(.callout)
+                .disabled(isCheckingForUpdates)
             }
 
             VStack(spacing: 10) {
