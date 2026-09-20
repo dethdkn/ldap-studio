@@ -51,6 +51,8 @@ struct DirectoryCommands {
     var refreshSelected: (() -> Void)?
     var renameSelected: (() -> Void)?
     var copyDN: (() -> Void)?
+    /// Exports every selected tree entry into one LDIF file.
+    var exportSelected: (() -> Void)?
     var setPassword: (() -> Void)?
     var setPhoto: (() -> Void)?
     /// Opens the "Test Bind" diagnostic for the selected entry; read-only,

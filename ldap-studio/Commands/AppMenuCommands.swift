@@ -75,11 +75,15 @@ struct AppMenuCommands: Commands {
             }
             .disabled(selectedConnectionCommands?.export == nil)
 
-            Button("Export Entry as LDIF") {
-                entryDetailCommands?.exportLDIF()
+            Button(directoryCommands?.exportSelected == nil ? "Export Entry as LDIF" : "Export Selected as LDIF") {
+                if let exportSelected = directoryCommands?.exportSelected {
+                    exportSelected()
+                } else {
+                    entryDetailCommands?.exportLDIF()
+                }
             }
             .keyboardShortcut("x", modifiers: [.command, .shift])
-            .disabled(entryDetailCommands == nil)
+            .disabled(directoryCommands?.exportSelected == nil && entryDetailCommands == nil)
         }
 
         CommandMenu("Connection") {

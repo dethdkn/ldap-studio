@@ -44,13 +44,19 @@ struct DirectoryTreeView: View {
         var id: String { baseDN }
     }
 
+    private struct PendingDropMove {
+        let entryIDs: [DirectoryEntry.ID]
+        let destinationDN: String
+    }
+
     @State private var pickerRequest: PickerRequest?
-    @State private var entryPendingDeletion: DirectoryEntry?
+    @State private var entriesPendingDeletion: [DirectoryEntry] = []
     @State private var newEntryRequest: NewEntryRequest?
     @State private var groupForMembersEditing: DirectoryEntry?
     @State private var entryForRename: DirectoryEntry?
     @State private var entryForPasswordSet: DirectoryEntry?
     @State private var entryForTestBind: DirectoryEntry?
+    @State private var pendingDropMove: PendingDropMove?
 
     @State private var isPerformingAction = false
     @State private var actionError: String?
@@ -68,6 +74,7 @@ struct DirectoryTreeView: View {
     /// this hand-rolled instead, via `DisclosureGroup`'s `isExpanded`
     /// binding.
     @State private var expandedIDs: Set<DirectoryEntry.ID> = []
+    @State private var treeSelection: Set<DirectoryEntry.ID> = []
 
     private var actions: EntryActions {
         EntryActions(connection: connection)
@@ -81,8 +88,16 @@ struct DirectoryTreeView: View {
     }
 
     private var selectedEntry: DirectoryEntry? {
-        guard let selection else { return nil }
+        guard treeSelection.count == 1, let selection else { return nil }
         return root.find(id: selection)
+    }
+
+    private var selectedEntries: [DirectoryEntry] {
+        treeSelection.compactMap { root.find(id: $0) }
+    }
+
+    private var selectedOperationRoots: [DirectoryEntry] {
+        root.operationRoots(in: treeSelection)
     }
 
     private var bookmarkSet: Set<String> { Set(bookmarks) }
@@ -96,25 +111,62 @@ struct DirectoryTreeView: View {
             Divider()
 
             ScrollViewReader { proxy in
-                List(selection: $selection) {
+                List(selection: $treeSelection) {
                     if let filteredRoot {
-                        DirectoryOutlineRow(entry: filteredRoot, expandedIDs: $expandedIDs, bookmarks: bookmarkSet)
+                        DirectoryOutlineRow(
+                            entry: filteredRoot,
+                            expandedIDs: $expandedIDs,
+                            bookmarks: bookmarkSet,
+                            selectedIDs: treeSelection,
+                            isReadOnly: isReadOnly,
+                            draggedIDs: draggedIDs(for:),
+                            moveDroppedIDs: confirmDroppedEntries(_:to:)
+                        )
                     }
                 }
                 .contextMenu(forSelectionType: DirectoryEntry.ID.self) { ids in
-                    if let id = ids.first, let entry = root.find(id: id) {
+                    let entries = ids.compactMap { root.find(id: $0) }
+                    if entries.count > 1 {
+                        bulkContextMenuContent(entries)
+                    } else if let entry = entries.first {
                         contextMenuContent(for: entry)
                     }
                 }
+                .onChange(of: treeSelection) { oldValue, newValue in
+                    if let added = newValue.subtracting(oldValue).first {
+                        selection = added
+                    } else if let selection, !newValue.contains(selection) {
+                        self.selection = newValue.first
+                    } else if newValue.isEmpty {
+                        selection = nil
+                    }
+                }
                 .onChange(of: selection) { _, newValue in
-                    guard let newValue else { return }
+                    guard let newValue else {
+                        treeSelection.removeAll()
+                        return
+                    }
+                    if !treeSelection.contains(newValue) { treeSelection = [newValue] }
                     withAnimation {
                         proxy.scrollTo(newValue, anchor: .center)
                     }
                 }
+                .onAppear {
+                    if let selection { treeSelection = [selection] }
+                }
             }
         }
         .disabled(isPerformingAction)
+        .overlay {
+            if isPerformingAction {
+                ZStack {
+                    Color.black.opacity(0.08)
+                    ProgressView("Updating Directory…")
+                        .padding(16)
+                        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10))
+                }
+            }
+        }
         .sheet(item: $pickerRequest) { request in
             if let pruned = root.pruned(removing: request.entry.id) {
                 let isMove = request.kind == .move
@@ -132,31 +184,21 @@ struct DirectoryTreeView: View {
             }
         }
         .alert(
-            deleteAlertTitle(for: entryPendingDeletion),
+            deleteAlertTitle,
             isPresented: Binding(
-                get: { entryPendingDeletion != nil },
-                set: { if !$0 { entryPendingDeletion = nil } }
-            ),
-            presenting: entryPendingDeletion
-        ) { entry in
-            Button(entry.subtreeCount > 1 ? "Delete \(entry.subtreeCount) Entries" : "Delete",
-                   role: .destructive) {
-                delete(entry)
-                entryPendingDeletion = nil
+                get: { !entriesPendingDeletion.isEmpty },
+                set: { if !$0 { entriesPendingDeletion = [] } }
+            )
+        ) {
+            Button(deleteConfirmationLabel, role: .destructive) {
+                delete(entriesPendingDeletion)
+                entriesPendingDeletion = []
             }
             Button("Cancel", role: .cancel) {
-                entryPendingDeletion = nil
+                entriesPendingDeletion = []
             }
-        } message: { entry in
-            let descendants = entry.subtreeCount - 1
-            if descendants > 0 {
-                let noun: String = descendants == 1 ? "entry" : "entries"
-                let prefix: String = "This permanently deletes \(entry.dn) and \(descendants) \(noun) beneath it"
-                let suffix: String = "from the server — \(entry.subtreeCount) in total. This cannot be undone."
-                Text("\(prefix) \(suffix)")
-            } else {
-                Text("This permanently deletes \(entry.dn) from the server. This cannot be undone.")
-            }
+        } message: {
+            Text("This permanently deletes the selected entries and their descendants from the server. This cannot be undone.")
         }
         .alert(
             "Action Failed",
@@ -169,6 +211,26 @@ struct DirectoryTreeView: View {
             Button("OK", role: .cancel) {}
         } message: { message in
             Text(message)
+        }
+        .alert(
+            moveConfirmationTitle,
+            isPresented: Binding(
+                get: { pendingDropMove != nil },
+                set: { if !$0 { pendingDropMove = nil } }
+            )
+        ) {
+            Button("Move") {
+                guard let request = pendingDropMove else { return }
+                pendingDropMove = nil
+                moveDroppedEntries(request.entryIDs, to: request.destinationDN)
+            }
+            Button("Cancel", role: .cancel) {
+                pendingDropMove = nil
+            }
+        } message: {
+            if let request = pendingDropMove {
+                Text("Move the selected entries under \(request.destinationDN)?")
+            }
         }
         .sheet(item: $newEntryRequest) { request in
             NewEntrySheet(parentDN: request.parentDN, schema: schema) { dn, attributes in
@@ -224,6 +286,7 @@ struct DirectoryTreeView: View {
             renameSelected: (selectedEntry != nil && !isReadOnly)
                 ? { if let entry = selectedEntry { entryForRename = entry } } : nil,
             copyDN: selectedEntry.map { entry in { copyToPasteboard(entry.dn) } },
+            exportSelected: treeSelection.isEmpty ? nil : { actions.exportLDIF(selectedEntries) },
             setPassword: selectedEntry.flatMap { entry in
                 (!isReadOnly && canSet("userPassword", on: entry)) ? { entryForPasswordSet = entry } : nil
             },
@@ -233,8 +296,8 @@ struct DirectoryTreeView: View {
             testBind: selectedEntry.flatMap { entry in
                 hasUserPassword(entry) ? { entryForTestBind = entry } : nil
             },
-            deleteSelected: (selectedEntry != nil && !isReadOnly)
-                ? { if let entry = selectedEntry { entryPendingDeletion = entry } } : nil,
+            deleteSelected: (!treeSelection.isEmpty && !isReadOnly)
+                ? { entriesPendingDeletion = selectedOperationRoots } : nil,
             editMembers: selectedEntry.flatMap { entry in
                 (!isReadOnly && GroupMembersSheet.isGroup(entry)) ? { groupForMembersEditing = entry } : nil
             }
@@ -258,6 +321,22 @@ struct DirectoryTreeView: View {
             }
             .help("Import LDIF")
             .disabled(isReadOnly)
+
+            Button {
+                actions.exportLDIF(selectedEntries)
+            } label: {
+                Image(systemName: "square.and.arrow.up")
+            }
+            .help("Export Selected as LDIF")
+            .disabled(treeSelection.isEmpty)
+
+            Button(role: .destructive) {
+                entriesPendingDeletion = selectedOperationRoots
+            } label: {
+                Image(systemName: "trash")
+            }
+            .help("Delete Selected (⌘⌫)")
+            .disabled(treeSelection.isEmpty || isReadOnly)
 
             Button {
                 openWindow(id: "schema", value: connection)
@@ -365,6 +444,26 @@ struct DirectoryTreeView: View {
             }
         }
         .padding(12)
+    }
+
+    @ViewBuilder
+    private func bulkContextMenuContent(_ entries: [DirectoryEntry]) -> some View {
+        Button {
+            DispatchQueue.main.async { actions.exportLDIF(entries) }
+        } label: {
+            Label("Export \(entries.count) Entries as LDIF", systemImage: "square.and.arrow.up")
+        }
+
+        Divider()
+
+        Button(role: .destructive) {
+            DispatchQueue.main.async {
+                entriesPendingDeletion = root.operationRoots(in: Set(entries.map(\.id)))
+            }
+        } label: {
+            Label("Delete \(entries.count) Selected Entries", systemImage: "trash")
+        }
+        .disabled(isReadOnly)
     }
 
     @ViewBuilder
@@ -514,7 +613,7 @@ struct DirectoryTreeView: View {
 
         Button(role: .destructive) {
             DispatchQueue.main.async {
-                entryPendingDeletion = entry
+                entriesPendingDeletion = [entry]
             }
         } label: {
             Label("Delete", systemImage: "trash")
@@ -651,21 +750,83 @@ struct DirectoryTreeView: View {
         }
     }
 
-    private func delete(_ entry: DirectoryEntry) {
+    private func delete(_ entries: [DirectoryEntry]) {
         // Preserve whatever's currently selected if it's unrelated to what's
         // being deleted; `reload(selecting:)` already falls back to nil if
         // that dn turns out not to exist anymore (e.g. it was the deleted
         // entry, or a descendant of it).
         perform(reloadSelecting: selection) {
-            try await actions.delete(entry)
+            for entry in entries.sorted(by: { $0.dn.count > $1.dn.count }) {
+                try await actions.delete(entry)
+            }
         }
     }
 
-    private func deleteAlertTitle(for entry: DirectoryEntry?) -> String {
-        guard let entry else { return "Delete Entry?" }
-        return entry.subtreeCount > 1
-            ? "Delete “\(entry.name)” and everything under it?"
-            : "Delete “\(entry.name)”?"
+    private var pendingDeletionCount: Int {
+        entriesPendingDeletion.reduce(0) { $0 + $1.subtreeCount }
+    }
+
+    private var deleteAlertTitle: String {
+        if entriesPendingDeletion.count == 1, let entry = entriesPendingDeletion.first {
+            return entry.subtreeCount > 1
+                ? "Delete “\(entry.name)” and everything under it?"
+                : "Delete “\(entry.name)”?"
+        }
+        return "Delete \(pendingDeletionCount) Entries?"
+    }
+
+    private var deleteConfirmationLabel: String {
+        pendingDeletionCount == 1 ? "Delete" : "Delete \(pendingDeletionCount) Entries"
+    }
+
+    private func draggedIDs(for entryID: DirectoryEntry.ID) -> [DirectoryEntry.ID] {
+        let ids = treeSelection.contains(entryID) ? treeSelection : [entryID]
+        return root.operationRoots(in: ids).map(\.id)
+    }
+
+    private var moveConfirmationTitle: String {
+        guard let pendingDropMove else { return "Move Entries?" }
+        let count = root.operationRoots(in: Set(pendingDropMove.entryIDs)).count
+        return count == 1 ? "Move Entry?" : "Move \(count) Entries?"
+    }
+
+    private func confirmDroppedEntries(_ ids: [DirectoryEntry.ID], to destinationDN: String) {
+        guard !isReadOnly else { return }
+        let entries = root.operationRoots(in: Set(ids))
+        guard !entries.isEmpty else { return }
+        guard !entries.contains(where: { $0.find(id: destinationDN) != nil }) else {
+            actionError = "An entry cannot be moved into itself or one of its descendants."
+            return
+        }
+        pendingDropMove = PendingDropMove(entryIDs: entries.map(\.id), destinationDN: destinationDN)
+    }
+
+    private func moveDroppedEntries(_ ids: [DirectoryEntry.ID], to destinationDN: String) {
+        let entries = root.operationRoots(in: Set(ids))
+        guard !entries.isEmpty else { return }
+
+        Task {
+            isPerformingAction = true
+            defer { isPerformingAction = false }
+            do {
+                var movedDNs: [String] = []
+                for entry in entries {
+                    movedDNs.append(try await actions.move(entry, to: destinationDN))
+                }
+                let primaryDN = movedDNs.first
+                // Never feed List DNs that don't exist in its current data.
+                // AppKit's selection bridge can repeatedly try to reconcile
+                // that impossible state while the directory is reloading.
+                treeSelection.removeAll()
+                selection = nil
+                await reload(primaryDN)
+                treeSelection = Set(movedDNs)
+            } catch {
+                actionError = "\(error)"
+                await reload(nil)
+                treeSelection.removeAll()
+            }
+        }
     }
 
     /// Expands every ancestor of `dn` (so it's actually visible in the
@@ -678,6 +839,7 @@ struct DirectoryTreeView: View {
             expandedIDs.insert(ancestor)
         }
         selection = dn
+        treeSelection = [dn]
     }
 
     private func openGoTo() {
@@ -751,6 +913,12 @@ private struct DirectoryOutlineRow: View {
     let entry: DirectoryEntry
     @Binding var expandedIDs: Set<DirectoryEntry.ID>
     let bookmarks: Set<String>
+    let selectedIDs: Set<DirectoryEntry.ID>
+    let isReadOnly: Bool
+    let draggedIDs: (DirectoryEntry.ID) -> [DirectoryEntry.ID]
+    let moveDroppedIDs: ([DirectoryEntry.ID], String) -> Void
+
+    @State private var isDropTarget = false
 
     private var isExpanded: Binding<Bool> {
         Binding(
@@ -769,7 +937,15 @@ private struct DirectoryOutlineRow: View {
         if let children = entry.children, !children.isEmpty {
             DisclosureGroup(isExpanded: isExpanded) {
                 ForEach(children) { child in
-                    DirectoryOutlineRow(entry: child, expandedIDs: $expandedIDs, bookmarks: bookmarks)
+                    DirectoryOutlineRow(
+                        entry: child,
+                        expandedIDs: $expandedIDs,
+                        bookmarks: bookmarks,
+                        selectedIDs: selectedIDs,
+                        isReadOnly: isReadOnly,
+                        draggedIDs: draggedIDs,
+                        moveDroppedIDs: moveDroppedIDs
+                    )
                 }
             } label: {
                 rowLabel(name: "\(entry.name) (\(children.count))")
@@ -791,9 +967,25 @@ private struct DirectoryOutlineRow: View {
                 Image(systemName: "bookmark.fill")
                     .font(.caption2)
                     .foregroundStyle(.orange)
-                    .help("Bookmarked")
+                .help("Bookmarked")
             }
         }
+        .contentShape(Rectangle())
+        .background(isDropTarget ? Color.accentColor.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 4))
+        .draggable(dragPayload)
+        .dropDestination(for: Data.self) { items, _ in
+            guard !isReadOnly,
+                  let data = items.first,
+                  let ids = try? JSONDecoder().decode([DirectoryEntry.ID].self, from: data) else { return false }
+            moveDroppedIDs(ids, entry.dn)
+            return true
+        } isTargeted: { isTargeted in
+            isDropTarget = isTargeted
+        }
+    }
+
+    private var dragPayload: Data {
+        (try? JSONEncoder().encode(draggedIDs(entry.id))) ?? Data()
     }
 }
 
