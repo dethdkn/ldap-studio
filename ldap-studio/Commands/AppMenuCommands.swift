@@ -84,6 +84,7 @@ struct AppMenuCommands: Commands {
             }
             .keyboardShortcut("x", modifiers: [.command, .shift])
             .disabled(directoryCommands?.exportSelected == nil && entryDetailCommands == nil)
+
         }
 
         CommandMenu("Connection") {

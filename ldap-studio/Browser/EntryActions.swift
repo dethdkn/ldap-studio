@@ -235,17 +235,49 @@ struct EntryActions {
     }
 
     func exportLDIF(_ entry: DirectoryEntry) {
-        exportLDIF([entry])
+        guard entry.subtreeCount > 1 else {
+            exportLDIF([entry])
+            return
+        }
+
+        DispatchQueue.main.async {
+            let alert = NSAlert()
+            alert.messageText = "Export Entry or Entire Tree?"
+            alert.informativeText = "“\(entry.name)” contains \(entry.subtreeCount - 1) descendant \(entry.subtreeCount == 2 ? "entry" : "entries")."
+            alert.addButton(withTitle: "Entry Only")
+            alert.addButton(withTitle: "Entry + Subtree")
+            alert.addButton(withTitle: "Cancel")
+
+            switch alert.runModal() {
+            case .alertFirstButtonReturn:
+                exportLDIF([entry])
+            case .alertSecondButtonReturn:
+                exportSubtreeLDIF(entry)
+            default:
+                break
+            }
+        }
+    }
+
+    /// Exports an entire branch in parent-first order so the resulting LDIF
+    /// can be imported directly into an empty directory hierarchy.
+    private func exportSubtreeLDIF(_ entry: DirectoryEntry) {
+        let suggestedName = Self.safeFilename(entry.name) + "_tree"
+        exportLDIF(Self.flattenedSubtree(entry), suggestedName: suggestedName)
     }
 
     /// Writes a multi-entry selection to one LDIF file, separating records
     /// with the blank line expected by LDIF readers.
     func exportLDIF(_ entries: [DirectoryEntry]) {
+        exportLDIF(entries, suggestedName: nil)
+    }
+
+    private func exportLDIF(_ entries: [DirectoryEntry], suggestedName: String?) {
         guard !entries.isEmpty else { return }
         let ldif = entries.map { Self.ldifText(for: $0) }.joined(separator: "\n")
-        let suggestedName = entries.count == 1 ? entries[0].name
-            .replacingOccurrences(of: "=", with: "_")
-            .replacingOccurrences(of: " ", with: "_") : "ldap-search-results"
+        let suggestedName = suggestedName ?? (entries.count == 1
+            ? Self.safeFilename(entries[0].name)
+            : "ldap-search-results")
 
         DispatchQueue.main.async {
             let panel = NSSavePanel()
@@ -263,6 +295,16 @@ struct EntryActions {
                 try? ldif.write(to: url, atomically: true, encoding: .utf8)
             }
         }
+    }
+
+    private static func flattenedSubtree(_ entry: DirectoryEntry) -> [DirectoryEntry] {
+        [entry] + (entry.children ?? []).flatMap { flattenedSubtree($0) }
+    }
+
+    private static func safeFilename(_ name: String) -> String {
+        name
+            .replacingOccurrences(of: "=", with: "_")
+            .replacingOccurrences(of: " ", with: "_")
     }
 
     private static func ldifText(for entry: DirectoryEntry) -> String {
