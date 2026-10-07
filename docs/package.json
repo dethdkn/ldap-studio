@@ -1,0 +1,51 @@
+{
+  "name": "ldap-studio-docs",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "fmt": "oxfmt --check",
+    "fmt:fix": "oxfmt",
+    "lint": "oxlint --type-aware",
+    "lint:fix": "oxlint --type-aware --fix",
+    "typecheck": "nuxi typecheck --checker=golar"
+  },
+  "dependencies": {
+    "@iconify-json/ph": "^1.2.2",
+    "@iconify-json/simple-icons": "^1.2.98",
+    "@nuxt/a11y": "^1.0.0-alpha.1",
+    "@nuxt/fonts": "^0.14.0",
+    "@nuxt/hints": "^1.1.4",
+    "@nuxt/icon": "^2.5.1",
+    "@nuxt/image": "^2.1.0",
+    "@nuxtjs/i18n": "10.6.0",
+    "@nuxtjs/seo": "5.3.12",
+    "@tailwindcss/vite": "^4.3.3",
+    "@takumi-rs/core": "^2.9.0",
+    "@vercel/analytics": "^2.0.1",
+    "@vercel/speed-insights": "^2.0.0",
+    "@vueuse/nuxt": "^14.4.0",
+    "motion-v": "^2.5.1",
+    "nuxt": "4.5.2",
+    "nuxt-security": "^2.6.0",
+    "reka-ui": "^2.10.5",
+    "tailwindcss": "^4.3.3",
+    "three": "^0.186.1",
+    "vue": "^3.5.41",
+    "vue-router": "^5.2.0"
+  },
+  "devDependencies": {
+    "@dethdkn/ox-config": "^1.0.26",
+    "@golar/vue": "^0.1.10",
+    "@types/three": "^0.186.0",
+    "golar": "^0.1.10",
+    "nuxtseo-layer-devtools": "^5.3.16",
+    "typescript": "^7.0.2"
+  },
+  "packageManager": "bun@1.4.2"
+}

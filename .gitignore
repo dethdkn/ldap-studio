@@ -20,4 +20,5 @@ dist
 tmp
 .claude
 .env
-.env
+.env.*
+!.env.example

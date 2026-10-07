@@ -1,0 +1,122 @@
+@import 'tailwindcss';
+
+@theme inline {
+  --font-sans: 'Mona Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'Martian Mono', ui-monospace, monospace;
+
+  --color-bg: var(--bg);
+  --color-bg-deep: var(--bg-deep);
+  --color-surface: var(--surface);
+  --color-surface-solid: var(--surface-solid);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-signal: var(--signal);
+  --color-ok: var(--ok);
+}
+
+:root {
+  --bg: #f2f5fb;
+  --bg-deep: #e4eaf7;
+  --surface: rgb(255 255 255 / 0.7);
+  --surface-solid: #ffffff;
+  --fg: #0a1430;
+  --muted: #56617f;
+  --line: rgb(10 20 48 / 0.09);
+  --accent: #006bff;
+  --accent-ink: #0052c7;
+  --accent-soft: rgb(0 107 255 / 0.1);
+  --signal: #d9480f;
+  --ok: #0f8a55;
+
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #060a17;
+    --bg-deep: #0b1226;
+    --surface: rgb(17 25 50 / 0.72);
+    --surface-solid: #0f1731;
+    --fg: #e9eefc;
+    --muted: #8d98b9;
+    --line: rgb(233 238 252 / 0.09);
+    --accent: #006bff;
+    --accent-ink: #78b0ff;
+    --accent-soft: rgb(47 134 255 / 0.16);
+    --signal: #ff8c52;
+    --ok: #3fd18b;
+  }
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 5rem;
+  }
+
+  body {
+    @apply bg-bg font-sans text-fg antialiased;
+    background-image:
+      radial-gradient(60rem 40rem at 85% -10%, var(--accent-soft), transparent 70%),
+      radial-gradient(50rem 40rem at -10% 110%, var(--accent-soft), transparent 70%);
+    background-attachment: fixed;
+  }
+
+  ::selection {
+    @apply bg-accent text-white;
+  }
+
+  :focus-visible {
+    @apply rounded-md outline-2 outline-offset-2 outline-accent;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+  }
+}
+
+@layer components {
+  .type-display {
+    font-variation-settings: 'wdth' 118;
+    @apply leading-[0.94] font-extrabold tracking-[-0.035em];
+  }
+
+  .type-title {
+    font-variation-settings: 'wdth' 112;
+    @apply leading-[1.02] font-bold tracking-[-0.025em];
+  }
+
+  .glass {
+    @apply border border-line bg-surface shadow-[0_1px_0_rgb(255_255_255/0.5)_inset,0_24px_48px_-24px_rgb(10_20_48/0.25)] backdrop-blur-xl backdrop-saturate-150;
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    .glass {
+      @apply bg-surface-solid backdrop-blur-none;
+    }
+  }
+}
+
+@keyframes expand {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--reka-accordion-content-height);
+  }
+}
+
+@keyframes collapse {
+  from {
+    height: var(--reka-accordion-content-height);
+  }
+  to {
+    height: 0;
+  }
+}
