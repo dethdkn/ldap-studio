@@ -239,6 +239,12 @@ struct AppMenuCommands: Commands {
             }
             .keyboardShortcut("r", modifiers: .command)
             .disabled(directoryCommands?.refreshSelected == nil && entryDetailCommands == nil)
+
+            Button("Reload Entire Tree") {
+                directoryCommands?.reloadTree()
+            }
+            .keyboardShortcut("r", modifiers: [.command, .option])
+            .disabled(directoryCommands == nil)
         }
 
         CommandMenu("Attribute") {

@@ -272,6 +272,7 @@ struct DirectoryTreeView: View {
                 advancedSearchRequest = AdvancedSearchRequest(baseDN: selection ?? root.dn)
             },
             goToDN: { openGoTo() },
+            reloadTree: { reloadTree() },
             toggleBookmark: selectedEntry.map { entry in { onToggleBookmark(entry.dn) } },
             isSelectedBookmarked: selectedEntry.map { bookmarks.contains($0.dn) } ?? false,
             isReadOnly: isReadOnly,
@@ -365,6 +366,13 @@ struct DirectoryTreeView: View {
             .help("Server Info (⌘I)")
 
             Spacer()
+
+            Button {
+                reloadTree()
+            } label: {
+                Image(systemName: "arrow.clockwise")
+            }
+            .help("Reload Entire Tree (⌥⌘R)")
 
             Button {
                 openGoTo()
@@ -707,7 +715,17 @@ struct DirectoryTreeView: View {
     }
 
     private func refresh(_ entry: DirectoryEntry) {
-        let dn = entry.dn
+        reloadWholeDirectory(keepingSelection: entry.dn)
+    }
+
+    /// Re-fetches the entire directory from the server, keeping whatever is
+    /// selected selected (and whatever is expanded expanded) if it still
+    /// exists afterward. Needs no selection, unlike `refresh(_:)`.
+    private func reloadTree() {
+        reloadWholeDirectory(keepingSelection: selection)
+    }
+
+    private func reloadWholeDirectory(keepingSelection dn: String?) {
         Task {
             isPerformingAction = true
             defer { isPerformingAction = false }
