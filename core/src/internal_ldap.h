@@ -14,12 +14,13 @@
 /*
  * Connects and binds, handing back a ready LDAP* (caller unbinds with
  * ldap_unbind_ext_s). Empty/NULL bind_dn → anonymous. The whole attempt
- * is capped at LS_CONNECT_TIMEOUT_SECS. On failure fills `err` with the
- * right LS_CONNECT_* / LS_BIND_FAILED kind and returns non-zero.
+ * is capped at the active per-connection timeout. On failure fills `err` with
+ * the right LS_CONNECT_* / LS_BIND_FAILED kind and returns non-zero.
  */
 int ls_connect_and_bind(const char *host, uint16_t port, bool use_ssl,
                         const char *bind_dn, const char *password, LDAP **out,
                         LSError *err);
+void ls_disconnect(LDAP *ld);
 
 /* Maps an ldap_* result code to reason text via ldap_err2string and fills
  * `err` with the given kind; returns that kind. */

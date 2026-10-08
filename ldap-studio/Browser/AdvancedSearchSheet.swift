@@ -349,6 +349,7 @@ struct AdvancedSearchSheet: View {
                     useSsl: connection.useSSL,
                     startTLS: connection.useStartTLS,
                     pinnedCertSHA256: connection.trustedCertSHA256,
+                    options: connection.ldapOptions,
                     bindDn: connection.bindDN,
                     password: KeychainService.readPassword(for: connection.id) ?? "",
                     baseDn: baseDN,
@@ -420,7 +421,22 @@ struct AdvancedSearchSheet: View {
         onUpdateSavedFilters(savedFilters)
     }
 
+    /// Delete and Move act on the directory tree this sheet was opened with
+    /// (they need each entry's descendants), not on the search results. A
+    /// result the tree doesn't contain — added on the server since the tree
+    /// was loaded — would otherwise be skipped silently while the
+    /// confirmation still counted it.
+    private func selectionIsInLoadedTree() -> Bool {
+        let missing = selection.filter { root.find(id: $0) == nil }
+        guard missing.isEmpty else {
+            errorMessage = "\(missing.count) selected \(missing.count == 1 ? "entry isn't" : "entries aren't") in the loaded directory tree. Refresh it (⌘R), search again, and retry."
+            return false
+        }
+        return true
+    }
+
     private func deleteSelected() {
+        guard selectionIsInLoadedTree() else { return }
         let entries = selectedEntries
         guard !entries.isEmpty else { return }
         performBulkAction {
@@ -432,6 +448,7 @@ struct AdvancedSearchSheet: View {
     }
 
     private func moveSelected(to destinationDN: String) {
+        guard selectionIsInLoadedTree() else { return }
         let entries = selectedEntries
         guard !entries.isEmpty else { return }
         performBulkAction {

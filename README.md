@@ -47,7 +47,7 @@ To update, just download the newest version from the [Releases page](https://git
 
 ## Requirements
 
-- macOS 26 (Tahoe) or later
+- macOS 27 (Golden Gate) or later
 - Apple Silicon (arm64); there's currently no Intel build
 
 ## License

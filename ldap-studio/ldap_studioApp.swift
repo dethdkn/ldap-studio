@@ -13,6 +13,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         Task { await UpdateChecker.shared.checkOnLaunch() }
     }
+
+    /// Lets in-flight timed-out connection attempts finish unwinding and
+    /// closes the SSH tunnels kept warm for reuse (see shutdownCore).
+    func applicationWillTerminate(_ notification: Notification) {
+        shutdownCore()
+    }
 }
 
 @main

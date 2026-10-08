@@ -142,8 +142,11 @@ int ls_hash_password(const char *plaintext, LSPasswordScheme scheme, char **out,
     case LS_UNIX_CRYPT: {
       unsigned char r[2];
       arc4random_buf(r, sizeof r);
-      char salt[3] = {CRYPT_ALPHABET[r[0] & 0x3F], CRYPT_ALPHABET[r[1] & 0x3F],
-                      '\0'};
+      char salt[3] = {
+          CRYPT_ALPHABET[(unsigned)r[0] & 0x3FU],
+          CRYPT_ALPHABET[(unsigned)r[1] & 0x3FU],
+          '\0',
+      };
       *out = crypt_with_setting(plaintext, salt, err);
       return *out ? LS_OK : LS_HASH_FAILED;
     }

@@ -20,6 +20,15 @@ struct BrowserView: View {
     @State private var root: DirectoryEntry?
     @State private var loadError: String?
     @State private var isShowingCertTrust = false
+    /// An SSH host key seen for the first time, waiting on the user's say-so.
+    @State private var pendingSSHHostKey: PendingSSHHostKey?
+
+    private struct PendingSSHHostKey {
+        let host: String
+        let port: UInt16
+        /// Hex SHA-256 of the key, as reported by the core.
+        let fingerprint: String
+    }
     @State private var selection: DirectoryEntry.ID?
     /// Fetched alongside the tree for attribute/object-class autocomplete —
     /// optional and non-blocking on purpose: if it fails to load (or the
@@ -122,6 +131,33 @@ struct BrowserView: View {
                 retry()
             }
         }
+        .alert(
+            "Trust SSH Host Key?",
+            isPresented: Binding(
+                get: { pendingSSHHostKey != nil },
+                set: { if !$0 { pendingSSHHostKey = nil } }
+            ),
+            presenting: pendingSSHHostKey
+        ) { pending in
+            Button("Trust and Connect") {
+                connection.sshHostKeySHA256 = pending.fingerprint
+                store.update(connection)
+                pendingSSHHostKey = nil
+                retry()
+            }
+            Button("Cancel", role: .cancel) {
+                pendingSSHHostKey = nil
+                loadError = "The SSH host key for \(pending.host):\(pending.port) wasn't trusted, so no connection was made."
+            }
+        } message: { pending in
+            Text("""
+                LDAP Studio hasn't connected through \(pending.host):\(pending.port) before. \
+                Check this fingerprint against the server's own (for example with \
+                `ssh-keygen -lf` on its host key) before trusting it:
+
+                \(SSHHostKeyFingerprint.openSSH(fromHex: pending.fingerprint))
+                """)
+        }
     }
 
     private var logStrip: some View {
@@ -214,6 +250,7 @@ struct BrowserView: View {
             useSsl: connection.useSSL,
             startTLS: connection.useStartTLS,
             pinnedCertSHA256: connection.trustedCertSHA256,
+            options: connection.ldapOptions,
             bindDn: connection.bindDN,
             password: password,
             baseDn: connection.baseDN
@@ -224,6 +261,7 @@ struct BrowserView: View {
             useSsl: connection.useSSL,
             startTLS: connection.useStartTLS,
             pinnedCertSHA256: connection.trustedCertSHA256,
+            options: connection.ldapOptions,
             bindDn: connection.bindDN,
             password: password
         )
@@ -237,6 +275,23 @@ struct BrowserView: View {
             // is a real problem, so show it plainly.
             if case .TLSUntrusted = error, connection.trustedCertSHA256 == nil {
                 isShowingCertTrust = true
+            } else if case let .SSHHostKeyUntrusted(host, port, fingerprint) = error {
+                if connection.sshHostKeySHA256 == nil {
+                    pendingSSHHostKey = PendingSSHHostKey(host: host, port: port, fingerprint: fingerprint)
+                } else {
+                    // A key we already trusted no longer matches. Unlike a
+                    // first sighting, that is never a one-click decision —
+                    // it can mean the connection is being intercepted.
+                    loadError = """
+                        The SSH host key for \(host):\(port) has changed since you trusted it.
+
+                        It is now \(SSHHostKeyFingerprint.openSSH(fromHex: fingerprint)).
+
+                        This can mean the server was rebuilt, or that someone is intercepting the connection. \
+                        If you know the change is legitimate, clear the trusted host key under Edit Connection \
+                        › SSH Tunnel, then connect again.
+                        """
+                }
             } else {
                 loadError = "\(error)"
             }

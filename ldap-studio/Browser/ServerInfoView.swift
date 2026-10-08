@@ -283,6 +283,7 @@ struct ServerInfoView: View {
                 host: connection.host, port: UInt16(clamping: connection.port),
                 useSsl: connection.useSSL, startTLS: connection.useStartTLS,
                 pinnedCertSHA256: connection.trustedCertSHA256,
+                options: connection.ldapOptions,
                 bindDn: connection.bindDN, password: password,
                 baseDn: "", scope: .base, filter: "(objectClass=*)",
                 includeOperational: true

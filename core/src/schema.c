@@ -329,7 +329,7 @@ int ls_fetch_schema(const char *host, uint16_t port, bool use_ssl,
                         0, NULL, NULL, NULL, LDAP_NO_LIMIT, &dse);
   if (lrc != LDAP_SUCCESS) {
     if (dse) ldap_msgfree(dse);
-    ldap_unbind_ext_s(ld, NULL, NULL);
+    ls_disconnect(ld);
     return ls_ldap_fail(err, LS_SEARCH_FAILED, lrc);
   }
   char *subschema = first_value(ld, dse, "subschemaSubentry");
@@ -337,15 +337,18 @@ int ls_fetch_schema(const char *host, uint16_t port, bool use_ssl,
   if (!subschema) subschema = ls_xstrdup("cn=subschema");
 
   /* The schema entry itself. */
-  char *schemaattrs[] = {(char *)"objectClasses", (char *)"attributeTypes",
-                         NULL};
+  char *schemaattrs[] = {
+      (char *)"objectClasses",
+      (char *)"attributeTypes",
+      NULL,
+  };
   LDAPMessage *sres = NULL;
   lrc =
       ldap_search_ext_s(ld, subschema, LDAP_SCOPE_BASE, "(objectClass=*)",
                         schemaattrs, 0, NULL, NULL, NULL, LDAP_NO_LIMIT, &sres);
   if (lrc != LDAP_SUCCESS) {
     if (sres) ldap_msgfree(sres);
-    ldap_unbind_ext_s(ld, NULL, NULL);
+    ls_disconnect(ld);
     char *reason = ls_aprintf("Schema entry \"%s\" was not found", subschema);
     free(subschema);
     int r = ls_fail(err, LS_SEARCH_FAILED, NULL, 0, reason);
@@ -358,7 +361,7 @@ int ls_fetch_schema(const char *host, uint16_t port, bool use_ssl,
     char *reason = ls_aprintf("Schema entry \"%s\" was not found", subschema);
     free(subschema);
     ldap_msgfree(sres);
-    ldap_unbind_ext_s(ld, NULL, NULL);
+    ls_disconnect(ld);
     int r = ls_fail(err, LS_SEARCH_FAILED, NULL, 0, reason);
     free(reason);
     return r;
@@ -398,7 +401,7 @@ int ls_fetch_schema(const char *host, uint16_t port, bool use_ssl,
   }
 
   ldap_msgfree(sres);
-  ldap_unbind_ext_s(ld, NULL, NULL);
+  ls_disconnect(ld);
 
   *out = schema;
   return LS_OK;

@@ -40,7 +40,8 @@ typedef enum {
    * issuer, self-signed, expired, name mismatch) or it didn't match the
    * per-connection pinned fingerprint. The app answers this by probing the
    * certificate and offering to trust it. */
-  LS_TLS_UNTRUSTED
+  LS_TLS_UNTRUSTED,
+  LS_SSH_HOST_KEY_UNTRUSTED
 } LSErrorKind;
 
 /*
@@ -142,7 +143,9 @@ typedef enum {
  * Every one of these takes the same five connection parameters up front:
  *   host, port, use_ssl, bind_dn, password
  * An empty bind_dn means an anonymous bind. The whole connect+bind is
- * capped at 15 seconds.
+ * capped at the timeout set via ls_set_connection_policy (15 seconds by
+ * default): if it hasn't finished by then the call returns
+ * LS_CONNECT_TIMED_OUT, however far along — or stuck — it was.
  */
 
 /* Point the LDAPS/TLS layer at a PEM CA-bundle file. The bundled OpenSSL
@@ -164,6 +167,41 @@ void ls_set_tls_cacert(const char *path);
  * start_tls=false, allow_untrusted=false, pinned_sha256=NULL to reset. */
 void ls_set_tls_policy(bool start_tls, bool allow_untrusted,
                        const char *pinned_sha256);
+
+typedef enum {
+  LS_AUTH_SIMPLE = 0,
+  LS_AUTH_EXTERNAL,
+  LS_AUTH_GSSAPI,
+  LS_AUTH_DIGEST_MD5
+} LSAuthMethod;
+
+/* Connection behavior and bind method for the next operation. Strings are
+ * copied. A timeout below one second is clamped to one second. */
+void ls_set_connection_policy(bool chase_referrals, unsigned timeout_seconds,
+                              LSAuthMethod auth_method, const char *auth_id,
+                              const char *realm, const char *client_cert_path,
+                              const char *client_key_path);
+
+typedef enum { LS_SSH_PASSWORD = 0, LS_SSH_PRIVATE_KEY } LSSSHAuthMethod;
+void ls_set_ssh_policy(bool enabled, const char *host, uint16_t port,
+                       const char *username, LSSSHAuthMethod auth_method,
+                       const char *password, const char *private_key_path,
+                       const char *pinned_host_key_sha256);
+
+/* An SSH tunnel is expensive to open (handshake + auth), so once one is
+ * opened for a given target it's kept warm and reused by later
+ * operations against the same server instead of being torn down after
+ * each one (see ldap.c). Call this to close every cached tunnel right
+ * away — e.g. when the app is quitting. Tunnels also self-expire after a
+ * few minutes of disuse, so this is a courtesy, not a requirement. */
+void ls_close_ssh_tunnels(void);
+
+/* Call once before the process exits. A connection attempt that hit its
+ * timeout is abandoned rather than killed, and keeps unwinding on its own
+ * thread for a moment; exiting underneath it can race OpenSSL's exit-time
+ * cleanup. This waits up to `wait_ms` for any such attempts to finish, then
+ * closes every cached SSH tunnel (ls_close_ssh_tunnels). */
+void ls_shutdown(unsigned wait_ms);
 
 /* Connects with certificate verification disabled purely to read back the
  * server's leaf certificate, so the app can show it and ask the user
@@ -285,6 +323,7 @@ typedef struct {
   const char *openldap;
   const char *openssl;
   const char *libxcrypt;
+  const char *libssh2;
 } LSDependencyVersions;
 
 LSDependencyVersions ls_dependency_versions(void);

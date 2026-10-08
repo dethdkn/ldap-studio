@@ -1,4 +1,5 @@
 brew "openldap"
 brew "openssl@3"
 brew "libxcrypt"
+brew "libssh2"
 brew "bear"

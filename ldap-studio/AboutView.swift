@@ -32,6 +32,7 @@ struct AboutView: View {
             let deps = dependencyVersions()
             VStack(spacing: 2) {
                 Text("OpenLDAP \(deps.openldap)")
+                Text("libssh2 \(deps.libssh2)")
                 Text("OpenSSL \(deps.openssl)")
                 Text("libxcrypt \(deps.libxcrypt)")
             }

@@ -28,6 +28,7 @@ struct EntryActions {
             readOnly: connection.isReadOnly,
             startTLS: connection.useStartTLS,
             pinnedCertSHA256: connection.trustedCertSHA256,
+            options: connection.ldapOptions,
             bindDn: connection.bindDN,
             password: password,
             dn: entry.dn,
@@ -52,6 +53,7 @@ struct EntryActions {
             readOnly: connection.isReadOnly,
             startTLS: connection.useStartTLS,
             pinnedCertSHA256: connection.trustedCertSHA256,
+            options: connection.ldapOptions,
             bindDn: connection.bindDN,
             password: password,
             dn: newDN,
@@ -75,6 +77,7 @@ struct EntryActions {
             readOnly: connection.isReadOnly,
             startTLS: connection.useStartTLS,
             pinnedCertSHA256: connection.trustedCertSHA256,
+            options: connection.ldapOptions,
             bindDn: connection.bindDN,
             password: password,
             dn: entry.dn
@@ -102,6 +105,7 @@ struct EntryActions {
             readOnly: connection.isReadOnly,
             startTLS: connection.useStartTLS,
             pinnedCertSHA256: connection.trustedCertSHA256,
+            options: connection.ldapOptions,
             bindDn: connection.bindDN,
             password: password,
             dn: dn,
@@ -134,6 +138,7 @@ struct EntryActions {
             readOnly: connection.isReadOnly,
             startTLS: connection.useStartTLS,
             pinnedCertSHA256: connection.trustedCertSHA256,
+            options: connection.ldapOptions,
             bindDn: connection.bindDN,
             password: password,
             dn: dn,
@@ -157,6 +162,7 @@ struct EntryActions {
             readOnly: connection.isReadOnly,
             startTLS: connection.useStartTLS,
             pinnedCertSHA256: connection.trustedCertSHA256,
+            options: connection.ldapOptions,
             bindDn: connection.bindDN,
             password: password,
             dn: dn,
@@ -179,6 +185,7 @@ struct EntryActions {
             readOnly: connection.isReadOnly,
             startTLS: connection.useStartTLS,
             pinnedCertSHA256: connection.trustedCertSHA256,
+            options: connection.ldapOptions,
             bindDn: connection.bindDN,
             password: password,
             dn: entry.dn,
@@ -202,6 +209,7 @@ struct EntryActions {
             readOnly: connection.isReadOnly,
             startTLS: connection.useStartTLS,
             pinnedCertSHA256: connection.trustedCertSHA256,
+            options: connection.ldapOptions,
             bindDn: connection.bindDN,
             password: password,
             dn: dn,
@@ -227,6 +235,7 @@ struct EntryActions {
                 readOnly: connection.isReadOnly,
                 startTLS: connection.useStartTLS,
                 pinnedCertSHA256: connection.trustedCertSHA256,
+                options: connection.ldapOptions,
                 bindDn: connection.bindDN,
                 password: password,
                 dn: entry.dn,
@@ -268,9 +277,23 @@ struct EntryActions {
     }
 
     /// Writes a multi-entry selection to one LDIF file, separating records
-    /// with the blank line expected by LDIF readers.
+    /// with the blank line expected by LDIF readers. Writes exactly the
+    /// entries passed in — no descendants — matching what "Entry Only" and
+    /// a flat search-result selection both mean.
     func exportLDIF(_ entries: [DirectoryEntry]) {
         exportLDIF(entries, suggestedName: nil)
+    }
+
+    /// Same as `exportLDIF(_:)`, but treats each entry as an operation root
+    /// and also writes out its already-loaded descendants — the same rule
+    /// bulk delete and move use for a tree selection. Without this, a
+    /// selected container would silently export without what's under it.
+    func exportLDIF(subtreesOf roots: [DirectoryEntry]) {
+        guard !roots.isEmpty else { return }
+        let suggestedName = roots.count == 1
+            ? Self.safeFilename(roots[0].name) + (roots[0].subtreeCount > 1 ? "_tree" : "")
+            : "ldap-search-results"
+        exportLDIF(roots.flatMap { Self.flattenedSubtree($0) }, suggestedName: suggestedName)
     }
 
     func copyLDIF(_ entry: DirectoryEntry) {
@@ -299,6 +322,13 @@ struct EntryActions {
             NSPasteboard.general.clearContents()
             NSPasteboard.general.setString(ldif, forType: .string)
         }
+    }
+
+    /// Same as `copyLDIF(_:)`, but treats each entry as an operation root
+    /// and also copies its already-loaded descendants — see
+    /// `exportLDIF(subtreesOf:)`.
+    func copyLDIF(subtreesOf roots: [DirectoryEntry]) {
+        copyLDIF(roots.flatMap { Self.flattenedSubtree($0) })
     }
 
     private func exportLDIF(_ entries: [DirectoryEntry], suggestedName: String?) {

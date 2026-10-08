@@ -54,6 +54,53 @@ public enum LdapSearchScope: Equatable, Hashable {
     case subtree
 }
 
+public enum LdapAuthenticationMethod: Int32, Sendable {
+    case simple = 0, external, gssapi, digestMD5
+}
+
+public struct LDAPConnectionOptions: Sendable {
+    public var chaseReferrals: Bool
+    public var timeoutSeconds: Int
+    public var authentication: LdapAuthenticationMethod
+    public var authID: String
+    public var realm: String
+    public var clientCertificateBookmark: Data?
+    public var clientKeyBookmark: Data?
+    public var useSSHTunnel: Bool
+    public var sshHost: String
+    public var sshPort: Int
+    public var sshUsername: String
+    public var sshUsesPrivateKey: Bool
+    public var sshPassword: String
+    public var sshPrivateKeyBookmark: Data?
+    public var sshHostKeySHA256: String?
+
+    public init(chaseReferrals: Bool = false, timeoutSeconds: Int = 15,
+                authentication: LdapAuthenticationMethod = .simple,
+                authID: String = "", realm: String = "",
+                clientCertificateBookmark: Data? = nil,
+                clientKeyBookmark: Data? = nil, useSSHTunnel: Bool = false,
+                sshHost: String = "", sshPort: Int = 22, sshUsername: String = "",
+                sshUsesPrivateKey: Bool = false, sshPassword: String = "",
+                sshPrivateKeyBookmark: Data? = nil, sshHostKeySHA256: String? = nil) {
+        self.chaseReferrals = chaseReferrals
+        self.timeoutSeconds = timeoutSeconds
+        self.authentication = authentication
+        self.authID = authID
+        self.realm = realm
+        self.clientCertificateBookmark = clientCertificateBookmark
+        self.clientKeyBookmark = clientKeyBookmark
+        self.useSSHTunnel = useSSHTunnel
+        self.sshHost = sshHost
+        self.sshPort = sshPort
+        self.sshUsername = sshUsername
+        self.sshUsesPrivateKey = sshUsesPrivateKey
+        self.sshPassword = sshPassword
+        self.sshPrivateKeyBookmark = sshPrivateKeyBookmark
+        self.sshHostKeySHA256 = sshHostKeySHA256
+    }
+}
+
 public struct SchemaObjectClass: Equatable, Hashable {
     public var oid: String
     /// All NAME values — the first is the conventional display name, the
@@ -162,6 +209,7 @@ public enum ConnectionError: Error, CustomStringConvertible {
     /// the fingerprint trusted for this connection. The UI answers this by
     /// probing the certificate and offering "Trust for this connection".
     case TLSUntrusted(host: String, port: UInt16, reason: String)
+    case SSHHostKeyUntrusted(host: String, port: UInt16, fingerprint: String)
     /// A write was attempted on a connection marked read-only. Blocked
     /// before it ever reaches the server.
     case ReadOnly
@@ -171,12 +219,14 @@ public enum ConnectionError: Error, CustomStringConvertible {
         case let .ConnectFailed(host, port, reason):
             return "Could not connect to \(host):\(port): \(reason)"
         case let .ConnectTimedOut(host, port):
-            return "Connecting to \(host):\(port) timed out after 15 seconds"
+            return "Connecting to \(host):\(port) timed out"
         case let .BindFailed(reason):   return "Bind failed: \(reason)"
         case let .SearchFailed(reason): return "Search failed: \(reason)"
         case let .ModifyFailed(reason): return "Modify failed: \(reason)"
         case let .TLSUntrusted(host, port, reason):
             return "The certificate for \(host):\(port) isn't trusted: \(reason)"
+        case let .SSHHostKeyUntrusted(host, port, fingerprint):
+            return "The SSH host key for \(host):\(port) is not trusted (\(SSHHostKeyFingerprint.openSSH(fromHex: fingerprint)))."
         case .ReadOnly:
             return "This connection is read-only. Turn off read-only mode in its settings to make changes."
         }
@@ -229,6 +279,7 @@ private func swiftError(_ err: inout LSError) -> Error {
     case LS_CONNECT_FAILED:    return ConnectionError.ConnectFailed(host: host, port: err.port, reason: reason)
     case LS_CONNECT_TIMED_OUT: return ConnectionError.ConnectTimedOut(host: host, port: err.port)
     case LS_TLS_UNTRUSTED:     return ConnectionError.TLSUntrusted(host: host, port: err.port, reason: reason)
+    case LS_SSH_HOST_KEY_UNTRUSTED: return ConnectionError.SSHHostKeyUntrusted(host: host, port: err.port, fingerprint: reason)
     case LS_BIND_FAILED:       return ConnectionError.BindFailed(reason: reason)
     case LS_SEARCH_FAILED:     return ConnectionError.SearchFailed(reason: reason)
     case LS_MODIFY_FAILED:     return ConnectionError.ModifyFailed(reason: reason)
@@ -324,29 +375,95 @@ private let installBundledCACert: Void = {
     }
 }()
 
+/// Every call into the C core runs here, one at a time. That's a
+/// requirement, not just tidiness: each operation first pushes its own
+/// connection policy (TLS, auth, timeout, SSH) into sticky global state in
+/// the core, so two calls in flight at once would trample each other's
+/// settings.
+private let ldapCoreQueue = DispatchQueue(label: "app.ldap-studio.native-core", qos: .userInitiated)
+
 /// Runs a blocking C call off the main thread and bridges it to `async`.
 private func background<T>(_ work: @escaping () -> Result<T, Error>) async throws -> T {
     _ = installBundledCACert
     return try await withCheckedThrowingContinuation { continuation in
-        DispatchQueue.global(qos: .userInitiated).async {
+        ldapCoreQueue.async {
             continuation.resume(with: work())
         }
     }
 }
 
 /// Same, but pushes this connection's TLS policy (StartTLS, pinned cert)
-/// into the C layer first — it's sticky global state that the next
-/// connect reads, so every operation sets it explicitly, which also
-/// resets it for the plain-`ldap://` and plain-`ldaps://` callers that
-/// pass the defaults.
+/// and connection options into the C layer first — it's sticky global
+/// state that the next connect reads, so every operation sets it
+/// explicitly, which also resets it for the plain-`ldap://` and
+/// plain-`ldaps://` callers that pass the defaults.
 private func background<T>(startTLS: Bool, pinnedCertSHA256: String?,
-                          _ work: @escaping () -> Result<T, Error>) async throws -> T {
+                           options: LDAPConnectionOptions? = nil,
+                           _ work: @escaping () -> Result<T, Error>) async throws -> T {
     try await background {
         setTLSPolicy(startTLS: startTLS,
                      allowUntrusted: pinnedCertSHA256 != nil,
                      pinnedCertSHA256: pinnedCertSHA256)
-        return work()
+        return withConnectionPolicy(options ?? LDAPConnectionOptions(), work)
     }
+}
+
+/// A file the user picked in the connection editor (client certificate,
+/// private key), resolved from its security-scoped bookmark. Sandboxed
+/// access to it lasts only while `stop()` hasn't been called.
+private struct ScopedFile {
+    let path: String
+    private let url: URL?
+    private let isAccessing: Bool
+
+    init(bookmark: Data?) {
+        var isStale = false
+        url = bookmark.flatMap {
+            try? URL(resolvingBookmarkData: $0, options: .withSecurityScope,
+                     relativeTo: nil, bookmarkDataIsStale: &isStale)
+        }
+        isAccessing = url?.startAccessingSecurityScopedResource() ?? false
+        path = url?.path ?? ""
+    }
+
+    func stop() {
+        if isAccessing { url?.stopAccessingSecurityScopedResource() }
+    }
+}
+
+/// Pushes `options` into the C core's per-operation policy, then runs
+/// `work` with any security-scoped files that policy points at held open
+/// until it returns.
+private func withConnectionPolicy<T>(_ options: LDAPConnectionOptions, _ work: () -> T) -> T {
+    let certFile = ScopedFile(bookmark: options.clientCertificateBookmark)
+    let keyFile = ScopedFile(bookmark: options.clientKeyBookmark)
+    let sshKeyFile = ScopedFile(bookmark: options.sshPrivateKeyBookmark)
+    defer {
+        certFile.stop()
+        keyFile.stop()
+        sshKeyFile.stop()
+    }
+
+    ls_set_connection_policy(
+        options.chaseReferrals,
+        UInt32(clamping: options.timeoutSeconds),
+        LSAuthMethod(rawValue: UInt32(options.authentication.rawValue)),
+        options.authID,
+        options.realm,
+        certFile.path,
+        keyFile.path
+    )
+    ls_set_ssh_policy(
+        options.useSSHTunnel,
+        options.sshHost,
+        UInt16(clamping: options.sshPort),
+        options.sshUsername,
+        options.sshUsesPrivateKey ? LS_SSH_PRIVATE_KEY : LS_SSH_PASSWORD,
+        options.sshPassword,
+        sshKeyFile.path,
+        options.sshHostKeySHA256 ?? ""
+    )
+    return work()
 }
 
 /// Wraps an operation so it lands in the Operation Log with timing and
@@ -434,11 +551,12 @@ public func probeCertificate(host: String, port: UInt16, useSsl: Bool,
 
 public func testConnection(host: String, port: UInt16, useSsl: Bool,
                            startTLS: Bool = false, pinnedCertSHA256: String? = nil,
+                           options: LDAPConnectionOptions? = nil,
                            bindDn: String, password: String) async throws {
     try await logged(.connect, endpoint: endpoint(host, port),
                      summary: "bind \(bindDn.isEmpty ? "anonymous" : bindDn)",
                      detail: "host: \(host):\(port)\nbind: \(bindDn.isEmpty ? "anonymous" : bindDn)") {
-        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256, options: options) {
         var err = LSError()
         let rc = ls_test_connection(host, port, useSsl, bindDn, password, &err)
         return rc == 0 ? .success(()) : .failure(swiftError(&err))
@@ -448,12 +566,13 @@ public func testConnection(host: String, port: UInt16, useSsl: Bool,
 
 public func fetchRootEntry(host: String, port: UInt16, useSsl: Bool,
                            startTLS: Bool = false, pinnedCertSHA256: String? = nil,
+                           options: LDAPConnectionOptions? = nil,
                            bindDn: String, password: String,
                            baseDn: String) async throws -> LdapEntry {
     try await logged(.search, endpoint: endpoint(host, port),
                      summary: "load subtree \(baseDn)",
                      detail: "base: \(baseDn)\nscope: subtree\nfilter: (objectClass=*)") {
-        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256, options: options) {
         var err = LSError()
         var out: UnsafeMutablePointer<LSEntry>?
         let rc = ls_fetch_root_entry(host, port, useSsl, bindDn, password, baseDn, &out, &err)
@@ -467,13 +586,14 @@ public func fetchRootEntry(host: String, port: UInt16, useSsl: Bool,
 
 public func searchDirectory(host: String, port: UInt16, useSsl: Bool,
                             startTLS: Bool = false, pinnedCertSHA256: String? = nil,
+                            options: LDAPConnectionOptions? = nil,
                             bindDn: String, password: String, baseDn: String,
                             scope: LdapSearchScope, filter: String,
                             includeOperational: Bool = false) async throws -> [LdapEntry] {
     try await logged(.search, endpoint: endpoint(host, port),
                      summary: "search \(baseDn)",
                      detail: "base: \(baseDn)\nscope: \(scope)\nfilter: \(filter)\(includeOperational ? "\nattrs: * +" : "")") {
-        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256, options: options) {
         var err = LSError()
         var out: UnsafeMutablePointer<LSEntry>?
         var count = 0
@@ -494,11 +614,12 @@ public func searchDirectory(host: String, port: UInt16, useSsl: Bool,
 
 public func fetchSchema(host: String, port: UInt16, useSsl: Bool,
                         startTLS: Bool = false, pinnedCertSHA256: String? = nil,
+                        options: LDAPConnectionOptions? = nil,
                         bindDn: String, password: String) async throws -> LdapSchema {
     try await logged(.schema, endpoint: endpoint(host, port),
                      summary: "load schema",
                      detail: "base: cn=Subschema\nscope: base\nattrs: objectClasses attributeTypes") {
-        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256, options: options) {
         var err = LSError()
         var out: UnsafeMutablePointer<LSSchema>?
         let rc = ls_fetch_schema(host, port, useSsl, bindDn, password, &out, &err)
@@ -523,12 +644,13 @@ public func fetchSchema(host: String, port: UInt16, useSsl: Bool,
 public func deleteEntry(host: String, port: UInt16, useSsl: Bool,
                         readOnly: Bool = false,
                         startTLS: Bool = false, pinnedCertSHA256: String? = nil,
+                        options: LDAPConnectionOptions? = nil,
                         bindDn: String, password: String, dn: String) async throws {
     guard !readOnly else { throw ConnectionError.ReadOnly }
     try await logged(.delete, endpoint: endpoint(host, port),
                      summary: "delete \(dn)",
                      detail: "dn: \(dn)") {
-        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256, options: options) {
         var err = LSError()
         let rc = ls_delete_entry(host, port, useSsl, bindDn, password, dn, &err)
         return rc == 0 ? .success(()) : .failure(swiftError(&err))
@@ -539,13 +661,14 @@ public func deleteEntry(host: String, port: UInt16, useSsl: Bool,
 public func addAttributeValue(host: String, port: UInt16, useSsl: Bool,
                               readOnly: Bool = false,
                               startTLS: Bool = false, pinnedCertSHA256: String? = nil,
+                              options: LDAPConnectionOptions? = nil,
                               bindDn: String, password: String, dn: String,
                               attribute: String, value: String) async throws {
     guard !readOnly else { throw ConnectionError.ReadOnly }
     try await logged(.modify, endpoint: endpoint(host, port),
                      summary: "add value: \(attribute) on \(dn)",
                      detail: "dn: \(dn)\nadd: \(attribute) = \(abbrev(value))") {
-        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256, options: options) {
         var err = LSError()
         let rc = ls_add_attribute_value(host, port, useSsl, bindDn, password,
                                         dn, attribute, value, &err)
@@ -557,6 +680,7 @@ public func addAttributeValue(host: String, port: UInt16, useSsl: Bool,
 public func modifyAttributeValue(host: String, port: UInt16, useSsl: Bool,
                                  readOnly: Bool = false,
                                  startTLS: Bool = false, pinnedCertSHA256: String? = nil,
+                                 options: LDAPConnectionOptions? = nil,
                                  bindDn: String, password: String, dn: String,
                                  attribute: String, oldValue: String, newValue: String,
                                  isBinary: Bool) async throws {
@@ -564,7 +688,7 @@ public func modifyAttributeValue(host: String, port: UInt16, useSsl: Bool,
     try await logged(.modify, endpoint: endpoint(host, port),
                      summary: "replace: \(attribute) on \(dn)",
                      detail: "dn: \(dn)\n\(attribute): \(abbrev(oldValue)) -> \(abbrev(newValue))") {
-        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256, options: options) {
         var err = LSError()
         let rc = ls_modify_attribute_value(host, port, useSsl, bindDn, password,
                                            dn, attribute, oldValue, newValue, isBinary, &err)
@@ -576,13 +700,14 @@ public func modifyAttributeValue(host: String, port: UInt16, useSsl: Bool,
 public func setAttributeValue(host: String, port: UInt16, useSsl: Bool,
                               readOnly: Bool = false,
                               startTLS: Bool = false, pinnedCertSHA256: String? = nil,
+                              options: LDAPConnectionOptions? = nil,
                               bindDn: String, password: String, dn: String,
                               attribute: String, value: String, isBinary: Bool) async throws {
     guard !readOnly else { throw ConnectionError.ReadOnly }
     try await logged(.modify, endpoint: endpoint(host, port),
                      summary: "set: \(attribute) on \(dn)",
                      detail: "dn: \(dn)\nreplace: \(attribute) = \(abbrev(value))") {
-        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256, options: options) {
         var err = LSError()
         let rc = ls_set_attribute_value(host, port, useSsl, bindDn, password,
                                         dn, attribute, value, isBinary, &err)
@@ -594,13 +719,14 @@ public func setAttributeValue(host: String, port: UInt16, useSsl: Bool,
 public func deleteAttributeValue(host: String, port: UInt16, useSsl: Bool,
                                  readOnly: Bool = false,
                                  startTLS: Bool = false, pinnedCertSHA256: String? = nil,
+                                 options: LDAPConnectionOptions? = nil,
                                  bindDn: String, password: String, dn: String,
                                  attribute: String, value: String, isBinary: Bool) async throws {
     guard !readOnly else { throw ConnectionError.ReadOnly }
     try await logged(.modify, endpoint: endpoint(host, port),
                      summary: "delete value: \(attribute) on \(dn)",
                      detail: "dn: \(dn)\ndelete: \(attribute) = \(abbrev(value))") {
-        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256, options: options) {
         var err = LSError()
         let rc = ls_delete_attribute_value(host, port, useSsl, bindDn, password,
                                            dn, attribute, value, isBinary, &err)
@@ -612,13 +738,14 @@ public func deleteAttributeValue(host: String, port: UInt16, useSsl: Bool,
 public func moveEntry(host: String, port: UInt16, useSsl: Bool,
                       readOnly: Bool = false,
                       startTLS: Bool = false, pinnedCertSHA256: String? = nil,
+                      options: LDAPConnectionOptions? = nil,
                       bindDn: String, password: String,
                       dn: String, newSuperior: String) async throws {
     guard !readOnly else { throw ConnectionError.ReadOnly }
     try await logged(.rename, endpoint: endpoint(host, port),
                      summary: "move \(dn)",
                      detail: "dn: \(dn)\nnew superior: \(newSuperior)") {
-        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256, options: options) {
         var err = LSError()
         let rc = ls_move_entry(host, port, useSsl, bindDn, password, dn, newSuperior, &err)
         return rc == 0 ? .success(()) : .failure(swiftError(&err))
@@ -629,6 +756,7 @@ public func moveEntry(host: String, port: UInt16, useSsl: Bool,
 public func renameEntry(host: String, port: UInt16, useSsl: Bool,
                         readOnly: Bool = false,
                         startTLS: Bool = false, pinnedCertSHA256: String? = nil,
+                        options: LDAPConnectionOptions? = nil,
                         bindDn: String, password: String, dn: String,
                         newRDN: String, deleteOldRDN: Bool,
                         newSuperior: String?) async throws {
@@ -636,7 +764,7 @@ public func renameEntry(host: String, port: UInt16, useSsl: Bool,
     try await logged(.rename, endpoint: endpoint(host, port),
                      summary: "rename \(dn)",
                      detail: "dn: \(dn)\nnew RDN: \(newRDN)\ndelete old RDN: \(deleteOldRDN)\nnew superior: \(newSuperior ?? "(same)")") {
-        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256, options: options) {
         var err = LSError()
         let rc = ls_rename_entry(host, port, useSsl, bindDn, password, dn,
                                  newRDN, deleteOldRDN, newSuperior ?? "", &err)
@@ -674,6 +802,7 @@ public struct LdapModOp {
 public func modifyEntry(host: String, port: UInt16, useSsl: Bool,
                         readOnly: Bool = false,
                         startTLS: Bool = false, pinnedCertSHA256: String? = nil,
+                        options: LDAPConnectionOptions? = nil,
                         bindDn: String, password: String, dn: String,
                         ops: [LdapModOp]) async throws {
     guard !readOnly else { throw ConnectionError.ReadOnly }
@@ -704,7 +833,7 @@ public func modifyEntry(host: String, port: UInt16, useSsl: Bool,
     try await logged(.modify, endpoint: endpoint(host, port),
                      summary: "modify \(dn) (\(ops.count) op\(ops.count == 1 ? "" : "s"))",
                      detail: "dn: \(dn)\n" + ops.map { "\($0.kind) \($0.attribute)" }.joined(separator: "\n")) {
-        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256, options: options) {
         var err = LSError()
         let rc: Int32 = cValues.withUnsafeBufferPointer { valBuf in
             var cOps: [LSModOp] = []
@@ -731,6 +860,7 @@ public func modifyEntry(host: String, port: UInt16, useSsl: Bool,
 public func addEntry(host: String, port: UInt16, useSsl: Bool,
                      readOnly: Bool = false,
                      startTLS: Bool = false, pinnedCertSHA256: String? = nil,
+                     options: LDAPConnectionOptions? = nil,
                      bindDn: String, password: String, dn: String,
                      attributes: [LdapAttribute]) async throws {
     guard !readOnly else { throw ConnectionError.ReadOnly }
@@ -751,7 +881,7 @@ public func addEntry(host: String, port: UInt16, useSsl: Bool,
     try await logged(.add, endpoint: endpoint(host, port),
                      summary: "add \(dn)",
                      detail: "dn: \(dn)\nattributes: \(attributes.map(\.name).joined(separator: ", "))") {
-        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256) {
+        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256, options: options) {
         var err = LSError()
         let rc: Int32 = cAttrs.withUnsafeBufferPointer { buf in
             ls_add_entry(host, port, useSsl, bindDn, password, dn,
@@ -787,6 +917,7 @@ public struct DependencyVersions {
     public let openldap: String
     public let openssl: String
     public let libxcrypt: String
+    public let libssh2: String
 }
 
 public func dependencyVersions() -> DependencyVersions {
@@ -794,6 +925,15 @@ public func dependencyVersions() -> DependencyVersions {
     return DependencyVersions(
         openldap: String(cString: v.openldap),
         openssl: String(cString: v.openssl),
-        libxcrypt: String(cString: v.libxcrypt)
+        libxcrypt: String(cString: v.libxcrypt),
+        libssh2: String(cString: v.libssh2)
     )
+}
+
+/// Call once as the app quits. Waits briefly for any connection attempt
+/// that already timed out but is still unwinding in the background (exiting
+/// underneath it can crash during OpenSSL's exit-time cleanup), then closes
+/// every SSH tunnel kept warm for reuse so none linger after the app closes.
+public func shutdownCore() {
+    ls_shutdown(2000)
 }
