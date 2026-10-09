@@ -26,6 +26,7 @@ CLANG_TIDY   ?= $(firstword $(shell command -v clang-tidy 2>/dev/null) \
 OPENLDAP  := $(shell $(BREW) --prefix openldap 2>/dev/null)
 OPENSSL   := $(shell $(BREW) --prefix openssl@3 2>/dev/null)
 LIBXCRYPT := $(shell $(BREW) --prefix libxcrypt 2>/dev/null)
+LIBSSH2   := $(shell $(BREW) --prefix libssh2 2>/dev/null)
 
 ifeq ($(OPENLDAP),)
 $(error openldap not found — run `brew bundle` from the repo root)
@@ -37,6 +38,10 @@ endif
 
 ifeq ($(LIBXCRYPT),)
 $(error libxcrypt not found — run `brew bundle` from the repo root)
+endif
+
+ifeq ($(LIBSSH2),)
+$(error libssh2 not found — run `brew bundle` from the repo root)
 endif
 
 ARCHS ?= $(shell uname -m)
@@ -57,7 +62,8 @@ CFLAGS ?= -std=c11 -O2 -Wall -Wextra -fno-common
 CPPFLAGS += -Iinclude -Isrc \
             -I$(OPENLDAP)/include \
             -I$(OPENSSL)/include \
-            -I$(LIBXCRYPT)/include
+            -I$(LIBXCRYPT)/include \
+            -I$(LIBSSH2)/include
 
 all: $(LIB)
 

@@ -98,6 +98,7 @@ struct TestBindSheet: View {
                     useSsl: connection.useSSL,
                     startTLS: connection.useStartTLS,
                     pinnedCertSHA256: connection.trustedCertSHA256,
+                    options: connection.ldapOptions,
                     bindDn: dn,
                     password: password
                 )

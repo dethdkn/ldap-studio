@@ -92,10 +92,6 @@ struct DirectoryTreeView: View {
         return root.find(id: selection)
     }
 
-    private var selectedEntries: [DirectoryEntry] {
-        treeSelection.compactMap { root.find(id: $0) }
-    }
-
     private var selectedOperationRoots: [DirectoryEntry] {
         root.operationRoots(in: treeSelection)
     }
@@ -276,6 +272,7 @@ struct DirectoryTreeView: View {
                 advancedSearchRequest = AdvancedSearchRequest(baseDN: selection ?? root.dn)
             },
             goToDN: { openGoTo() },
+            reloadTree: { reloadTree() },
             toggleBookmark: selectedEntry.map { entry in { onToggleBookmark(entry.dn) } },
             isSelectedBookmarked: selectedEntry.map { bookmarks.contains($0.dn) } ?? false,
             isReadOnly: isReadOnly,
@@ -286,8 +283,8 @@ struct DirectoryTreeView: View {
             renameSelected: (selectedEntry != nil && !isReadOnly)
                 ? { if let entry = selectedEntry { entryForRename = entry } } : nil,
             copyDN: selectedEntry.map { entry in { copyToPasteboard(entry.dn) } },
-            copySelectedLDIF: treeSelection.isEmpty ? nil : { actions.copyLDIF(selectedEntries) },
-            exportSelected: treeSelection.isEmpty ? nil : { actions.exportLDIF(selectedEntries) },
+            copySelectedLDIF: treeSelection.isEmpty ? nil : { actions.copyLDIF(subtreesOf: selectedOperationRoots) },
+            exportSelected: treeSelection.isEmpty ? nil : { actions.exportLDIF(subtreesOf: selectedOperationRoots) },
             setPassword: selectedEntry.flatMap { entry in
                 (!isReadOnly && canSet("userPassword", on: entry)) ? { entryForPasswordSet = entry } : nil
             },
@@ -324,7 +321,7 @@ struct DirectoryTreeView: View {
             .disabled(isReadOnly)
 
             Button {
-                actions.exportLDIF(selectedEntries)
+                actions.exportLDIF(subtreesOf: selectedOperationRoots)
             } label: {
                 Image(systemName: "square.and.arrow.up")
             }
@@ -332,7 +329,7 @@ struct DirectoryTreeView: View {
             .disabled(treeSelection.isEmpty)
 
             Button {
-                actions.copyLDIF(selectedEntries)
+                actions.copyLDIF(subtreesOf: selectedOperationRoots)
             } label: {
                 Image(systemName: "doc.on.clipboard")
             }
@@ -369,6 +366,13 @@ struct DirectoryTreeView: View {
             .help("Server Info (⌘I)")
 
             Spacer()
+
+            Button {
+                reloadTree()
+            } label: {
+                Image(systemName: "arrow.clockwise")
+            }
+            .help("Reload Entire Tree (⌥⌘R)")
 
             Button {
                 openGoTo()
@@ -457,14 +461,20 @@ struct DirectoryTreeView: View {
 
     @ViewBuilder
     private func bulkContextMenuContent(_ entries: [DirectoryEntry]) -> some View {
+        // De-duplicated to operation roots — same rule Delete already uses —
+        // so a selected parent's already-selected descendants aren't written
+        // out a second time, and (via exportLDIF/copyLDIF flattening each
+        // root's subtree) aren't silently dropped either.
+        let roots = root.operationRoots(in: Set(entries.map(\.id)))
+
         Button {
-            DispatchQueue.main.async { actions.exportLDIF(entries) }
+            DispatchQueue.main.async { actions.exportLDIF(subtreesOf: roots) }
         } label: {
             Label("Export \(entries.count) Entries as LDIF", systemImage: "square.and.arrow.up")
         }
 
         Button {
-            actions.copyLDIF(entries)
+            actions.copyLDIF(subtreesOf: roots)
         } label: {
             Label("Copy \(entries.count) Entries as LDIF", systemImage: "doc.on.clipboard")
         }
@@ -474,7 +484,7 @@ struct DirectoryTreeView: View {
 
         Button(role: .destructive) {
             DispatchQueue.main.async {
-                entriesPendingDeletion = root.operationRoots(in: Set(entries.map(\.id)))
+                entriesPendingDeletion = roots
             }
         } label: {
             Label("Delete \(entries.count) Selected Entries", systemImage: "trash")
@@ -705,7 +715,17 @@ struct DirectoryTreeView: View {
     }
 
     private func refresh(_ entry: DirectoryEntry) {
-        let dn = entry.dn
+        reloadWholeDirectory(keepingSelection: entry.dn)
+    }
+
+    /// Re-fetches the entire directory from the server, keeping whatever is
+    /// selected selected (and whatever is expanded expanded) if it still
+    /// exists afterward. Needs no selection, unlike `refresh(_:)`.
+    private func reloadTree() {
+        reloadWholeDirectory(keepingSelection: selection)
+    }
+
+    private func reloadWholeDirectory(keepingSelection dn: String?) {
         Task {
             isPerformingAction = true
             defer { isPerformingAction = false }
@@ -990,7 +1010,7 @@ private struct DirectoryOutlineRow: View {
                 Image(systemName: "bookmark.fill")
                     .font(.caption2)
                     .foregroundStyle(.orange)
-                .help("Bookmarked")
+                    .help("Bookmarked")
             }
         }
         .contentShape(Rectangle())

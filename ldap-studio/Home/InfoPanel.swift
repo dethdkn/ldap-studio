@@ -12,6 +12,7 @@ struct InfoPanel: View {
 
     @State private var isPresentingNewConnection = false
     @State private var isCheckingForUpdates = false
+    @State private var importNotice: String?
 
     private var appVersion: String {
         Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "—"
@@ -83,6 +84,17 @@ struct InfoPanel: View {
             addConnection: { isPresentingNewConnection = true },
             importConnection: { importConnections() }
         ))
+        .alert(
+            "Finish Importing",
+            isPresented: Binding(
+                get: { importNotice != nil },
+                set: { if !$0 { importNotice = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(importNotice ?? "")
+        }
     }
 
     private func importConnections() {
@@ -115,7 +127,12 @@ struct InfoPanel: View {
             return
         }
 
+        var needingFiles: [String] = []
         for item in imported {
+            // Certificate / key files aren't portable (see ExportableConnection).
+            if item.authentication == .external || (item.useSSHTunnel && item.sshAuthentication == .privateKey) {
+                needingFiles.append(item.name)
+            }
             let connection = SavedConnection(
                 name: item.name,
                 host: item.host,
@@ -124,13 +141,32 @@ struct InfoPanel: View {
                 useStartTLS: item.useStartTLS,
                 baseDN: item.baseDN,
                 bindDN: item.bindDN,
+                trustedCertSHA256: item.trustedCertSHA256,
                 bookmarks: item.bookmarks,
                 savedFilters: item.savedFilters,
                 isFavorite: item.isFavorite,
-                isReadOnly: item.isReadOnly
+                isReadOnly: item.isReadOnly,
+                chaseReferrals: item.chaseReferrals,
+                timeoutSeconds: item.timeoutSeconds,
+                authentication: item.authentication,
+                saslAuthID: item.saslAuthID,
+                saslRealm: item.saslRealm,
+                useSSHTunnel: item.useSSHTunnel,
+                sshHost: item.sshHost,
+                sshPort: item.sshPort,
+                sshUsername: item.sshUsername,
+                sshAuthentication: item.sshAuthentication,
+                sshHostKeySHA256: item.sshHostKeySHA256
             )
             KeychainService.savePassword(item.decodedPassword, for: connection.id)
+            KeychainService.saveSSHPassword(item.decodedSSHPassword, for: connection.id)
             store.add(connection)
+        }
+
+        if !needingFiles.isEmpty {
+            importNotice = "Choose the certificate or key file again (Edit Connection) for: "
+                + needingFiles.joined(separator: ", ")
+                + ". Those file references can't be carried between Macs."
         }
     }
 

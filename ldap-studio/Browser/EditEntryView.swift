@@ -410,6 +410,7 @@ struct EditEntryView: View {
                 host: connection.host, port: UInt16(clamping: connection.port),
                 useSsl: connection.useSSL, startTLS: connection.useStartTLS,
                 pinnedCertSHA256: connection.trustedCertSHA256,
+                options: connection.ldapOptions,
                 bindDn: connection.bindDN, password: password,
                 baseDn: dn, scope: .base, filter: "(objectClass=*)"
             )
@@ -417,6 +418,7 @@ struct EditEntryView: View {
                 host: connection.host, port: UInt16(clamping: connection.port),
                 useSsl: connection.useSSL, startTLS: connection.useStartTLS,
                 pinnedCertSHA256: connection.trustedCertSHA256,
+                options: connection.ldapOptions,
                 bindDn: connection.bindDN, password: password
             )
             guard let entry = try await entryTask.first else {

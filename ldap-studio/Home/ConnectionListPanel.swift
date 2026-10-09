@@ -217,17 +217,24 @@ struct ConnectionListPanel: View {
         if !password.isEmpty {
             KeychainService.savePassword(password, for: copy.id)
         }
+        let sshPassword = KeychainService.readSSHPassword(for: connection.id) ?? ""
+        if !sshPassword.isEmpty {
+            KeychainService.saveSSHPassword(sshPassword, for: copy.id)
+        }
     }
 
     private func exportable(for connection: SavedConnection, includePassword: Bool) -> ExportableConnection {
         guard includePassword else {
-            return ExportableConnection(connection: connection, password: "")
+            return ExportableConnection(connection: connection, password: "", sshPassword: "")
         }
         let password = KeychainService.readPassword(for: connection.id) ?? ""
+        let sshPassword = KeychainService.readSSHPassword(for: connection.id) ?? ""
         return ExportableConnection(
             connection: connection,
             password: Data(password.utf8).base64EncodedString(),
-            passwordIsBase64: true
+            passwordIsBase64: true,
+            sshPassword: Data(sshPassword.utf8).base64EncodedString(),
+            sshPasswordIsBase64: true
         )
     }
 

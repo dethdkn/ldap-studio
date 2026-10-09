@@ -90,14 +90,14 @@ char *ls_b64_encode(const uint8_t *data, size_t len) {
     /* invariant (out was sized groups*4 + 1): this group fits */
     assert((g * 4) + 4 <= out_len + 1);
     size_t i = g * 3;
-    uint32_t n = (uint32_t)data[i] << 16;
-    if (i + 1 < len) n |= (uint32_t)data[i + 1] << 8;
+    uint32_t n = (uint32_t)data[i] << 16U;
+    if (i + 1 < len) n |= (uint32_t)data[i + 1] << 8U;
     if (i + 2 < len) n |= (uint32_t)data[i + 2];
 
-    out[(g * 4) + 0] = B64_ALPHABET[(n >> 18) & 0x3F];
-    out[(g * 4) + 1] = B64_ALPHABET[(n >> 12) & 0x3F];
-    out[(g * 4) + 2] = (i + 1 < len) ? B64_ALPHABET[(n >> 6) & 0x3F] : '=';
-    out[(g * 4) + 3] = (i + 2 < len) ? B64_ALPHABET[n & 0x3F] : '=';
+    out[(g * 4) + 0] = B64_ALPHABET[(n >> 18U) & 0x3FU];
+    out[(g * 4) + 1] = B64_ALPHABET[(n >> 12U) & 0x3FU];
+    out[(g * 4) + 2] = (i + 1 < len) ? B64_ALPHABET[(n >> 6U) & 0x3FU] : '=';
+    out[(g * 4) + 3] = (i + 2 < len) ? B64_ALPHABET[n & 0x3FU] : '=';
   }
   out[out_len] = '\0';
   return out;
@@ -130,11 +130,11 @@ uint8_t *ls_b64_decode(const char *text, size_t *out_len) {
       o = 0;
       break;
     }
-    acc = (acc << 6) | (uint32_t)v;
+    acc = (acc << 6U) | (uint32_t)v;
     bits += 6;
     if (bits >= 8) {
       bits -= 8;
-      out[o++] = (uint8_t)((acc >> bits) & 0xFF);
+      out[o++] = (uint8_t)((acc >> (unsigned)bits) & 0xFFU);
     }
   }
 
@@ -147,7 +147,7 @@ uint8_t *ls_b64_decode(const char *text, size_t *out_len) {
 bool ls_utf8_valid(const uint8_t *data, size_t len) {
   size_t i = 0;
   while (i < len) {
-    uint8_t b = data[i];
+    uint32_t b = data[i];
     size_t extra;
     uint32_t cp;
     uint32_t min;
@@ -156,17 +156,17 @@ bool ls_utf8_valid(const uint8_t *data, size_t len) {
       i++;
       continue;
     }
-    if ((b & 0xE0) == 0xC0) {
+    if ((b & 0xE0U) == 0xC0U) {
       extra = 1;
-      cp = b & 0x1F;
+      cp = b & 0x1FU;
       min = 0x80;
-    } else if ((b & 0xF0) == 0xE0) {
+    } else if ((b & 0xF0U) == 0xE0U) {
       extra = 2;
-      cp = b & 0x0F;
+      cp = b & 0x0FU;
       min = 0x800;
-    } else if ((b & 0xF8) == 0xF0) {
+    } else if ((b & 0xF8U) == 0xF0U) {
       extra = 3;
-      cp = b & 0x07;
+      cp = b & 0x07U;
       min = 0x10000;
     } else {
       return false;
@@ -174,9 +174,9 @@ bool ls_utf8_valid(const uint8_t *data, size_t len) {
 
     if (i + extra >= len) return false;
     for (size_t k = 1; k <= extra; ++k) {
-      uint8_t c = data[i + k];
-      if ((c & 0xC0) != 0x80) return false;
-      cp = (cp << 6) | (c & 0x3F);
+      uint32_t c = data[i + k];
+      if ((c & 0xC0U) != 0x80U) return false;
+      cp = (cp << 6U) | (c & 0x3FU);
     }
     if (cp < min) return false;                     /* overlong */
     if (cp > 0x10FFFF) return false;                /* out of range */

@@ -37,6 +37,10 @@ struct DirectoryCommands {
     var advancedSearch: () -> Void
     /// Opens the "Go to DN" quick-jump.
     var goToDN: () -> Void
+    /// Re-fetches the entire directory from the server. Always available
+    /// while a tree is showing — unlike `refreshSelected`, it needs no
+    /// selected entry.
+    var reloadTree: () -> Void
     /// Pins/unpins the selected entry's DN; nil when nothing is selected.
     var toggleBookmark: (() -> Void)?
     /// Whether the selected entry is already bookmarked (for the menu label).

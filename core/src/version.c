@@ -6,8 +6,9 @@
  * build compiles against and bundles the dylibs from the same Homebrew
  * prefix, these match what actually ships in the .app.
  */
-#include <crypt.h>            /* XCRYPT_VERSION_STR */
-#include <ldap_features.h>    /* LDAP_VENDOR_VERSION_{MAJOR,MINOR,PATCH} */
+#include <crypt.h>         /* XCRYPT_VERSION_STR */
+#include <ldap_features.h> /* LDAP_VENDOR_VERSION_{MAJOR,MINOR,PATCH} */
+#include <libssh2.h>
 #include <openssl/opensslv.h> /* OPENSSL_VERSION_STR */
 
 #include "ldapstudio.h"
@@ -24,6 +25,7 @@ LSDependencyVersions ls_dependency_versions(void) {
       .openldap = LS_OPENLDAP_VERSION,
       .openssl = OPENSSL_VERSION_STR,
       .libxcrypt = XCRYPT_VERSION_STR,
+      .libssh2 = LIBSSH2_VERSION,
   };
   return v;
 }
