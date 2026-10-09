@@ -69,8 +69,5 @@ export default defineNuxtConfig({
       { code: 'pt', language: 'pt-BR', name: 'Português (BR)' },
     ],
   },
-  icon: {
-    serverBundle: { collections: ['ph', 'simple-icons'] },
-  },
   linkChecker: { enabled: false },
 })
