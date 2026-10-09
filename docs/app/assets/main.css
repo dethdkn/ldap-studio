@@ -23,11 +23,6 @@
   --ease-apple: cubic-bezier(0.28, 0.11, 0.32, 1);
 }
 
-/*
- * Every section picks a tone: light (white), gray (#f5f5f7) or dark (black),
- * like Apple product pages. Components only use the tokens, so they adapt
- * to whatever section they sit in.
- */
 :root,
 .tone-light {
   --bg: #ffffff;
@@ -84,6 +79,11 @@
 }
 
 @layer base {
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+
   html {
     scroll-behavior: smooth;
     scroll-padding-top: 4rem;

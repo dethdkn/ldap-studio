@@ -31,7 +31,6 @@
           </header>
 
           <div class="min-w-0">
-            <!-- body_html is rendered and sanitized by GitHub -->
             <!-- oxlint-disable-next-line vue/no-v-html -->
             <div v-if="release.notes" class="release-notes" v-html="release.notes" />
             <p v-else class="text-muted">{{ t('no_notes') }}</p>
@@ -66,7 +65,7 @@
     "eyebrow": "LDAP Studio",
     "title": "Changelog",
     "description": "Every LDAP Studio release and what changed in it.",
-    "lead": "Every release of LDAP Studio, newest first, straight from GitHub Releases.",
+    "lead": "What changed in each version of LDAP Studio.",
     "latest": "latest",
     "download": "Download",
     "on_github": "View on GitHub",
@@ -76,7 +75,7 @@
     "eyebrow": "LDAP Studio",
     "title": "Changelog",
     "description": "Todas as versões do LDAP Studio e o que mudou em cada uma.",
-    "lead": "Todas as versões do LDAP Studio, da mais nova para a mais antiga, direto do GitHub Releases.",
+    "lead": "O que mudou em cada versão do LDAP Studio.",
     "latest": "atual",
     "download": "Baixar",
     "on_github": "Ver no GitHub",

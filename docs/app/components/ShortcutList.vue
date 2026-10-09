@@ -7,10 +7,12 @@
       items: [
         { label: 'Go to DN…', keys: '⌘L' },
         { label: 'Refresh', keys: '⌘R' },
+        { label: 'Reload Entire Tree', keys: '⌥⌘R' },
         { label: 'Bookmark Entry', keys: '⌘D' },
         { label: 'Advanced Search…', keys: '⇧⌘F' },
         { label: 'Server Info…', keys: '⌘I' },
         { label: 'Run LDIF', keys: '⇧⌘R' },
+        { label: 'Operation Log', keys: '⇧⌘Y' },
       ],
     },
     {
@@ -23,13 +25,14 @@
         { label: 'Copy to…', keys: '⇧⌘D' },
         { label: 'Copy DN', keys: '⇧⌘C' },
         { label: 'Copy as LDIF', keys: '⌥⇧⌘C' },
+        { label: 'Export as LDIF', keys: '⇧⌘X' },
         { label: 'Delete Entry', keys: '⌘⌫' },
       ],
     },
     {
       title: t('attributes'),
       items: [
-        { label: 'Add Attribute…', keys: '⌥⌘O' },
+        { label: 'Show Operational Attributes', keys: '⌥⌘O' },
         { label: 'Edit Value…', keys: '⌥⌘E' },
         { label: 'View Value', keys: '⌘J' },
         { label: 'Jump to Schema', keys: '⇧⌘S' },

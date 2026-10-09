@@ -115,7 +115,6 @@ function flatten(entry: SampleEntry): SampleEntry[] {
   return [entry, ...entry.children.flatMap(flatten)]
 }
 
-// Mirror every group's member values as memberOf on the people, like the server does
 function withMemberOf(root: SampleEntry): SampleEntry {
   const entries = flatten(root)
   const groupEntries = entries.filter((entry) => entry.kind === 'group')

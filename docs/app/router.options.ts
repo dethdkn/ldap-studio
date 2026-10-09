@@ -4,8 +4,8 @@ import type { RouterConfig } from '@nuxt/schema'
 type ScrollBehavior = NonNullable<RouterConfig['scrollBehavior']>
 
 export default {
+  // oxlint-disable-next-line typescript/no-deprecated
   scrollBehavior(_to, _from, savedPosition): ReturnType<ScrollBehavior> {
-    // A section asked to be scrolled into view once the page mounts
     if (usePendingSection().value) return false
 
     const nuxtApp = useNuxtApp()

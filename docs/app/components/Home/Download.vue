@@ -101,16 +101,16 @@
 <i18n lang="json">
 {
   "en": {
-    "title": "Open your directory.",
-    "lead": "Free, open source and made for the Mac. Download LDAP Studio and connect to your first server.",
+    "title": "Download LDAP Studio.",
+    "lead": "Free, open source and made for the Mac. Get the latest version and connect to your first server.",
     "download": "Download for macOS",
     "sponsor": "Sponsor the project",
     "older": "Download other versions",
     "changelog": "See what changed in each version"
   },
   "pt": {
-    "title": "Abra seu diretório.",
-    "lead": "Gratuito, open source e feito para o Mac. Baixe o LDAP Studio e conecte ao seu primeiro servidor.",
+    "title": "Baixe o LDAP Studio.",
+    "lead": "Gratuito, open source e feito para o Mac. Instale a versão mais recente e conecte ao seu primeiro servidor.",
     "download": "Baixar para macOS",
     "sponsor": "Patrocinar o projeto",
     "older": "Baixar outras versões",

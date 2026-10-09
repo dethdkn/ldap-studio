@@ -1,6 +1,6 @@
 <script setup lang="ts">
   defineProps({
-    icon: { type: String, default: 'ph:apple-logo-fill' },
+    icon: { type: String, default: 'simple-icons:apple' },
   })
 
   const { latestRelease } = useGitHub()

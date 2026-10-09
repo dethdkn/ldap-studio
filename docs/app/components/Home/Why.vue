@@ -2,7 +2,7 @@
   const { t } = useI18n({ useScope: 'local' })
 
   const reasons = computed(() => [
-    { icon: 'ph:apple-logo-fill', title: t('native_title'), text: t('native_text') },
+    { icon: 'simple-icons:apple', title: t('native_title'), text: t('native_text') },
     { icon: 'ph:graph', title: t('schema_title'), text: t('schema_text') },
     { icon: 'ph:shield-check-fill', title: t('safe_title'), text: t('safe_text') },
   ])

@@ -22,13 +22,7 @@
       </div>
 
       <div class="flex flex-col gap-4 pt-5 sm:flex-row sm:items-center sm:justify-between sm:gap-8">
-        <p>
-          © 2026
-          <NuxtLink :to="LINKS.author" external target="_blank" class="hover:underline">
-            Gabriel Rosa
-          </NuxtLink>
-          · {{ t('open_source') }}
-        </p>
+        <p>© 2026 LDAP Studio · {{ t('open_source') }}</p>
 
         <nav :aria-label="t('links')" class="flex flex-wrap gap-x-5 gap-y-1">
           <NuxtLinkLocale to="/changelog" class="text-fg/80 hover:underline">
