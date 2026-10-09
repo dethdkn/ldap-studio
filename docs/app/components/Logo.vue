@@ -5,5 +5,5 @@
 </script>
 
 <template>
-  <NuxtImg src="/logo.svg" alt="" :width="size" :height="size" class="shrink-0" />
+  <NuxtImg src="/logo.png" alt="" :width="size" :height="size" class="shrink-0" />
 </template>

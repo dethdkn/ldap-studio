@@ -8,7 +8,7 @@
 <template>
   <div class="flex h-full w-full flex-col justify-between bg-black p-16 text-[#f5f5f7]">
     <div class="flex items-center">
-      <img src="/logo.svg" width="72" height="72" />
+      <img src="/logo.png" width="72" height="72" />
       <div class="ml-5 flex text-[30px] font-semibold">LDAP Studio</div>
     </div>
     <div class="flex flex-col">
