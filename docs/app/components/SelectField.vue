@@ -17,7 +17,7 @@
     <select
       v-model="model"
       :aria-label="label"
-      class="h-10 w-full cursor-pointer appearance-none rounded-xl border border-line bg-surface-solid pr-8 pl-3 font-mono text-xs text-fg transition hover:border-accent/50">
+      class="h-10 w-full cursor-pointer appearance-none rounded-xl border border-line bg-surface-solid pr-8 pl-3 font-mono text-[0.8rem] text-fg transition hover:border-accent/50">
       <option v-for="option in options" :key="option.value" :value="option.value">
         {{ option.label }}
       </option>

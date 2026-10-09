@@ -4,55 +4,55 @@
   useHead({ title: t('title') })
   useSeoMeta({ description: t('description') })
   defineOgImage('Model.takumi', { title: t('title'), description: t('description') })
-
-  useSectionTracking()
 </script>
 
 <template>
-  <PageSection id="changelog">
-    <SectionHeading as="h1" rdn="ou=changelog" :title="t('title')" :lead="t('lead')" />
+  <PageSection name="changelog" tone="light">
+    <div class="pt-6">
+      <SectionHeading as="h1" :eyebrow="t('eyebrow')" :title="t('title')" :lead="t('lead')" />
+    </div>
 
-    <ol class="relative mt-14 max-w-3xl space-y-6">
+    <ol class="mt-20 divide-y divide-line border-t border-line">
       <Reveal v-for="(release, index) in RELEASES" :key="release.version" as="li">
-        <article :id="release.version" class="glass scroll-mt-24 rounded-3xl p-6 sm:p-8">
-          <header class="flex flex-wrap items-center gap-3">
-            <h2 class="type-title text-3xl">{{ release.version }}</h2>
-            <span
-              v-if="index === 0"
-              class="rounded-full bg-accent px-2.5 py-0.5 font-mono text-[0.7rem] text-white">
-              {{ t('latest') }}
-            </span>
-            <time :datetime="release.date" class="ml-auto font-mono text-xs text-muted">
+        <article class="grid gap-6 py-12 md:grid-cols-[13rem_1fr] md:gap-12">
+          <header class="md:sticky md:top-24 md:self-start">
+            <div class="flex items-center gap-3">
+              <h2 class="type-title text-4xl tabular-nums">{{ release.version }}</h2>
+              <span
+                v-if="index === 0"
+                class="rounded-full bg-accent px-2.5 py-0.5 text-[0.7rem] font-semibold text-white">
+                {{ t('latest') }}
+              </span>
+            </div>
+            <time :datetime="release.date" class="mt-2 block text-sm text-muted">
               {{ formatDate(release.date, locale) }}
             </time>
           </header>
 
-          <!-- body_html is rendered and sanitized by GitHub -->
-          <!-- oxlint-disable-next-line vue/no-v-html -->
-          <div v-if="release.notes" class="release-notes mt-5" v-html="release.notes" />
-          <p v-else class="mt-5 text-muted">{{ t('no_notes') }}</p>
+          <div class="min-w-0">
+            <!-- body_html is rendered and sanitized by GitHub -->
+            <!-- oxlint-disable-next-line vue/no-v-html -->
+            <div v-if="release.notes" class="release-notes" v-html="release.notes" />
+            <p v-else class="text-muted">{{ t('no_notes') }}</p>
 
-          <footer class="mt-6 flex flex-wrap items-center gap-3 border-t border-line pt-5">
-            <Button
-              v-if="release.file"
-              :to="release.file.url"
-              external
-              icon="ph:download-simple-bold"
-              :variant="index === 0 ? 'primary' : 'ghost'">
-              {{ t('download') }}
-              <span class="font-mono text-xs font-medium opacity-70">
-                {{ formatSize(release.file.size) }}
-              </span>
-            </Button>
-            <NuxtLink
-              :to="release.url"
-              external
-              target="_blank"
-              class="inline-flex items-center gap-1.5 text-sm font-semibold text-muted transition hover:text-fg">
-              <Icon name="ph:github-logo" />
-              {{ t('on_github') }}
-            </NuxtLink>
-          </footer>
+            <footer class="mt-8 flex flex-wrap items-center gap-x-6 gap-y-3">
+              <Button
+                v-if="release.file"
+                :to="release.file.url"
+                external
+                icon="ph:download-simple-bold"
+                :variant="index === 0 ? 'primary' : 'ghost'"
+                class="!h-10 !px-5 !text-sm">
+                {{ t('download') }}
+                <span class="text-xs tabular-nums opacity-70">
+                  {{ formatSize(release.file.size) }}
+                </span>
+              </Button>
+              <Button :to="release.url" external variant="link" class="!h-10 !text-sm">
+                {{ t('on_github') }}
+              </Button>
+            </footer>
+          </div>
         </article>
       </Reveal>
     </ol>
@@ -62,6 +62,7 @@
 <i18n lang="json">
 {
   "en": {
+    "eyebrow": "LDAP Studio",
     "title": "Changelog",
     "description": "Every LDAP Studio release and what changed in it.",
     "lead": "Every release of LDAP Studio, newest first, straight from GitHub Releases.",
@@ -71,6 +72,7 @@
     "no_notes": "No notes for this release."
   },
   "pt": {
+    "eyebrow": "LDAP Studio",
     "title": "Changelog",
     "description": "Todas as versões do LDAP Studio e o que mudou em cada uma.",
     "lead": "Todas as versões do LDAP Studio, da mais nova para a mais antiga, direto do GitHub Releases.",

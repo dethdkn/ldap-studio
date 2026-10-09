@@ -15,7 +15,7 @@
   <button
     type="button"
     :aria-label="copied ? t('copied') : t('copy')"
-    class="grid size-9 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-accent-soft hover:text-accent-ink active:scale-90"
+    class="grid size-9 shrink-0 place-items-center rounded-lg text-muted transition hover:bg-fg/5 hover:text-fg active:scale-90"
     @click="onCopy">
     <Icon
       :name="copied ? 'ph:check-bold' : 'ph:copy'"

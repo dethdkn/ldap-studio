@@ -31,22 +31,23 @@
 </script>
 
 <template>
-  <div class="glass rounded-3xl p-5 sm:p-7">
-    <label class="font-mono text-xs text-muted" for="demo-password">{{ t('password') }}</label>
-    <input
-      id="demo-password"
-      v-model="password"
-      type="text"
-      spellcheck="false"
-      autocomplete="off"
-      class="mt-2 h-12 w-full rounded-2xl border border-line bg-surface-solid px-4 font-mono text-sm transition hover:border-accent/50" />
+  <div class="card p-6 sm:p-9">
+    <label class="block">
+      <span class="text-sm font-semibold">{{ t('password') }}</span>
+      <input
+        v-model="password"
+        type="text"
+        spellcheck="false"
+        autocomplete="off"
+        class="mt-3 h-12 w-full rounded-xl border border-line bg-surface-solid px-4 font-mono text-sm transition hover:border-accent/50" />
+    </label>
 
     <div class="mt-6 flex flex-wrap items-center justify-between gap-4">
-      <p class="font-mono text-xs text-muted">{{ t('scheme') }}</p>
+      <p class="text-sm font-semibold">{{ t('scheme') }}</p>
       <Segmented v-model="scheme" :items="schemes" :label="t('scheme')" />
     </div>
 
-    <div class="mt-6 rounded-2xl border border-line bg-bg-deep/70 p-4">
+    <div class="well mt-6 p-4">
       <div class="flex items-center justify-between gap-3">
         <p class="font-mono text-xs text-muted">userPassword</p>
         <div class="flex items-center gap-1">

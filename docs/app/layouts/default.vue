@@ -1,18 +1,23 @@
 <script setup lang="ts">
   const { t } = useI18n({ useScope: 'local' })
+  const main = useTemplateRef<HTMLElement>('main')
+
+  function skipToContent(): void {
+    main.value?.focus()
+  }
 </script>
 
 <template>
   <MotionConfig reduced-motion="user">
     <TooltipProvider>
-      <a
-        href="#main"
-        class="sr-only z-70 rounded-full bg-fg px-4 py-2 text-sm text-bg focus:not-sr-only focus:fixed focus:top-3 focus:left-3">
+      <button
+        type="button"
+        class="sr-only z-70 rounded-full bg-accent px-4 py-2 text-sm text-white focus:not-sr-only focus:fixed focus:top-3 focus:left-3"
+        @click="skipToContent">
         {{ t('skip') }}
-      </a>
+      </button>
       <Header />
-      <Scene />
-      <main id="main" class="relative z-10">
+      <main ref="main" tabindex="-1" class="outline-none">
         <slot />
       </main>
       <Footer />

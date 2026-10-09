@@ -10,6 +10,7 @@
   })
 
   const model = defineModel<T>({ required: true })
+  const group = useId()
 
   function select(value: unknown): void {
     if (typeof value === 'string' && value) model.value = value as T
@@ -21,14 +22,19 @@
     :model-value="model"
     type="single"
     :aria-label="label"
-    class="inline-flex flex-wrap gap-1 rounded-2xl border border-line bg-bg-deep/60 p-1"
+    class="inline-flex flex-wrap gap-0.5 rounded-[0.6rem] bg-fg/[0.07] p-0.5"
     @update:model-value="select">
     <ToggleGroupItem
       v-for="item in items"
       :key="item.value"
       :value="item.value"
-      class="rounded-xl px-3.5 py-2 text-sm font-medium text-muted transition duration-200 hover:text-fg active:scale-[0.97] data-[state=on]:bg-surface-solid data-[state=on]:text-fg data-[state=on]:shadow-sm">
-      {{ item.label }}
+      class="relative rounded-lg px-3 py-1 text-[0.8rem] font-medium text-fg/70 transition-colors duration-200 hover:text-fg data-[state=on]:text-fg">
+      <Motion
+        v-if="model === item.value"
+        :layout-id="`segment-${group}`"
+        class="absolute inset-0 rounded-[0.45rem] bg-thumb shadow-[0_1px_3px_rgb(0_0_0/0.12),0_0_0_0.5px_rgb(0_0_0/0.04)]"
+        :transition="{ type: 'spring', bounce: 0, duration: 0.35 }" />
+      <span class="relative">{{ item.label }}</span>
     </ToggleGroupItem>
   </ToggleGroupRoot>
 </template>

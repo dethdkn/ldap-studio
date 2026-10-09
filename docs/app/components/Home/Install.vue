@@ -7,7 +7,6 @@
   ]
 
   const { t } = useI18n({ useScope: 'local' })
-  const { focusEntry } = useSections()
 
   const steps = computed(() => [
     { entry: 'download', title: t('download_title'), text: t('download_text') },
@@ -18,66 +17,52 @@
 </script>
 
 <template>
-  <PageSection id="install">
-    <SectionHeading rdn="ou=install" :title="t('title')" :lead="t('lead')" />
+  <PageSection name="install" tone="dark">
+    <SectionHeading :eyebrow="t('eyebrow')" :title="t('title')" :lead="t('lead')" />
 
-    <div class="mt-14 grid grid-cols-1 gap-6 lg:grid-cols-[1.35fr_1fr]">
-      <ol class="space-y-3">
-        <Reveal v-for="(step, index) in steps" :key="step.entry" as="li" :delay="index * 0.08">
-          <div
-            class="glass flex gap-5 rounded-3xl p-6 transition duration-300 hover:border-accent/40"
-            @pointerenter="focusEntry(step.entry)"
-            @pointerleave="focusEntry(null)">
-            <span class="type-display w-8 shrink-0 text-3xl text-accent">{{ index + 1 }}</span>
-            <div class="min-w-0 flex-1">
-              <h3 class="text-lg font-semibold">{{ step.title }}</h3>
-              <p class="mt-2 leading-relaxed text-muted">{{ step.text }}</p>
-              <DownloadButton
-                v-if="step.entry === 'download'"
-                icon="ph:download-simple-bold"
-                class="mt-5">
-                {{ t('download_button') }}
-              </DownloadButton>
-              <CommandLine
-                v-if="step.entry === 'unblock'"
-                :command="UNBLOCK_COMMAND"
-                class="mt-5" />
-            </div>
-          </div>
-        </Reveal>
-      </ol>
+    <ol class="mt-16 grid gap-5 md:grid-cols-2">
+      <Reveal
+        v-for="(step, index) in steps"
+        :key="step.entry"
+        as="li"
+        :delay="(index % 2) * 0.08"
+        class="card flex min-w-0 flex-col p-8">
+        <span class="text-gradient text-6xl font-semibold tracking-[-0.05em]">{{ index + 1 }}</span>
+        <h3 class="type-title mt-6 text-2xl">{{ step.title }}</h3>
+        <p class="mt-3 text-muted">{{ step.text }}</p>
+        <div v-if="step.entry === 'download'" class="mt-auto pt-6">
+          <DownloadButton icon="ph:download-simple-bold">{{ t('download_button') }}</DownloadButton>
+        </div>
+        <div v-if="step.entry === 'unblock'" class="mt-auto pt-6">
+          <CommandLine :command="UNBLOCK_COMMAND" />
+        </div>
+      </Reveal>
+    </ol>
 
-      <div class="space-y-3">
-        <Reveal :delay="0.1" class="glass rounded-3xl p-6">
-          <h3 class="flex items-center gap-2 font-semibold">
-            <Icon name="ph:laptop" class="text-accent" />
-            {{ t('requirements_title') }}
-          </h3>
-          <ul class="mt-4 space-y-2 text-muted">
-            <li>{{ t('requirements_os') }}</li>
-            <li>{{ t('requirements_chip') }}</li>
-          </ul>
-        </Reveal>
+    <div class="mt-5 grid gap-5 md:grid-cols-3">
+      <Reveal class="card p-8">
+        <Icon name="ph:laptop" class="text-2xl text-accent-ink" />
+        <h3 class="mt-4 text-lg font-semibold">{{ t('requirements_title') }}</h3>
+        <ul class="mt-2 space-y-1 text-muted">
+          <li>{{ t('requirements_os') }}</li>
+          <li>{{ t('requirements_chip') }}</li>
+        </ul>
+      </Reveal>
 
-        <Reveal :delay="0.15" class="glass rounded-3xl p-6">
-          <h3 class="flex items-center gap-2 font-semibold">
-            <Icon name="ph:arrows-clockwise" class="text-accent" />
-            {{ t('update_title') }}
-          </h3>
-          <p class="mt-4 leading-relaxed text-muted">{{ t('update_text') }}</p>
-        </Reveal>
+      <Reveal :delay="0.08" class="card p-8">
+        <Icon name="ph:arrows-clockwise" class="text-2xl text-accent-ink" />
+        <h3 class="mt-4 text-lg font-semibold">{{ t('update_title') }}</h3>
+        <p class="mt-2 text-muted">{{ t('update_text') }}</p>
+      </Reveal>
 
-        <Reveal :delay="0.2" class="glass rounded-3xl p-6">
-          <h3 class="flex items-center gap-2 font-semibold">
-            <Icon name="ph:hammer" class="text-accent" />
-            {{ t('source_title') }}
-          </h3>
-          <p class="mt-4 leading-relaxed text-muted">{{ t('source_text') }}</p>
-          <div class="mt-4 space-y-2">
-            <CommandLine v-for="command in BUILD_COMMANDS" :key="command" :command="command" />
-          </div>
-        </Reveal>
-      </div>
+      <Reveal :delay="0.16" class="card min-w-0 p-8">
+        <Icon name="ph:hammer" class="text-2xl text-accent-ink" />
+        <h3 class="mt-4 text-lg font-semibold">{{ t('source_title') }}</h3>
+        <p class="mt-2 text-muted">{{ t('source_text') }}</p>
+        <div class="mt-4 space-y-2">
+          <CommandLine v-for="command in BUILD_COMMANDS" :key="command" :command="command" />
+        </div>
+      </Reveal>
     </div>
   </PageSection>
 </template>
@@ -85,6 +70,7 @@
 <i18n lang="json">
 {
   "en": {
+    "eyebrow": "Install",
     "title": "Install it in four steps.",
     "lead": "LDAP Studio ships as a zipped app on GitHub. No installer, no account.",
     "download_title": "Download the latest release",
@@ -105,6 +91,7 @@
     "source_text": "Needs Xcode and Homebrew. The script builds a Release app and zips it into the dist folder."
   },
   "pt": {
+    "eyebrow": "Instalar",
     "title": "Instale em quatro passos.",
     "lead": "O LDAP Studio é distribuído como um app zipado no GitHub. Sem instalador, sem conta.",
     "download_title": "Baixe a versão mais recente",

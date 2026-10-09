@@ -4,9 +4,16 @@
   defineProps({
     to: { type: [String, Object] as PropType<RouteLocationRaw>, required: true },
     icon: { type: String, default: '' },
-    variant: { type: String as PropType<'primary' | 'ghost'>, default: 'primary' },
+    variant: { type: String as PropType<'primary' | 'ghost' | 'link'>, default: 'primary' },
     external: { type: Boolean, default: false },
   })
+
+  const VARIANTS = {
+    primary: 'h-12 rounded-full bg-accent px-6 text-white hover:bg-[#0077ed]',
+    ghost:
+      'h-12 rounded-full px-6 text-accent-ink ring-1 ring-accent-ink ring-inset hover:bg-accent-ink hover:text-bg',
+    link: 'h-12 text-accent-ink hover:underline',
+  }
 </script>
 
 <template>
@@ -14,13 +21,13 @@
     :to="to"
     :external="external"
     :target="external ? '_blank' : undefined"
-    class="inline-flex h-12 items-center justify-center gap-2 rounded-full px-6 text-[0.95rem] font-semibold transition duration-150 ease-out active:scale-[0.97]"
-    :class="
-      variant === 'primary'
-        ? 'bg-accent text-white shadow-[0_10px_30px_-10px_var(--accent)] hover:brightness-110'
-        : 'glass text-fg hover:border-accent/40'
-    ">
+    class="group inline-flex items-center justify-center gap-2 text-[1.0625rem] font-normal tracking-[-0.022em] transition duration-200 ease-out select-none active:scale-[0.97]"
+    :class="VARIANTS[variant]">
     <Icon v-if="icon" :name="icon" class="text-lg" />
     <slot />
+    <Icon
+      v-if="variant === 'link'"
+      name="ph:caret-right-bold"
+      class="text-sm transition-transform duration-200 group-hover:translate-x-0.5" />
   </NuxtLink>
 </template>
