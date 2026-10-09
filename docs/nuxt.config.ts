@@ -28,6 +28,7 @@ export default defineNuxtConfig({
   },
   runtimeConfig: {
     githubToken: '',
+    syncPassword: '',
   },
   compatibilityDate: '2026-09-30',
   nitro: {
