@@ -1,4 +1,6 @@
 <script setup lang="ts">
+  const WIDE = new Set(['browse', 'connections', 'server'])
+
   const { t } = useI18n({ useScope: 'local' })
 
   const features = computed(() => [
@@ -79,12 +81,21 @@
 </script>
 
 <template>
-  <PageSection id="features">
-    <SectionHeading rdn="ou=features" :title="t('title')" :lead="t('lead')" />
+  <PageSection name="features" tone="gray">
+    <SectionHeading :eyebrow="t('eyebrow')" :title="t('title')" :lead="t('lead')" />
 
-    <div class="mt-16 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-      <Reveal v-for="(feature, index) in features" :key="feature.entry" :delay="(index % 3) * 0.08">
-        <FeatureCard v-bind="feature" />
+    <div class="mt-16 grid gap-5 md:grid-cols-2 lg:grid-cols-3">
+      <Reveal
+        v-for="(feature, index) in features"
+        :key="feature.entry"
+        :delay="(index % 3) * 0.08"
+        :class="WIDE.has(feature.entry) && 'lg:col-span-2'">
+        <FeatureCard
+          :icon="feature.icon"
+          :title="feature.title"
+          :text="feature.text"
+          :points="feature.points"
+          :example="feature.example" />
       </Reveal>
     </div>
   </PageSection>
@@ -93,8 +104,9 @@
 <i18n lang="json">
 {
   "en": {
+    "eyebrow": "Features",
     "title": "Everything you do in a directory, in one window.",
-    "lead": "Each card is an entry in the tree behind this page. Point at one to light up its path.",
+    "lead": "From a quick lookup to moving whole subtrees, without leaving the keyboard.",
     "browse_title": "Browse the tree",
     "browse_text": "Expand any branch, filter it as you type and see how many children each container holds.",
     "browse_p1": "Jump straight to any DN",
@@ -139,8 +151,9 @@
     "server_p3": "Operation log"
   },
   "pt": {
+    "eyebrow": "Recursos",
     "title": "Tudo o que você faz num diretório, numa janela só.",
-    "lead": "Cada card é uma entrada na árvore atrás desta página. Aponte para um e veja o caminho acender.",
+    "lead": "De uma consulta rápida até mover subárvores inteiras, sem tirar as mãos do teclado.",
     "browse_title": "Navegue pela árvore",
     "browse_text": "Expanda qualquer ramo, filtre enquanto digita e veja quantos filhos cada contêiner tem.",
     "browse_p1": "Vá direto para qualquer DN",

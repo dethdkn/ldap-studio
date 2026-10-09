@@ -49,9 +49,9 @@
 </script>
 
 <template>
-  <div class="glass rounded-3xl p-5 sm:p-7">
+  <div class="card p-6 sm:p-9">
     <div class="flex flex-wrap items-center justify-between gap-4">
-      <p class="font-mono text-xs text-muted">{{ t('match') }}</p>
+      <p class="text-sm font-semibold">{{ t('match') }}</p>
       <Segmented v-model="join" :items="joins" :label="t('match')" />
     </div>
 
@@ -80,7 +80,7 @@
           <button
             type="button"
             :aria-label="t('remove')"
-            class="grid h-10 place-items-center rounded-xl text-muted transition hover:bg-accent-soft hover:text-signal sm:w-10"
+            class="grid h-10 place-items-center rounded-xl text-muted transition hover:bg-fg/5 hover:text-signal active:scale-90 sm:w-10"
             @click="removeCondition(condition.id)">
             <Icon name="ph:x" />
           </button>
@@ -96,7 +96,7 @@
       {{ t('add') }}
     </button>
 
-    <div class="mt-6 flex items-start gap-3 rounded-2xl border border-line bg-bg-deep/70 p-4">
+    <div class="well mt-6 flex items-start gap-3 p-4">
       <FilterText :filter="filter" class="min-w-0 flex-1 pt-1.5" />
       <CopyButton :text="filter" />
     </div>

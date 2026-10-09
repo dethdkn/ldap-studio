@@ -42,7 +42,7 @@
 
 <template>
   <div class="grid grid-cols-1 gap-4 lg:grid-cols-[1.15fr_0.85fr]">
-    <div class="glass overflow-hidden rounded-3xl">
+    <div class="card overflow-hidden">
       <p class="border-b border-line py-4 text-center text-sm font-semibold">New Connection</p>
 
       <div class="space-y-1 p-3">
@@ -51,9 +51,7 @@
           :key="row.field"
           type="button"
           class="flex w-full items-center justify-between gap-4 rounded-xl px-3 py-2.5 text-left text-sm transition"
-          :class="
-            active === row.field ? 'bg-accent-soft ring-1 ring-accent/40' : 'hover:bg-bg-deep/60'
-          "
+          :class="active === row.field ? 'bg-accent-soft' : 'hover:bg-fg/5'"
           @pointerenter="active = row.field"
           @focus="active = row.field">
           <span>{{ row.label }}</span>
@@ -62,7 +60,7 @@
 
         <div
           class="flex flex-wrap items-center justify-between gap-3 rounded-xl px-3 py-2 text-sm transition"
-          :class="active === 'encryption' ? 'bg-accent-soft ring-1 ring-accent/40' : ''"
+          :class="active === 'encryption' ? 'bg-accent-soft' : ''"
           @pointerenter="active = 'encryption'"
           @focusin="active = 'encryption'">
           <span>Encryption</span>
@@ -71,7 +69,7 @@
 
         <div
           class="flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-sm transition"
-          :class="active === 'readonly' ? 'bg-accent-soft ring-1 ring-accent/40' : ''"
+          :class="active === 'readonly' ? 'bg-accent-soft' : ''"
           @pointerenter="active = 'readonly'"
           @focusin="active = 'readonly'">
           <span>Read-only (block all writes)</span>
@@ -80,11 +78,11 @@
       </div>
 
       <div class="flex justify-end gap-2 border-t border-line p-3">
-        <span class="rounded-lg bg-bg-deep/70 px-4 py-1.5 text-sm">Cancel</span>
+        <span class="rounded-lg bg-fg/[0.07] px-4 py-1.5 text-sm">Cancel</span>
         <button
           type="button"
           class="rounded-lg px-4 py-1.5 text-sm transition"
-          :class="active === 'test' ? 'bg-accent-soft ring-1 ring-accent/40' : 'bg-bg-deep/70'"
+          :class="active === 'test' ? 'bg-accent-soft text-accent-ink' : 'bg-fg/[0.07]'"
           @pointerenter="active = 'test'"
           @focus="active = 'test'">
           Test
@@ -93,7 +91,7 @@
       </div>
     </div>
 
-    <div class="glass flex min-h-56 flex-col gap-8 rounded-3xl p-7">
+    <div class="card flex min-h-56 flex-col gap-8 p-8">
       <AnimatePresence mode="wait" :initial="false">
         <Motion
           :key="active"
@@ -102,14 +100,13 @@
           :exit="{ opacity: 0, y: -10 }"
           :transition="{ type: 'spring', bounce: 0, duration: 0.3 }"
           aria-live="polite">
-          <p class="font-mono text-xs text-accent-ink">{{ t('tip') }}</p>
+          <p class="text-sm font-semibold text-accent-ink">{{ t('tip') }}</p>
           <p class="type-title mt-3 text-2xl">{{ t(`${active}_title`) }}</p>
           <p class="mt-3 leading-relaxed text-muted">{{ t(`${active}_text`) }}</p>
         </Motion>
       </AnimatePresence>
 
-      <div
-        class="mt-auto rounded-2xl border border-line bg-bg-deep/70 p-4 font-mono text-xs leading-loose">
+      <div class="well mt-auto p-4 font-mono text-xs leading-loose">
         <p class="text-muted">{{ t('url') }}</p>
         <p class="break-all">
           <span class="transition" :class="highlight('encryption')">{{ scheme }}</span>

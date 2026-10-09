@@ -17,5 +17,5 @@
     :disabled="disabled"
     spellcheck="false"
     autocomplete="off"
-    class="h-10 w-full rounded-xl border border-line bg-surface-solid px-3 font-mono text-xs text-fg transition placeholder:text-muted/70 hover:border-accent/50 disabled:opacity-40" />
+    class="h-10 w-full rounded-xl border border-line bg-surface-solid px-3 font-mono text-[0.8rem] text-fg transition placeholder:text-muted/70 hover:border-accent/50 disabled:opacity-40" />
 </template>

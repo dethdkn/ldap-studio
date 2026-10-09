@@ -48,8 +48,8 @@
       v-for="(group, index) in groups"
       :key="group.title"
       :delay="index * 0.08"
-      class="glass rounded-3xl p-6">
-      <h3 class="font-mono text-xs text-accent-ink">{{ group.title }}</h3>
+      class="card p-7">
+      <h3 class="text-sm font-semibold text-accent-ink">{{ group.title }}</h3>
       <ul class="mt-4 divide-y divide-line">
         <li
           v-for="item in group.items"

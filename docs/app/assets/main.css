@@ -1,8 +1,10 @@
 @import 'tailwindcss';
 
 @theme inline {
-  --font-sans: 'Mona Sans', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: 'Martian Mono', ui-monospace, monospace;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', Inter, 'Helvetica Neue',
+    sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
 
   --color-bg: var(--bg);
   --color-bg-deep: var(--bg-deep);
@@ -16,54 +18,80 @@
   --color-accent-soft: var(--accent-soft);
   --color-signal: var(--signal);
   --color-ok: var(--ok);
+  --color-thumb: var(--thumb);
+
+  --ease-apple: cubic-bezier(0.28, 0.11, 0.32, 1);
 }
 
-:root {
-  --bg: #f2f5fb;
-  --bg-deep: #e4eaf7;
-  --surface: rgb(255 255 255 / 0.7);
+/*
+ * Every section picks a tone: light (white), gray (#f5f5f7) or dark (black),
+ * like Apple product pages. Components only use the tokens, so they adapt
+ * to whatever section they sit in.
+ */
+:root,
+.tone-light {
+  --bg: #ffffff;
+  --bg-deep: #f5f5f7;
+  --surface: #f5f5f7;
   --surface-solid: #ffffff;
-  --fg: #0a1430;
-  --muted: #56617f;
-  --line: rgb(10 20 48 / 0.09);
-  --accent: #006bff;
-  --accent-ink: #0052c7;
-  --accent-soft: rgb(0 107 255 / 0.1);
-  --signal: #d9480f;
-  --ok: #0f8a55;
+  --fg: #1d1d1f;
+  --muted: #6e6e73;
+  --line: rgb(0 0 0 / 0.1);
+  --accent: #0071e3;
+  --accent-ink: #0066cc;
+  --accent-soft: rgb(0 113 227 / 0.1);
+  --signal: #bf4800;
+  --ok: #1d8a3e;
+  --thumb: #ffffff;
 
-  color-scheme: light dark;
+  color-scheme: light;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #060a17;
-    --bg-deep: #0b1226;
-    --surface: rgb(17 25 50 / 0.72);
-    --surface-solid: #0f1731;
-    --fg: #e9eefc;
-    --muted: #8d98b9;
-    --line: rgb(233 238 252 / 0.09);
-    --accent: #006bff;
-    --accent-ink: #78b0ff;
-    --accent-soft: rgb(47 134 255 / 0.16);
-    --signal: #ff8c52;
-    --ok: #3fd18b;
-  }
+.tone-gray {
+  --bg: #f5f5f7;
+  --bg-deep: #ebebef;
+  --surface: #ffffff;
+  --surface-solid: #ffffff;
+  --fg: #1d1d1f;
+  --muted: #6e6e73;
+  --line: rgb(0 0 0 / 0.1);
+  --accent: #0071e3;
+  --accent-ink: #0066cc;
+  --accent-soft: rgb(0 113 227 / 0.1);
+  --signal: #bf4800;
+  --ok: #1d8a3e;
+  --thumb: #ffffff;
+
+  color-scheme: light;
+}
+
+.tone-dark {
+  --bg: #000000;
+  --bg-deep: #0d0d0f;
+  --surface: #161617;
+  --surface-solid: #1d1d1f;
+  --fg: #f5f5f7;
+  --muted: #86868b;
+  --line: rgb(255 255 255 / 0.12);
+  --accent: #0071e3;
+  --accent-ink: #2997ff;
+  --accent-soft: rgb(41 151 255 / 0.16);
+  --signal: #ff791b;
+  --ok: #30d158;
+  --thumb: #5b5b60;
+
+  color-scheme: dark;
 }
 
 @layer base {
   html {
     scroll-behavior: smooth;
-    scroll-padding-top: 5rem;
+    scroll-padding-top: 4rem;
+    -webkit-tap-highlight-color: transparent;
   }
 
   body {
-    @apply bg-bg font-sans text-fg antialiased;
-    background-image:
-      radial-gradient(60rem 40rem at 85% -10%, var(--accent-soft), transparent 70%),
-      radial-gradient(50rem 40rem at -10% 110%, var(--accent-soft), transparent 70%);
-    background-attachment: fixed;
+    @apply bg-bg font-sans text-[17px] leading-[1.47] tracking-[-0.022em] text-fg antialiased;
   }
 
   ::selection {
@@ -78,22 +106,60 @@
     html {
       scroll-behavior: auto;
     }
+
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+    }
   }
 }
 
 @layer components {
+  .type-hero {
+    @apply text-[clamp(3rem,8vw,6rem)] leading-[1.05] font-semibold tracking-[-0.045em];
+  }
+
   .type-display {
-    font-variation-settings: 'wdth' 118;
-    @apply leading-[0.94] font-extrabold tracking-[-0.035em];
+    @apply text-[clamp(2.5rem,6vw,4.5rem)] leading-[1.06] font-semibold tracking-[-0.04em];
   }
 
   .type-title {
-    font-variation-settings: 'wdth' 112;
-    @apply leading-[1.02] font-bold tracking-[-0.025em];
+    @apply leading-[1.1] font-semibold tracking-[-0.03em];
   }
 
-  .glass {
-    @apply border border-line bg-surface shadow-[0_1px_0_rgb(255_255_255/0.5)_inset,0_24px_48px_-24px_rgb(10_20_48/0.25)] backdrop-blur-xl backdrop-saturate-150;
+  .type-eyebrow {
+    @apply text-[1.3rem] leading-tight font-semibold tracking-[-0.01em] text-muted;
+  }
+
+  .type-lead {
+    @apply text-[1.3rem] leading-[1.38] tracking-[-0.016em] text-pretty text-muted;
+  }
+
+  .text-gradient {
+    @apply bg-linear-to-r from-[#2997ff] via-[#7a6cff] to-[#c86dd7] bg-clip-text text-transparent;
+  }
+
+  .card {
+    @apply rounded-[1.75rem] bg-surface;
+  }
+
+  .well {
+    @apply rounded-2xl bg-bg-deep;
+  }
+
+  .tone-light .well,
+  .tone-light .card .well {
+    @apply bg-surface-solid;
+  }
+
+  .card .well {
+    @apply bg-bg;
+  }
+
+  .material {
+    @apply backdrop-blur-xl backdrop-saturate-[1.8];
   }
 
   .release-notes {
@@ -114,7 +180,7 @@
     }
 
     & a {
-      @apply text-accent-ink underline decoration-accent/30 underline-offset-2 transition hover:decoration-accent;
+      @apply text-accent-ink transition hover:underline;
     }
 
     & code {
@@ -127,8 +193,8 @@
   }
 
   @media (prefers-reduced-transparency: reduce) {
-    .glass {
-      @apply bg-surface-solid backdrop-blur-none;
+    .material {
+      @apply backdrop-blur-none;
     }
   }
 }

@@ -4,8 +4,6 @@
   useHead({ title: t('title') })
   useSeoMeta({ description: t('description') })
   defineOgImage('Model.takumi', { title: 'LDAP Studio', description: t('og_description') })
-
-  useSectionTracking()
 </script>
 
 <template>

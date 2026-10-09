@@ -11,39 +11,40 @@
 </script>
 
 <template>
-  <footer class="relative z-10 border-t border-line">
-    <div
-      class="mx-auto flex max-w-7xl flex-col gap-8 px-4 py-12 sm:px-8 md:flex-row md:items-center md:justify-between">
-      <div class="flex items-center gap-3">
-        <Logo :size="36" />
-        <div>
-          <p class="font-semibold">LDAP Studio</p>
-          <p class="text-sm text-muted">{{ t('tagline') }}</p>
-        </div>
+  <footer class="tone-gray bg-bg text-xs leading-relaxed text-muted" data-tone="gray">
+    <div class="mx-auto max-w-[64rem] px-5 py-10 sm:px-8">
+      <div class="flex items-center gap-2.5 border-b border-line pb-5">
+        <Logo :size="22" />
+        <p>
+          <span class="font-semibold text-fg">LDAP Studio</span>
+          · {{ t('tagline') }}
+        </p>
       </div>
 
-      <nav :aria-label="t('links')" class="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted">
-        <NuxtLinkLocale to="/changelog" class="transition hover:text-fg">
-          {{ t('changelog') }}
-        </NuxtLinkLocale>
-        <NuxtLink
-          v-for="link in links"
-          :key="link.to"
-          :to="link.to"
-          external
-          target="_blank"
-          class="transition hover:text-fg">
-          {{ link.label }}
-        </NuxtLink>
-      </nav>
-    </div>
+      <div class="flex flex-col gap-4 pt-5 sm:flex-row sm:items-center sm:justify-between sm:gap-8">
+        <p>
+          © 2026
+          <NuxtLink :to="LINKS.author" external target="_blank" class="hover:underline">
+            Gabriel Rosa
+          </NuxtLink>
+          · {{ t('open_source') }}
+        </p>
 
-    <div class="mx-auto max-w-7xl px-4 pb-10 font-mono text-xs text-muted sm:px-8">
-      © 2026
-      <NuxtLink :to="LINKS.author" external target="_blank" class="hover:text-fg"
-        >Gabriel Rosa</NuxtLink
-      >
-      · {{ t('open_source') }}
+        <nav :aria-label="t('links')" class="flex flex-wrap gap-x-5 gap-y-1">
+          <NuxtLinkLocale to="/changelog" class="text-fg/80 hover:underline">
+            {{ t('changelog') }}
+          </NuxtLinkLocale>
+          <NuxtLink
+            v-for="link in links"
+            :key="link.label"
+            :to="link.to"
+            external
+            target="_blank"
+            class="text-fg/80 hover:underline">
+            {{ link.label }}
+          </NuxtLink>
+        </nav>
+      </div>
     </div>
   </footer>
 </template>

@@ -1,8 +1,8 @@
 <script setup lang="ts">
   const ICONS: Record<EntryKind, string> = {
-    domain: 'ph:globe-hemisphere-west',
+    domain: 'ph:globe-simple',
     unit: 'ph:folder-simple-fill',
-    person: 'ph:user-fill',
+    person: 'ph:user-circle-fill',
     group: 'ph:users-three-fill',
     service: 'ph:gear-six-fill',
   }
@@ -38,19 +38,20 @@
 </script>
 
 <template>
-  <div class="glass grid grid-cols-1 overflow-hidden rounded-3xl md:grid-cols-[19rem_1fr]">
-    <div class="border-b border-line p-4 md:border-r md:border-b-0">
-      <div class="relative">
+  <div
+    class="grid h-[26rem] grid-cols-[10.5rem_1fr] text-left sm:h-[30rem] sm:grid-cols-[16rem_1fr]">
+    <div class="flex min-h-0 flex-col border-r border-black/40 bg-[#24243a]/60 p-2.5">
+      <label class="relative block">
+        <span class="sr-only">{{ t('filter') }}</span>
         <Icon
           name="ph:magnifying-glass"
-          class="absolute top-1/2 left-3 -translate-y-1/2 text-muted" />
+          class="absolute top-1/2 left-2.5 -translate-y-1/2 text-sm text-fg/50" />
         <input
           v-model="query"
           type="search"
-          :aria-label="t('filter')"
           :placeholder="t('filter')"
-          class="h-10 w-full rounded-xl border border-line bg-surface-solid pr-3 pl-9 text-sm transition placeholder:text-muted/70 hover:border-accent/50" />
-      </div>
+          class="h-7 w-full rounded-md bg-white/10 pr-2 pl-8 text-[0.8rem] text-fg placeholder:text-fg/45 focus-visible:outline-accent" />
+      </label>
 
       <TreeRoot
         v-slot="{ flattenItems }"
@@ -59,60 +60,77 @@
         :items="items"
         :get-key="(entry) => entry.dn"
         :get-children="childrenOf"
-        class="mt-3 max-h-80 overflow-y-auto text-sm"
+        class="mt-2 min-h-0 flex-1 overflow-y-auto text-[0.8rem]"
         @update:model-value="selectEntry">
         <TreeItem
           v-for="item in flattenItems"
           :key="item._id"
-          v-slot="{ isExpanded, isSelected }"
+          v-slot="{ isExpanded }"
           v-bind="item.bind"
-          :style="{ paddingLeft: `${item.level * 0.85}rem` }"
-          class="flex cursor-pointer items-center gap-2 rounded-lg py-1.5 pr-2 outline-none hover:bg-accent-soft focus-visible:ring-2 focus-visible:ring-accent data-[selected]:bg-accent data-[selected]:text-white">
+          :style="{ paddingLeft: `${item.level * 0.75}rem` }"
+          class="flex cursor-default items-center gap-1.5 rounded-md py-[0.3rem] pr-2 outline-none focus-visible:ring-2 focus-visible:ring-accent data-[selected]:bg-[#0a5fdb] data-[selected]:text-white">
           <Icon
             name="ph:caret-right-bold"
-            class="shrink-0 text-xs transition-transform"
+            class="shrink-0 text-[0.6rem] text-fg/60 transition-transform duration-200 ease-apple"
             :class="[isExpanded && 'rotate-90', !item.hasChildren && 'invisible']" />
-          <Icon
-            :name="ICONS[item.value.kind]"
-            class="shrink-0"
-            :class="!isSelected && 'text-accent'" />
-          <span class="truncate font-mono text-xs">{{ item.value.rdn }}</span>
-          <span v-if="item.hasChildren" class="ml-auto font-mono text-[0.65rem] opacity-60">
-            {{ item.value.children.length }}
-          </span>
+          <Icon :name="ICONS[item.value.kind]" class="shrink-0 text-[0.95rem]" />
+          <span class="truncate">{{ item.value.rdn }}</span>
         </TreeItem>
       </TreeRoot>
     </div>
 
-    <div class="min-w-0 p-5 sm:p-7">
-      <div class="flex items-center gap-4">
-        <span
-          class="grid size-12 shrink-0 place-items-center rounded-2xl bg-accent text-2xl text-white">
+    <div class="flex min-w-0 flex-col">
+      <div class="flex items-center gap-3 border-b border-black/40 px-4 py-3.5 sm:px-5">
+        <span class="grid size-10 shrink-0 place-items-center text-[2.1rem] text-[#3b8cff]">
           <Icon :name="ICONS[selected.kind]" />
         </span>
-        <div class="min-w-0">
-          <p class="truncate text-xl font-semibold">{{ selected.rdn }}</p>
-          <p class="truncate font-mono text-xs text-muted">{{ selected.dn }}</p>
-        </div>
+        <AnimatePresence mode="wait" :initial="false">
+          <Motion
+            :key="selected.dn"
+            class="min-w-0"
+            :initial="{ opacity: 0, x: 6 }"
+            :animate="{ opacity: 1, x: 0 }"
+            :exit="{ opacity: 0 }"
+            :transition="{ type: 'spring', bounce: 0, duration: 0.25 }">
+            <p class="truncate text-lg font-semibold">{{ selected.rdn }}</p>
+            <p class="truncate text-xs text-fg/50">{{ selected.dn }}</p>
+          </Motion>
+        </AnimatePresence>
       </div>
 
-      <table class="mt-6 w-full text-left text-sm">
-        <thead>
-          <tr class="border-b border-line text-xs text-muted">
-            <th class="py-2 pr-4 font-medium">{{ t('attribute') }}</th>
-            <th class="py-2 font-medium">{{ t('value') }}</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr
-            v-for="([name, value], index) in selected.attributes"
-            :key="index"
-            class="even:bg-bg-deep/50">
-            <td class="py-2 pr-4 font-mono text-xs text-accent-ink">{{ name }}</td>
-            <td class="py-2 font-mono text-xs break-all">{{ value }}</td>
-          </tr>
-        </tbody>
-      </table>
+      <div
+        aria-hidden="true"
+        class="flex items-center gap-4 border-b border-black/40 px-4 py-2 text-base text-fg/55 sm:px-5">
+        <Icon name="ph:plus" />
+        <Icon name="ph:pencil-simple" />
+        <Icon name="ph:trash" />
+        <span class="h-4 w-px bg-white/10" />
+        <Icon name="ph:arrow-bend-up-right" />
+        <Icon name="ph:copy" />
+        <Icon name="ph:export" />
+        <span class="h-4 w-px bg-white/10" />
+        <Icon name="ph:arrow-clockwise" />
+      </div>
+
+      <div class="min-h-0 flex-1 overflow-y-auto px-2 py-2 sm:px-3">
+        <table class="w-full table-fixed text-left text-[0.8rem]">
+          <thead>
+            <tr class="text-xs text-fg/60">
+              <th class="w-2/5 px-2 py-1.5 font-semibold">{{ t('attribute') }}</th>
+              <th class="px-2 py-1.5 font-semibold">{{ t('value') }}</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr
+              v-for="([name, value], index) in selected.attributes"
+              :key="`${selected.dn}-${index}`"
+              class="even:bg-white/[0.04]">
+              <td class="truncate rounded-l-md px-2 py-1.5">{{ name }}</td>
+              <td class="truncate rounded-r-md px-2 py-1.5 text-fg/85">{{ value }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 </template>
@@ -120,12 +138,12 @@
 <i18n lang="json">
 {
   "en": {
-    "filter": "Filter the tree",
+    "filter": "Search",
     "attribute": "Attribute",
     "value": "Value"
   },
   "pt": {
-    "filter": "Filtrar a árvore",
+    "filter": "Buscar",
     "attribute": "Atributo",
     "value": "Valor"
   }

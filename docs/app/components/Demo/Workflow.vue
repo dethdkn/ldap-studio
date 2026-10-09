@@ -26,33 +26,40 @@
 </script>
 
 <template>
-  <div class="glass rounded-3xl p-5 sm:p-7">
+  <div class="card p-6 sm:p-8">
     <div class="flex flex-wrap items-center justify-between gap-4">
-      <p class="font-mono text-xs text-muted">{{ t('title') }}</p>
+      <p class="text-sm font-semibold">{{ t('title') }}</p>
       <Segmented v-model="mode" :items="modes" :label="t('title')" />
     </div>
 
-    <ol class="mt-6 space-y-2">
-      <AnimatePresence mode="popLayout" :initial="false">
+    <div class="mt-6 min-h-[17.5rem]">
+      <AnimatePresence mode="wait" :initial="false">
         <Motion
-          v-for="(step, index) in steps"
-          :key="mode + step.text"
-          as="li"
-          layout
-          class="flex items-center gap-4 rounded-2xl border border-line bg-surface-solid/60 px-4 py-3.5"
-          :initial="{ opacity: 0, x: mode === 'now' ? 24 : -24 }"
-          :animate="{ opacity: 1, x: 0 }"
-          :exit="{ opacity: 0, scale: 0.96 }"
-          :transition="{ type: 'spring', bounce: 0, duration: 0.5, delay: index * 0.05 }">
-          <span class="w-5 font-mono text-xs text-muted">{{ index + 1 }}</span>
-          <Icon
-            :name="step.icon"
-            class="text-xl"
-            :class="mode === 'now' ? 'text-accent' : 'text-muted'" />
-          <span class="text-[0.95rem]">{{ step.text }}</span>
+          :key="mode"
+          as="ol"
+          class="space-y-2"
+          :initial="{ opacity: 0 }"
+          :animate="{ opacity: 1 }"
+          :exit="{ opacity: 0 }"
+          :transition="{ duration: 0.18 }">
+          <Motion
+            v-for="(step, index) in steps"
+            :key="step.text"
+            as="li"
+            class="flex items-center gap-4 rounded-2xl bg-surface-solid px-4 py-3.5"
+            :initial="{ opacity: 0, y: 10 }"
+            :animate="{ opacity: 1, y: 0 }"
+            :transition="{ type: 'spring', bounce: 0, duration: 0.5, delay: index * 0.06 }">
+            <span class="w-4 text-xs text-muted tabular-nums">{{ index + 1 }}</span>
+            <Icon
+              :name="step.icon"
+              class="text-xl"
+              :class="mode === 'now' ? 'text-accent' : 'text-muted'" />
+            <span class="text-[0.95rem]">{{ step.text }}</span>
+          </Motion>
         </Motion>
       </AnimatePresence>
-    </ol>
+    </div>
   </div>
 </template>
 

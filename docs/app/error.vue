@@ -14,16 +14,16 @@
 
 <template>
   <NuxtLayout>
-    <section
-      class="mx-auto flex min-h-svh max-w-2xl flex-col items-start justify-center px-4 py-32 sm:px-8">
-      <p class="font-mono text-xs text-signal">
-        ldap_result: {{ notFound ? '32 noSuchObject' : '80 other' }}
-      </p>
-      <h1 class="type-display mt-6 text-6xl sm:text-7xl">
-        {{ notFound ? t('not_found') : t('failed') }}
-      </h1>
-      <p class="mt-6 text-lg text-muted">{{ notFound ? t('not_found_text') : t('failed_text') }}</p>
-      <Button to="/" icon="ph:arrow-left" class="mt-10">{{ t('back') }}</Button>
+    <section data-tone="dark" class="tone-dark bg-bg text-fg">
+      <div
+        class="mx-auto flex min-h-svh max-w-2xl flex-col items-center justify-center px-5 py-32 text-center sm:px-8">
+        <p class="font-mono text-xs text-signal">
+          ldap_result: {{ notFound ? '32 noSuchObject' : '80 other' }}
+        </p>
+        <h1 class="type-hero mt-6">{{ notFound ? t('not_found') : t('failed') }}</h1>
+        <p class="type-lead mt-6">{{ notFound ? t('not_found_text') : t('failed_text') }}</p>
+        <Button to="/" variant="link" class="mt-8">{{ t('back') }}</Button>
+      </div>
     </section>
   </NuxtLayout>
 </template>

@@ -13,10 +13,10 @@
 </script>
 
 <template>
-  <PageSection id="faq">
+  <PageSection name="faq" tone="gray">
     <div class="grid grid-cols-1 gap-12 lg:grid-cols-[0.8fr_1.2fr]">
-      <SectionHeading rdn="ou=faq" :title="t('title')" />
-      <Reveal :delay="0.1" class="glass rounded-3xl px-6 sm:px-8">
+      <SectionHeading :title="t('title')" />
+      <Reveal :delay="0.1" class="card px-6 sm:px-9">
         <Accordion :items="questions" />
       </Reveal>
     </div>

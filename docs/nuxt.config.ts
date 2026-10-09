@@ -18,10 +18,7 @@ export default defineNuxtConfig({
   app: {
     head: {
       templateParams: { separator: '•' },
-      meta: [
-        { name: 'theme-color', content: '#f2f5fb', media: '(prefers-color-scheme: light)' },
-        { name: 'theme-color', content: '#060a17', media: '(prefers-color-scheme: dark)' },
-      ],
+      meta: [{ name: 'theme-color', content: '#000000' }],
     },
   },
   css: ['~/assets/main.css'],
@@ -32,32 +29,11 @@ export default defineNuxtConfig({
   compatibilityDate: '2026-09-30',
   vite: {
     plugins: [tailwindcss()],
-    optimizeDeps: {
-      include: [
-        'three',
-        'three/addons/environments/RoomEnvironment.js',
-        'three/addons/geometries/RoundedBoxGeometry.js',
-        'three/addons/loaders/SVGLoader.js',
-      ],
-    },
   },
   fonts: {
     families: [
-      {
-        name: 'Mona Sans',
-        provider: 'google',
-        weights: ['200 900'],
-        styles: ['normal'],
-        subsets: ['latin', 'latin-ext'],
-        providerOptions: { google: { experimental: { variableAxis: { wdth: [['75', '125']] } } } },
-      },
-      {
-        name: 'Martian Mono',
-        provider: 'google',
-        weights: ['300 600'],
-        styles: ['normal'],
-        subsets: ['latin'],
-      },
+      { name: 'Inter', provider: 'google', weights: ['400 700'], subsets: ['latin', 'latin-ext'] },
+      { name: 'JetBrains Mono', provider: 'google', weights: ['400 600'], subsets: ['latin'] },
     ],
   },
   i18n: {

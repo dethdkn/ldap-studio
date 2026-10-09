@@ -13,9 +13,9 @@
   <button
     type="button"
     :aria-label="t('switch')"
-    class="flex h-9 items-center gap-1.5 rounded-full px-3 font-mono text-xs text-muted transition hover:bg-accent-soft hover:text-fg active:scale-95"
+    class="flex h-8 shrink-0 items-center gap-1 rounded-full px-2 text-xs text-fg/70 transition hover:text-fg active:scale-95"
     @click="toggleLocale">
-    <Icon name="ph:translate" class="text-base" />
+    <Icon name="ph:globe-simple" class="text-base" />
     {{ next.toUpperCase() }}
   </button>
 </template>
