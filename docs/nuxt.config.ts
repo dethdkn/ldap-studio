@@ -6,7 +6,6 @@ export default defineNuxtConfig({
     '@nuxtjs/seo',
     '@nuxtjs/i18n',
     '@vueuse/nuxt',
-    'nuxt-security',
     '@nuxt/a11y',
     '@nuxt/hints',
     '@nuxt/fonts',
@@ -41,6 +40,24 @@ export default defineNuxtConfig({
       ],
     },
   },
+  nitro: {
+    preset: 'cloudflare_module',
+    cloudflare: {
+      deployConfig: true,
+      nodeCompat: true,
+      wrangler: {
+        name: 'ldap-studio',
+        workers_dev: false,
+        kv_namespaces: [{ binding: 'KV', id: '2ad76e1b473f4691ab3cc449fcb7a59c' }],
+        observability: { logs: { enabled: true, head_sampling_rate: 1, invocation_logs: true } },
+      },
+    },
+    imports: {
+      imports: [
+        { name: 'destr', from: 'destr' },
+      ],
+    },
+  },
   fonts: {
     families: [
       {
@@ -71,23 +88,4 @@ export default defineNuxtConfig({
     serverBundle: { collections: ['ph', 'simple-icons'] },
   },
   linkChecker: { enabled: false },
-  security: {
-    headers: {
-      contentSecurityPolicy: {
-        'img-src': ["'self'", 'data:', 'blob:', 'https:'],
-        'script-src': [
-          "'self'",
-          'https:',
-          "'unsafe-inline'",
-          "'strict-dynamic'",
-          "'nonce-{{nonce}}'",
-          "'wasm-unsafe-eval'",
-        ],
-        'worker-src': ["'self'", 'blob:'],
-        'frame-src': ["'self'"],
-        'object-src': ["'self'"],
-      },
-      crossOriginEmbedderPolicy: false,
-    },
-  },
 })
