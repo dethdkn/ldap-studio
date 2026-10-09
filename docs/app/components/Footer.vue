@@ -3,7 +3,7 @@
 
   const links = computed(() => [
     { label: 'GitHub', to: LINKS.repo },
-    { label: t('releases'), to: LINKS.download },
+    { label: t('releases'), to: LINKS.releases },
     { label: t('issues'), to: LINKS.issues },
     { label: t('sponsor'), to: LINKS.sponsor },
     { label: t('license'), to: LINKS.license },
@@ -23,6 +23,9 @@
       </div>
 
       <nav :aria-label="t('links')" class="flex flex-wrap gap-x-6 gap-y-2 text-sm text-muted">
+        <NuxtLinkLocale to="/changelog" class="transition hover:text-fg">
+          {{ t('changelog') }}
+        </NuxtLinkLocale>
         <NuxtLink
           v-for="link in links"
           :key="link.to"
@@ -50,6 +53,7 @@
   "en": {
     "tagline": "A native macOS LDAP client",
     "links": "Project links",
+    "changelog": "Changelog",
     "releases": "Releases",
     "issues": "Report a bug",
     "sponsor": "Sponsor",
@@ -59,6 +63,7 @@
   "pt": {
     "tagline": "Um cliente LDAP nativo para macOS",
     "links": "Links do projeto",
+    "changelog": "Changelog",
     "releases": "Versões",
     "issues": "Reportar um bug",
     "sponsor": "Patrocinar",

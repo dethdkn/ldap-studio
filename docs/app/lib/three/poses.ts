@@ -40,9 +40,12 @@ const NARROW: Record<PoseName, Pose> = {
 }
 
 const NAMED_POSES: PoseName[] = ['top', 'faq', 'download']
+const POSE_ALIASES: Partial<Record<string, PoseName>> = { contributors: 'faq', changelog: 'faq' }
 
 function poseName(branch: string | null): PoseName {
-  return NAMED_POSES.find((name) => name === (branch ?? 'top')) ?? 'tree'
+  const alias = branch ? POSE_ALIASES[branch] : undefined
+
+  return alias ?? NAMED_POSES.find((name) => name === (branch ?? 'top')) ?? 'tree'
 }
 
 function poseFor(branch: string | null, narrow: boolean): Pose {

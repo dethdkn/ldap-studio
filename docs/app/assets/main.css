@@ -96,6 +96,36 @@
     @apply border border-line bg-surface shadow-[0_1px_0_rgb(255_255_255/0.5)_inset,0_24px_48px_-24px_rgb(10_20_48/0.25)] backdrop-blur-xl backdrop-saturate-150;
   }
 
+  .release-notes {
+    @apply space-y-3 leading-relaxed text-pretty text-muted;
+
+    & h1,
+    & h2,
+    & h3 {
+      @apply pt-2 text-lg font-semibold text-fg;
+    }
+
+    & ul {
+      @apply list-disc space-y-1.5 pl-5 marker:text-accent;
+    }
+
+    & ol {
+      @apply list-decimal space-y-1.5 pl-5;
+    }
+
+    & a {
+      @apply text-accent-ink underline decoration-accent/30 underline-offset-2 transition hover:decoration-accent;
+    }
+
+    & code {
+      @apply rounded-md bg-accent-soft px-1.5 py-0.5 font-mono text-[0.8em] text-fg;
+    }
+
+    & strong {
+      @apply text-fg;
+    }
+  }
+
   @media (prefers-reduced-transparency: reduce) {
     .glass {
       @apply bg-surface-solid backdrop-blur-none;
@@ -115,6 +145,24 @@
 @keyframes collapse {
   from {
     height: var(--reka-accordion-content-height);
+  }
+  to {
+    height: 0;
+  }
+}
+
+@keyframes expand-collapsible {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--reka-collapsible-content-height);
+  }
+}
+
+@keyframes collapse-collapsible {
+  from {
+    height: var(--reka-collapsible-content-height);
   }
   to {
     height: 0;

@@ -18,6 +18,7 @@
     <HomeInstall />
     <HomeGuide />
     <HomeFaq />
+    <HomeContributors />
     <HomeDownload />
   </div>
 </template>

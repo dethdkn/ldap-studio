@@ -26,6 +26,7 @@ const OUTLINE: Branch[] = [
   { id: 'install', entries: ['download', 'move', 'allow', 'unblock'] },
   { id: 'guide', entries: ['connect', 'shortcuts'] },
   { id: 'faq', entries: [] },
+  { id: 'contributors', entries: [] },
 ]
 
 function dnOf(branchId: string | null, entryId: string | null = null): string[] {

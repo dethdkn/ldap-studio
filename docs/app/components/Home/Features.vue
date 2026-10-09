@@ -8,6 +8,7 @@
       title: t('browse_title'),
       text: t('browse_text'),
       points: [t('browse_p1'), t('browse_p2'), t('browse_p3')],
+      example: 'dc=example,dc=org\n└─ ou=people  (128)\n   └─ uid=alice',
     },
     {
       entry: 'search',
@@ -15,6 +16,7 @@
       title: t('search_title'),
       text: t('search_text'),
       points: [t('search_p1'), t('search_p2'), t('search_p3')],
+      example: '(&(objectClass=inetOrgPerson)\n  (mail=*@example.org))',
     },
     {
       entry: 'edit',
@@ -22,6 +24,7 @@
       title: t('edit_title'),
       text: t('edit_text'),
       points: [t('edit_p1'), t('edit_p2'), t('edit_p3')],
+      example: '  mail: alice@example.org\n+ telephoneNumber: +55 21 5555-0100',
     },
     {
       entry: 'passwords',
@@ -29,6 +32,7 @@
       title: t('passwords_title'),
       text: t('passwords_text'),
       points: [t('passwords_p1'), t('passwords_p2'), t('passwords_p3')],
+      example: 'userPassword:\n  {PBKDF2-SHA512}100000$Zk3q…$9xQe…',
     },
     {
       entry: 'ldif',
@@ -36,6 +40,8 @@
       title: t('ldif_title'),
       text: t('ldif_text'),
       points: [t('ldif_p1'), t('ldif_p2'), t('ldif_p3')],
+      example:
+        'dn: uid=alice,ou=people,dc=example,dc=org\nchangetype: modify\nreplace: title\ntitle: Directory admin',
     },
     {
       entry: 'schema',
@@ -43,6 +49,7 @@
       title: t('schema_title'),
       text: t('schema_text'),
       points: [t('schema_p1'), t('schema_p2')],
+      example: 'inetOrgPerson\n→ organizationalPerson → person → top',
     },
     {
       entry: 'connections',
@@ -50,6 +57,7 @@
       title: t('connections_title'),
       text: t('connections_text'),
       points: [t('connections_p1'), t('connections_p2'), t('connections_p3')],
+      example: 'ldaps://ldap.example.org:636\nbind: cn=admin,dc=example,dc=org',
     },
     {
       entry: 'photos',
@@ -57,6 +65,7 @@
       title: t('photos_title'),
       text: t('photos_text'),
       points: [t('photos_p1')],
+      example: 'photo.png  1920×1080\n→ jpegPhoto  300×300 JPEG',
     },
     {
       entry: 'server',
@@ -64,6 +73,7 @@
       title: t('server_title'),
       text: t('server_text'),
       points: [t('server_p1'), t('server_p2'), t('server_p3')],
+      example: 'supportedLDAPVersion: 3\nsupportedControl: 1.2.840.113556.1.4.319',
     },
   ])
 </script>

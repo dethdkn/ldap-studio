@@ -5,6 +5,7 @@
     title: { type: String, required: true },
     text: { type: String, required: true },
     points: { type: Array as PropType<string[]>, default: () => [] },
+    example: { type: String, default: '' },
   })
 
   const { focusEntry } = useSections()
@@ -22,6 +23,11 @@
 
       <h3 class="type-title mt-6 text-xl">{{ title }}</h3>
       <p class="mt-3 mb-6 leading-relaxed text-muted">{{ text }}</p>
+
+      <pre
+        v-if="example"
+        class="mb-6 overflow-x-auto rounded-2xl border border-line bg-bg-deep/60 px-4 py-3 font-mono text-[0.7rem] leading-relaxed text-accent-ink"
+        >{{ example }}</pre>
 
       <ul class="mt-auto space-y-2 border-t border-line pt-5">
         <li v-for="point in points" :key="point" class="flex items-start gap-2.5 text-sm">

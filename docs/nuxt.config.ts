@@ -1,8 +1,4 @@
-import process from 'node:process'
-
 import tailwindcss from '@tailwindcss/vite'
-
-const { DEV_URL, DEV_KEY, DEV_CERT } = process.env
 
 export default defineNuxtConfig({
   modules: [
@@ -11,8 +7,6 @@ export default defineNuxtConfig({
     '@nuxtjs/i18n',
     '@vueuse/nuxt',
     'nuxt-security',
-    '@vercel/analytics',
-    '@vercel/speed-insights',
     '@nuxt/a11y',
     '@nuxt/hints',
     '@nuxt/fonts',
@@ -34,10 +28,6 @@ export default defineNuxtConfig({
   site: {
     name: 'LDAP Studio',
     description: 'A native macOS LDAP client for browsing, searching and editing LDAP directories.',
-  },
-  devServer: {
-    host: DEV_URL,
-    https: DEV_KEY && DEV_CERT ? { key: DEV_KEY, cert: DEV_CERT } : undefined,
   },
   compatibilityDate: '2026-09-30',
   vite: {

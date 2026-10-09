@@ -15,6 +15,16 @@ xcuserdata/
 core/build/
 core/compile_commands.json
 
+# Nuxt
+node_modules
+.nuxt
+.output
+.nitro
+.data
+.cache
+.vercel
+*.log
+
 # Misc
 dist
 tmp

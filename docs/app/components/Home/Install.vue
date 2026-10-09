@@ -32,14 +32,12 @@
             <div class="min-w-0 flex-1">
               <h3 class="text-lg font-semibold">{{ step.title }}</h3>
               <p class="mt-2 leading-relaxed text-muted">{{ step.text }}</p>
-              <Button
+              <DownloadButton
                 v-if="step.entry === 'download'"
-                :to="LINKS.download"
-                external
                 icon="ph:download-simple-bold"
                 class="mt-5">
                 {{ t('download_button') }}
-              </Button>
+              </DownloadButton>
               <CommandLine
                 v-if="step.entry === 'unblock'"
                 :command="UNBLOCK_COMMAND"
@@ -90,8 +88,8 @@
     "title": "Install it in four steps.",
     "lead": "LDAP Studio ships as a zipped app on GitHub. No installer, no account.",
     "download_title": "Download the latest release",
-    "download_text": "Get the ldap-studio zip file from the Releases page on GitHub.",
-    "download_button": "Open Releases",
+    "download_text": "Get the ldap-studio zip file of the latest version, published on GitHub Releases.",
+    "download_button": "Download the zip",
     "move_title": "Move it to Applications",
     "move_text": "Unzip the file and drag ldap-studio.app into your Applications folder.",
     "allow_title": "Allow it to open",
@@ -110,8 +108,8 @@
     "title": "Instale em quatro passos.",
     "lead": "O LDAP Studio é distribuído como um app zipado no GitHub. Sem instalador, sem conta.",
     "download_title": "Baixe a versão mais recente",
-    "download_text": "Pegue o arquivo zip do ldap-studio na página de Releases do GitHub.",
-    "download_button": "Abrir Releases",
+    "download_text": "Pegue o arquivo zip do ldap-studio da versão mais recente, publicado no GitHub Releases.",
+    "download_button": "Baixar o zip",
     "move_title": "Mova para Aplicativos",
     "move_text": "Descompacte o arquivo e arraste o ldap-studio.app para a pasta Aplicativos.",
     "allow_title": "Permita que ele abra",

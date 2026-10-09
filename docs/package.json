@@ -27,8 +27,6 @@
     "@nuxtjs/seo": "5.3.12",
     "@tailwindcss/vite": "^4.3.3",
     "@takumi-rs/core": "^2.9.0",
-    "@vercel/analytics": "^2.0.1",
-    "@vercel/speed-insights": "^2.0.0",
     "@vueuse/nuxt": "^14.4.0",
     "motion-v": "^2.5.1",
     "nuxt": "4.5.2",

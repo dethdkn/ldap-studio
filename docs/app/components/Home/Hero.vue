@@ -74,7 +74,7 @@
       </Reveal>
 
       <Reveal :delay="0.6" class="mt-10 flex flex-wrap gap-3">
-        <Button :to="LINKS.download" external icon="ph:apple-logo-fill">{{ t('download') }}</Button>
+        <DownloadButton>{{ t('download') }}</DownloadButton>
         <Button :to="LINKS.repo" external icon="ph:github-logo" variant="ghost">{{
           t('source')
         }}</Button>
