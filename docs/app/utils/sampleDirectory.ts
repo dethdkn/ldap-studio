@@ -1,10 +1,16 @@
 type EntryKind = 'domain' | 'unit' | 'person' | 'group' | 'service'
 
+interface SamplePhoto {
+  initials: string
+  hue: number
+}
+
 interface SampleEntry {
   rdn: string
   dn: string
   kind: EntryKind
   attributes: [string, string][]
+  photo?: SamplePhoto
   children: SampleEntry[]
 }
 
@@ -12,18 +18,26 @@ type EntrySeed = Omit<SampleEntry, 'dn' | 'children'> & { children?: EntrySeed[]
 
 const BASE = 'dc=example,dc=org'
 
-function person(uid: string, name: string, title: string): EntrySeed {
+function person(uid: string, name: string, title: string, hue: number): EntrySeed {
+  const [givenName = name, ...rest] = name.split(' ')
+  const sn = rest.at(-1) ?? name
+
   return {
     rdn: `uid=${uid}`,
     kind: 'person',
     attributes: [
       ['objectClass', 'inetOrgPerson'],
       ['cn', name],
-      ['sn', name.split(' ').at(-1) ?? name],
+      ['displayName', name],
+      ['givenName', givenName],
+      ['sn', sn],
       ['title', title],
       ['mail', `${uid}@example.org`],
+      ['uid', uid],
+      ['jpegPhoto', 'JPEG image'],
       ['userPassword', '{PBKDF2-SHA512}100000$…'],
     ],
+    photo: { initials: `${givenName[0] ?? ''}${sn[0] ?? ''}`, hue },
   }
 }
 
@@ -75,10 +89,10 @@ const SEED: EntrySeed = {
   ],
   children: [
     unit('people', 'Everyone with an account', [
-      person('ada', 'Ada Lovelace', 'Analyst'),
-      person('alan', 'Alan Turing', 'Researcher'),
-      person('grace', 'Grace Hopper', 'Engineer'),
-      person('katherine', 'Katherine Johnson', 'Mathematician'),
+      person('ada', 'Ada Lovelace', 'Analyst', 330),
+      person('alan', 'Alan Turing', 'Researcher', 200),
+      person('grace', 'Grace Hopper', 'Engineer', 150),
+      person('katherine', 'Katherine Johnson', 'Mathematician', 30),
     ]),
     unit('groups', 'Access groups for internal tools', [
       group('admins', ['grace']),
@@ -97,7 +111,27 @@ function withDn(seed: EntrySeed, parentDn: string | null): SampleEntry {
   return { ...seed, dn, children: (seed.children ?? []).map((child) => withDn(child, dn)) }
 }
 
-const SAMPLE_DIRECTORY: SampleEntry = withDn(SEED, null)
+function flatten(entry: SampleEntry): SampleEntry[] {
+  return [entry, ...entry.children.flatMap(flatten)]
+}
+
+// Mirror every group's member values as memberOf on the people, like the server does
+function withMemberOf(root: SampleEntry): SampleEntry {
+  const entries = flatten(root)
+  const groupEntries = entries.filter((entry) => entry.kind === 'group')
+
+  for (const entry of entries) {
+    for (const groupEntry of groupEntries) {
+      if (groupEntry.attributes.some(([name, value]) => name === 'member' && value === entry.dn)) {
+        entry.attributes.push(['memberOf', groupEntry.dn])
+      }
+    }
+  }
+
+  return root
+}
+
+const SAMPLE_DIRECTORY: SampleEntry = withMemberOf(withDn(SEED, null))
 
 function filterDirectory(entry: SampleEntry, query: string): SampleEntry | null {
   if (entry.rdn.toLowerCase().includes(query.toLowerCase())) return entry
@@ -113,5 +147,5 @@ function collectDns(entry: SampleEntry): string[] {
   return [entry.dn, ...entry.children.flatMap(collectDns)]
 }
 
-export type { EntryKind, SampleEntry }
+export type { EntryKind, SampleEntry, SamplePhoto }
 export { collectDns, filterDirectory, SAMPLE_DIRECTORY }

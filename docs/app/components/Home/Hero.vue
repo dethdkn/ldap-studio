@@ -68,9 +68,7 @@
         :style="reducedMotion ? { opacity: 0.8 } : { opacity: glow }"
         class="pointer-events-none absolute inset-x-[10%] top-[8%] bottom-0 rounded-full bg-[radial-gradient(closest-side,rgb(41_151_255/0.55),rgb(122_108_255/0.25)_55%,transparent)] blur-3xl" />
       <Motion :style="windowStyle" class="relative origin-top will-change-transform">
-        <AppWindow :title="t('window_title')">
-          <DemoTree />
-        </AppWindow>
+        <DemoTree :title="t('window_title')" />
       </Motion>
       <p class="mt-6 flex items-center justify-center gap-2 text-xs text-muted">
         <Icon name="ph:cursor-click" class="text-sm" />
@@ -99,8 +97,8 @@
     "lead": "Browse, search and edit any LDAP directory in a fast SwiftUI app built on OpenLDAP. No Java runtime, no Windows VM, no ldapsearch one-liners.",
     "download": "Download for macOS",
     "source": "Source on GitHub",
-    "requirements": "macOS 26 or later · Apple Silicon · free and open source (MIT)",
-    "window_title": "LDAP Studio — Example Research Lab",
+    "requirements": "macOS 27 or later · Apple Silicon · free and open source (MIT)",
+    "window_title": "LDAP Studio - Example Research Lab",
     "hint": "This window works. Expand the tree, pick an entry, search.",
     "more": "Why it exists"
   },
@@ -111,8 +109,8 @@
     "lead": "Navegue, pesquise e edite qualquer diretório LDAP num app SwiftUI rápido, construído sobre o OpenLDAP. Sem runtime Java, sem VM com Windows, sem decorar comandos do ldapsearch.",
     "download": "Baixar para macOS",
     "source": "Código no GitHub",
-    "requirements": "macOS 26 ou superior · Apple Silicon · gratuito e open source (MIT)",
-    "window_title": "LDAP Studio — Example Research Lab",
+    "requirements": "macOS 27 ou superior · Apple Silicon · gratuito e open source (MIT)",
+    "window_title": "LDAP Studio - Example Research Lab",
     "hint": "Esta janela funciona. Abra a árvore, escolha uma entrada, pesquise.",
     "more": "Por que ele existe"
   }

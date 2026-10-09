@@ -22,6 +22,7 @@ export default defineNuxtConfig({
   },
   css: ['~/assets/main.css'],
   site: {
+    url: 'https://ldap-studio.app/',
     name: 'LDAP Studio',
     description: 'A native macOS LDAP client for browsing, searching and editing LDAP directories.',
   },
@@ -41,6 +42,7 @@ export default defineNuxtConfig({
       wrangler: {
         name: 'ldap-studio',
         workers_dev: false,
+        route: 'ldap-studio.app/*',
         kv_namespaces: [{ binding: 'KV', id: '2ad76e1b473f4691ab3cc449fcb7a59c' }],
         triggers: { crons: ['0 */3 * * *'] },
         observability: { logs: { enabled: true, head_sampling_rate: 1, invocation_logs: true } },

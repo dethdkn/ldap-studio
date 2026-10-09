@@ -46,7 +46,7 @@
 {
   "en": {
     "eyebrow": "Why it exists",
-    "story": "LDAP Studio started at CBPF, the Brazilian research center where its author works. The only client that handled their directory well was LDAP Admin: Windows-only and not updated in years. Every lookup meant booting a virtual machine. So we built the Mac app we wanted.",
+    "story": "LDAP Studio started at CBPF, the Brazilian research center where its author works. The only real LDAP client available was LDAP Admin: Windows-only and not updated in years, and every lookup meant booting a virtual machine just to open it. So its author built a native one for macOS.",
     "compare_title": "From five steps to two.",
     "compare_lead": "Flip between before and after to see what editing a single entry used to take.",
     "native_title": "Native, not ported",
@@ -58,7 +58,7 @@
   },
   "pt": {
     "eyebrow": "Por que ele existe",
-    "story": "O LDAP Studio começou no CBPF, o centro de pesquisa onde seu autor trabalha. O único cliente que dava conta do diretório de lá era o LDAP Admin: só para Windows e sem atualização há anos. Cada consulta exigia ligar uma máquina virtual. Então fizemos o app para Mac que a gente queria.",
+    "story": "O LDAP Studio começou no CBPF, o centro de pesquisa onde seu autor trabalha. O único cliente LDAP de verdade disponível era o LDAP Admin: só para Windows e sem atualização há anos, então cada consulta exigia ligar uma máquina virtual só para abri-lo. Por isso o autor fez o seu próprio, nativo para macOS.",
     "compare_title": "De cinco passos para dois.",
     "compare_lead": "Alterne entre antes e depois para ver o que editar uma única entrada exigia.",
     "native_title": "Nativo, não adaptado",
