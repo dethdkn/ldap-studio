@@ -1,5 +1,6 @@
 <script setup lang="ts">
   const { t, locale } = useI18n({ useScope: 'local' })
+  const { releases } = useGitHub()
 
   useHead({ title: t('title') })
   useSeoMeta({ description: t('description') })
@@ -13,7 +14,7 @@
     </div>
 
     <ol class="mt-20 divide-y divide-line border-t border-line">
-      <Reveal v-for="(release, index) in RELEASES" :key="release.version" as="li">
+      <Reveal v-for="(release, index) in releases" :key="release.version" as="li">
         <article class="grid gap-6 py-12 md:grid-cols-[13rem_1fr] md:gap-12">
           <header class="md:sticky md:top-24 md:self-start">
             <div class="flex items-center gap-3">

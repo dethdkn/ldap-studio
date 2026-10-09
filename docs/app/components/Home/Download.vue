@@ -10,8 +10,12 @@
   const iconScale = useTransform(scrollYProgress, [0, 1], [0.55, 1])
   const iconRotate = useTransform(scrollYProgress, [0, 1], [-12, 0])
 
-  const older = RELEASES.slice(1).flatMap(({ version, date, file }) =>
-    file ? [{ version, date, file }] : [],
+  const { releases, latestRelease } = useGitHub()
+
+  const older = computed(() =>
+    releases.value
+      .slice(1)
+      .flatMap(({ version, date, file }) => (file ? [{ version, date, file }] : [])),
   )
 </script>
 
@@ -43,9 +47,9 @@
       </Reveal>
 
       <Reveal :delay="0.25">
-        <p v-if="LATEST_RELEASE?.file" class="mt-6 text-xs text-muted tabular-nums">
-          {{ LATEST_RELEASE.file.name }} · {{ formatSize(LATEST_RELEASE.file.size) }} ·
-          {{ formatDate(LATEST_RELEASE.date, locale) }}
+        <p v-if="latestRelease?.file" class="mt-6 text-xs text-muted tabular-nums">
+          {{ latestRelease.file.name }} · {{ formatSize(latestRelease.file.size) }} ·
+          {{ formatDate(latestRelease.date, locale) }}
         </p>
       </Reveal>
 

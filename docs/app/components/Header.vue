@@ -2,6 +2,7 @@
   const { t } = useI18n({ useScope: 'local' })
   const tone = useHeaderTone()
   const { scrollToSection } = useSectionScroll()
+  const { latestRelease } = useGitHub()
 
   const sections = computed<{ name: SectionName; label: string }[]>(() => [
     { name: 'features', label: t('features') },
@@ -52,7 +53,7 @@
         <Icon name="ph:heart-fill" class="text-base" />
       </NuxtLink>
       <NuxtLink
-        :to="LATEST_RELEASE?.file?.url ?? LINKS.download"
+        :to="latestRelease?.file?.url ?? LINKS.download"
         external
         target="_blank"
         class="ml-1 flex h-7 shrink-0 items-center rounded-full bg-accent px-3.5 text-xs text-white transition hover:bg-[#0077ed] active:scale-95">

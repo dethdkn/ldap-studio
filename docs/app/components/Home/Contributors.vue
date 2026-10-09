@@ -1,5 +1,6 @@
 <script setup lang="ts">
   const { t } = useI18n({ useScope: 'local' })
+  const { contributors } = useGitHub()
 </script>
 
 <template>
@@ -8,7 +9,7 @@
 
     <ul class="mt-16 flex flex-wrap justify-center gap-5">
       <Reveal
-        v-for="(contributor, index) in CONTRIBUTORS"
+        v-for="(contributor, index) in contributors"
         :key="contributor.login"
         as="li"
         :delay="index * 0.06"
@@ -29,7 +30,7 @@
           <p class="mt-0.5 text-xs text-muted">{{ t('commits', contributor.contributions) }}</p>
         </NuxtLink>
       </Reveal>
-      <Reveal as="li" :delay="CONTRIBUTORS.length * 0.06" class="w-44">
+      <Reveal as="li" :delay="contributors.length * 0.06" class="w-44">
         <NuxtLink
           :to="LINKS.repo"
           external

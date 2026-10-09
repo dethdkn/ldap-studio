@@ -25,12 +25,16 @@ export default defineNuxtConfig({
     name: 'LDAP Studio',
     description: 'A native macOS LDAP client for browsing, searching and editing LDAP directories.',
   },
-  compatibilityDate: '2026-09-30',
-  vite: {
-    plugins: [tailwindcss()],
+  runtimeConfig: {
+    githubToken: '',
   },
+  compatibilityDate: '2026-09-30',
   nitro: {
     preset: 'cloudflare_module',
+    experimental: { tasks: true },
+    scheduledTasks: {
+      '0 */3 * * *': ['github:sync'],
+    },
     cloudflare: {
       deployConfig: true,
       nodeCompat: true,
@@ -38,14 +42,16 @@ export default defineNuxtConfig({
         name: 'ldap-studio',
         workers_dev: false,
         kv_namespaces: [{ binding: 'KV', id: '2ad76e1b473f4691ab3cc449fcb7a59c' }],
+        triggers: { crons: ['0 */3 * * *'] },
         observability: { logs: { enabled: true, head_sampling_rate: 1, invocation_logs: true } },
       },
     },
     imports: {
-      imports: [
-        { name: 'destr', from: 'destr' },
-      ],
+      imports: [{ name: 'destr', from: 'destr' }],
     },
+  },
+  vite: {
+    plugins: [tailwindcss()],
   },
   fonts: {
     families: [

@@ -2,15 +2,17 @@
   defineProps({
     icon: { type: String, default: 'ph:apple-logo-fill' },
   })
+
+  const { latestRelease } = useGitHub()
 </script>
 
 <template>
-  <Button :to="LATEST_RELEASE?.file?.url ?? LINKS.download" external :icon="icon">
+  <Button :to="latestRelease?.file?.url ?? LINKS.download" external :icon="icon">
     <slot />
     <span
-      v-if="LATEST_RELEASE"
+      v-if="latestRelease"
       class="rounded-full bg-white/20 px-2 py-0.5 font-mono text-[0.7rem] font-medium">
-      {{ LATEST_RELEASE.version }}
+      {{ latestRelease.version }}
     </span>
   </Button>
 </template>
