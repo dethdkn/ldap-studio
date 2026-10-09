@@ -1,0 +1,50 @@
+{
+  "name": "ldap-studio-docs",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "fmt": "oxfmt --check",
+    "fmt:fix": "oxfmt",
+    "lint": "oxlint --type-aware",
+    "lint:fix": "oxlint --type-aware --fix",
+    "typecheck": "nuxi typecheck --checker=golar"
+  },
+  "dependencies": {
+    "@iconify-json/ph": "^1.2.2",
+    "@iconify-json/simple-icons": "^1.2.99",
+    "@nuxt/a11y": "^1.0.0-alpha.1",
+    "@nuxt/fonts": "^0.14.0",
+    "@nuxt/hints": "^1.1.4",
+    "@nuxt/icon": "^2.5.1",
+    "@nuxt/image": "^2.1.0",
+    "@nuxtjs/i18n": "10.6.0",
+    "@nuxtjs/seo": "5.3.16",
+    "@tailwindcss/vite": "^4.3.3",
+    "@takumi-rs/core": "^2.14.0",
+    "@takumi-rs/wasm": "^2.14.0",
+    "@vueuse/nuxt": "^15.0.0",
+    "destr": "^2.0.5",
+    "motion-v": "^2.6.0",
+    "nuxt": "4.6.0",
+    "reka-ui": "^2.11.0",
+    "tailwindcss": "^4.3.3",
+    "vue": "^3.5.43",
+    "vue-router": "^5.4.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^5.20261009.1",
+    "@dethdkn/ox-config": "^1.0.26",
+    "@golar/vue": "^0.1.10",
+    "golar": "^0.1.10",
+    "nuxtseo-layer-devtools": "^5.3.16",
+    "typescript": "^7.0.2",
+    "wrangler": "^4.149.0"
+  },
+  "packageManager": "bun@1.4.2"
+}

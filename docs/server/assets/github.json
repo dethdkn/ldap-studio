@@ -1,0 +1,90 @@
+{
+  "stars": 10,
+  "releases": [
+    {
+      "version": "v1.3.0",
+      "url": "https://github.com/dethdkn/ldap-studio/releases/tag/v1.3.0",
+      "date": "2026-10-08T23:32:57Z",
+      "notes": "<p><a href=\"https://github.com/dethdkn/ldap-studio/commit/7cdbaebce262ed5b02d38c8b124cc8e175de1811\">🐛 Fix app icon</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/9ef9b1062ad37061fd1a697c351704d4e0f5b0f0\">✨ Optimize advanced search</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/9f4b512c4d0a24599df27eb7c90488f71195e702\">✨ Add pinned filters and search history</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/11dae5dda7cfbd0735835df3118ec5e179dd9d84\">✨ Add visual LDAP filter builder</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/82be5d007d29ed15685c2c05a02f76cffd053e25\">🔧 Update Xcode project settings for Xcode 27</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/1f4a2fd5686a9a5ca78632636b33b40e3ef1f98b\">✨ Add multi-select and drag-to-move</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/d7ef6e130f5316bf11277e2c88b5ebce6f3f770a\">✨ Add subtree export</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/64eb577549f09d6dcd48c6496ea614ce05417def\">✨ Add LDIF clipboard copy</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/d98d61cdadbe2996064caf27375f02729d01dfce\">✨ Add update check link</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/a62158eec942ea4d4f20716cf03fe48ed2313de0\">✨ Add SSH tunnel, SASL auth, and hard connect timeout</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/daea8dac2246aff838af05390f1e7282953ae71c\">✨ Add reload tree button and shortcut</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/3dce136641b5b6a8ce02bf9bd3eea9ddd73dc3f5\">🔖 Release 1.3.0</a></p>\n<p><strong>Full Changelog</strong>: <a class=\"commit-link\" href=\"https://github.com/dethdkn/ldap-studio/compare/v1.2.0...v1.3.0\"><tt>v1.2.0...v1.3.0</tt></a></p>",
+      "file": {
+        "name": "ldap-studio-v1.3.0.zip",
+        "size": 6217177,
+        "url": "https://github.com/dethdkn/ldap-studio/releases/download/v1.3.0/ldap-studio-v1.3.0.zip"
+      }
+    },
+    {
+      "version": "v1.2.0",
+      "url": "https://github.com/dethdkn/ldap-studio/releases/tag/v1.2.0",
+      "date": "2026-09-14T00:45:10Z",
+      "notes": "<p>This version focuses on inspection and diagnostics: schema jump-to lookups, Test Bind, Server Info, and a password-policy readout for locked or expiring accounts.</p>\n<p><a href=\"https://github.com/dethdkn/ldap-studio/commit/6bf3187179237becd8bd89c3d2ba15075a622460\">✨ Add server info panel</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/3f3f155d27d8c518d39ad399064a57956cdb2764\">✨ Add Test Bind</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/f6a244a4d16cb2e57ac80c779ac5263fb3cd5331\">✨ Add jump to schema</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/39cf009fd516513f89114388d745e191730abfc7\">✨ Add password-policy card</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/6e2db4d2b0137109d0e3df7a90397cccbad5f37e\">✨ Show entry's jpegPhoto in the detail header</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/14e134c1afd864d58de77876da3071dee6877bcd\">💄 Resize avatar to 32x32</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/e3231a553bb04be6adfb0505908b6dbfcef8509a\">🔖 Release 1.2.0</a></p>\n<p><strong>Full Changelog</strong>: <a class=\"commit-link\" href=\"https://github.com/dethdkn/ldap-studio/compare/v1.1.1...v1.2.0\"><tt>v1.1.1...v1.2.0</tt></a></p>",
+      "file": {
+        "name": "ldap-studio-v1.2.0.zip",
+        "size": 6692661,
+        "url": "https://github.com/dethdkn/ldap-studio/releases/download/v1.2.0/ldap-studio-v1.2.0.zip"
+      }
+    },
+    {
+      "version": "v1.1.1",
+      "url": "https://github.com/dethdkn/ldap-studio/releases/tag/v1.1.1",
+      "date": "2026-09-10T21:33:16Z",
+      "notes": "<p><a href=\"https://github.com/dethdkn/ldap-studio/commit/71cea7bebef59d4860b89960501e88925dc8ea5a\">✨ Check for updates on launch</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/096231cceb4e6b05edf4b304570990d705b9087e\">🔖 Release 1.1.1</a></p>\n<p><strong>Full Changelog</strong>: <a class=\"commit-link\" href=\"https://github.com/dethdkn/ldap-studio/compare/v1.1.0...v1.1.1\"><tt>v1.1.0...v1.1.1</tt></a></p>",
+      "file": {
+        "name": "ldap-studio-v1.1.1.zip",
+        "size": 6572919,
+        "url": "https://github.com/dethdkn/ldap-studio/releases/download/v1.1.1/ldap-studio-v1.1.1.zip"
+      }
+    },
+    {
+      "version": "v1.1.0",
+      "url": "https://github.com/dethdkn/ldap-studio/releases/tag/v1.1.0",
+      "date": "2026-09-10T20:46:35Z",
+      "notes": "<p>Moved the Rust core to pure C. Result: ~27% smaller than v1.0.0 despite new features, bundles its own OpenLDAP/OpenSSL/libxcrypt (nothing to install), and drops the Rust dependency tree and generated FFI.</p>\n<p>Thanks to <a class=\"user-mention notranslate\" data-hovercard-type=\"user\" data-hovercard-url=\"/users/wagner-calazans/hovercard\" data-octo-click=\"hovercard-link-click\" data-octo-dimensions=\"link_type:self\" href=\"https://github.com/wagner-calazans\">@wagner-calazans</a> for the suggestions in <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5405266094\" data-permission-text=\"Title is private\" data-url=\"https://github.com/dethdkn/ldap-studio/issues/1\" data-hovercard-type=\"issue\" data-hovercard-url=\"/dethdkn/ldap-studio/issues/1/hovercard\" href=\"https://github.com/dethdkn/ldap-studio/issues/1\">#1</a> and <a class=\"issue-link js-issue-link\" data-error-text=\"Failed to load title\" data-id=\"5405505971\" data-permission-text=\"Title is private\" data-url=\"https://github.com/dethdkn/ldap-studio/issues/2\" data-hovercard-type=\"issue\" data-hovercard-url=\"/dethdkn/ldap-studio/issues/2/hovercard\" href=\"https://github.com/dethdkn/ldap-studio/issues/2\">#2</a>.</p>\n<p><a href=\"https://github.com/dethdkn/ldap-studio/commit/b6f09cac76647d9e09921331abbcf034af5eeeee\">♻️ Rewrite the core in C</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/b8341857c1762db81897947ba086ebba6a882f76\">🙈 Modify gitignore</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/83b53cbee6ee8ffb62f828857b75debf158b6c92\">💄 Improve directory tree icons</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/77a8f7494f73bb7f7778ad927897f47808f702e7\">✨ Show child count next to container names in the tree</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/51337209bee14eff554d8cae627871eb7e2c6044\">✨ Add group membership editor</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/e0f761022dc35ce3c168fd3c5698e77d3ed8ea24\">✨ Add guided New Entry mode</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/77ea7654236f7a5551f95014d471c1817866c83e\">✨ Add LDIF editor</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/0315abe0b0bc16ba23aa8ef7adc8cbc9adb01a51\">🎨 Add IDE-style syntax highlighting to the LDIF editor</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/740e1a7ada9ec057b90b8dec0ac08bba89cbe301\">✨ Add entry actions, shortcuts and scoped search to tree context menu (closes #1)</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/0c6e191f6e5be45d3afc97f4554d12308b126b52\">🔧 Disable macOS automatic window tabbing</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/e0f0c4551b20b35300ef79706148e777cda082c4\">🔒 Add StartTLS and per-connection certificate trust</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/33a34bbbad66d8190019af197745e93995d4e127\">✨ Add Go to DN quick-jump and per-connection bookmarks</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/2971bf08a6e9ea50100129d1c17ea61c89e7be44\">⭐ Add favorite connections</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/c677b6eeb79f70090931d9ec3d1a944e2689f23d\">🚸 Show affected entry count in recursive-delete confirmation</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/d52044804b97641214f6602c2bbf77d8f61d84f0\">✨ Add operational-attributes toggle to the entry detail view</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/c4476660adf70e9323abd948a0ac9bff0842d010\">✨ Add per-connection read-only mode and Duplicate action</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/6f2d14daa51b98f4d8d54692fdc27e1c1e5cbd10\">✨ Add LDAP operation log panel to the browser window</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/72e47197d7d204a0629c87d1be9e0e72c98d6c19\">✨ Add Edit Entry window (closes #2)</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/60f9ce61cfef66986b08cc1a9cc8242466e84055\">📝 Update readme</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/f2b677737b23f55ece4b7176b323f5f16e67ce72\">🔖 Release 1.1.0</a></p>\n<p><strong>Full Changelog</strong>: <a class=\"commit-link\" href=\"https://github.com/dethdkn/ldap-studio/compare/v1.0.0...v1.1.0\"><tt>v1.0.0...v1.1.0</tt></a></p>",
+      "file": {
+        "name": "ldap-studio-v1.1.0.zip",
+        "size": 6543559,
+        "url": "https://github.com/dethdkn/ldap-studio/releases/download/v1.1.0/ldap-studio-v1.1.0.zip"
+      }
+    },
+    {
+      "version": "v1.0.0",
+      "url": "https://github.com/dethdkn/ldap-studio/releases/tag/v1.0.0",
+      "date": "2026-09-03T19:34:01Z",
+      "notes": "<p><a href=\"https://github.com/dethdkn/ldap-studio/commit/7d7ebcbb7f08b047cdf4e8117fce96ec73ae125b\">📄 Add license</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/1b55bba7977e5191cc8229625df200cc8b0c3918\">✨ add lcf support</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/4f8966200c713907e451bba6b743b493e508369e\">✨ Added advanced search</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/856bbf4af0749ea3e004a9a404ca0a6b6f695852\">✨ add export with password</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/e55dfa6f29d713f9044524f545bf88ac4920e6bf\">✨ Added missing password warning</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/4cb9f6560b3c80713d2ff97b1e35d0e87d9478cb\">🐛 advanced search scroll</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/b3b01b4c65cd52255a9c4159c7eb4ffb382d44c6\">✨ Added schema window</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/f474d23419d9deb33558e739605d44c6f5cd04b2\">✨ Attributes auto complete</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/a2297d2f25d82bd6688ffe13c98a16088ac7b81a\">🐛 fix double click from another window</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/267144004be4cd02e32b606eb910a718a483253d\">✨ Add menu bar func</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/1f08743b2ab8ec95471282848adea10c8d2e4579\">📝 Add images</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/2c58afca83b9d868535bc6df5390af374e36d7e1\">❤️ Add funding</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/be823bdd31e73f56c73a4bf00e67b850b9daaaca\">✨ Add About view</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/f6a7c76af3894044b2e5116a70ad062a79cae658\">📝 Add readme</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/abf1a3e2de54ec21192c1efc0ffd56c3a9281707\">⬆️ Upgrade deps</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/175c899564dd836e4757de2f56c33158b7ca720f\">✨ Add new password hashing schemes</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/f1405fd7bcb0c2d03762de0d9a7810235fbf2ca0\">📝 Update README</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/a19b27d4d12c0c2d3fd892076dc434cd7c045a56\">🔖 Release 1.0.0</a></p>\n<p><strong>Full Changelog</strong>: <a class=\"commit-link\" href=\"https://github.com/dethdkn/ldap-studio/compare/v0.0.3...v1.0.0\"><tt>v0.0.3...v1.0.0</tt></a></p>",
+      "file": {
+        "name": "ldap-studio-v1.0.0.zip",
+        "size": 8891050,
+        "url": "https://github.com/dethdkn/ldap-studio/releases/download/v1.0.0/ldap-studio-v1.0.0.zip"
+      }
+    },
+    {
+      "version": "v0.0.3",
+      "url": "https://github.com/dethdkn/ldap-studio/releases/tag/v0.0.3",
+      "date": "2026-08-17T01:26:19Z",
+      "notes": "<p><a href=\"https://github.com/dethdkn/ldap-studio/commit/f9f039c21b0bb709f3e9386bbf39eb69846adbb1\">🐛 fix release script</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/e8942520c9f2bcf562119ecaeefad4f954a5e2e6\">✨ edit and delete added</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/57531093660e2d420dedff96450bcfda435466f3\">✨ add new operations</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/846fdff3826357acab07c9a123c0da6d6c898a7b\">🐛 fix exported ldif</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/b28b00d9184cbcd8056f5ef9494368868aa99189\">🐛 connection timeout</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/6edadc8390ce03174f57f33e6a7c9d09b0682452\">✨ add tree context menu</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/36f73b08da28f7b129a3af5580106dfa6e67faa5\">✨ add dn and import ldif</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/524728b115c237b2ce5ad1c05d49cc7f8453b14c\">🎨 improved page title</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/0e38e21c1532f369aeb33a6455a761f233f2c720\">✨ view value</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/7024e7beef19c8279199b727cc4b5e29d265ec92\">✨ set password</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/6b528ba886c1df1e61a8795684e5b7f7f583c9a1\">✨ set photo</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/76c03d0b7720a3cfc244a3b0289df4a1858deea6\">✨ search tree</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/ae1ba3ea7c731341f663de31a74027f8e0a9c69e\">🔖 Release 0.0.3</a></p>\n<p><strong>Full Changelog</strong>: <a class=\"commit-link\" href=\"https://github.com/dethdkn/ldap-studio/compare/v0.0.2...v0.0.3\"><tt>v0.0.2...v0.0.3</tt></a></p>",
+      "file": {
+        "name": "ldap-studio-v0.0.3.zip",
+        "size": 8552386,
+        "url": "https://github.com/dethdkn/ldap-studio/releases/download/v0.0.3/ldap-studio-v0.0.3.zip"
+      }
+    },
+    {
+      "version": "v0.0.2",
+      "url": "https://github.com/dethdkn/ldap-studio/releases/tag/v0.0.2",
+      "date": "2026-08-16T18:40:46Z",
+      "notes": "<p><a href=\"https://github.com/dethdkn/ldap-studio/commit/09c2516d1adffb97386f2a86b67cc65a16454874\">Initial Commit</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/da8edac641688b310d1b0ac1a804a985e996c1a1\">🎉 Base files</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/6efcfb53e341babe5b79f59b8836a6e6c3180beb\">🙈 Add git ignore</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/ba0dcd410ece3348ef8b9ab8e5b312c0e9b0ceb0\">✨ Add tree view</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/23a8581e564612ad747c14f6b6458ab51f88671c\">✨ Added rust lib</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/7883b7983e771940810ccca494bee7b63b53bfb5\">✨ add ldap connection test</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/2151453b12069c5aff86eb955c0b5b466d116252\">✨ Implement connection management and UI enhancements</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/7f43201a9c2fe22fa102ed37e941a339a417d1b2\">✨ Import functionality</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/cdf3bbb3082c35fd05e93f541142e538feb66d83\">✨ Add baseDN property</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/f78580fe134ace74a7f1d81dd64fdb3cfb03cebf\">🐛 Fix conn import</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/a8b892f8eb0e12b04507d2543e7744fef10aea4a\">✨ tree working</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/b28bc237602c305f1db5f0ab30bd0e3404447d55\">✨ add jpegphoto</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/ada2a091d19ab864144cf12cc1a7e55ecdc88867\">✨ full rdn</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/473a4b983155619e8d6383184c73893bc9c8c4a0\">✨ release script</a><br>\n<a href=\"https://github.com/dethdkn/ldap-studio/commit/76e505f88169c88039dac5a22d488060cc8bfbe9\">🔖 Release 0.0.2</a></p>\n<p><strong>Full Changelog</strong>: <a href=\"https://github.com/dethdkn/ldap-studio/commits/v0.0.2\">https://github.com/dethdkn/ldap-studio/commits/v0.0.2</a></p>",
+      "file": {
+        "name": "ldap-studio-v0.0.2.zip",
+        "size": 4014704,
+        "url": "https://github.com/dethdkn/ldap-studio/releases/download/v0.0.2/ldap-studio-v0.0.2.zip"
+      }
+    }
+  ],
+  "contributors": [
+    {
+      "login": "dethdkn",
+      "avatar": "https://avatars.githubusercontent.com/u/106754824?v=4",
+      "url": "https://github.com/dethdkn",
+      "contributions": 87
+    }
+  ]
+}

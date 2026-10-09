@@ -15,9 +15,20 @@ xcuserdata/
 core/build/
 core/compile_commands.json
 
+# Nuxt
+node_modules
+.nuxt
+.output
+.nitro
+.data
+.cache
+.wrangler
+*.log
+
 # Misc
 dist
 tmp
 .claude
 .env
-.env
+.env.*
+!.env.example

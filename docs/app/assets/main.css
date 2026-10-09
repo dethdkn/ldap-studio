@@ -1,0 +1,236 @@
+@import 'tailwindcss';
+
+@theme inline {
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'SF Pro Display', Inter, 'Helvetica Neue',
+    sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+
+  --color-bg: var(--bg);
+  --color-bg-deep: var(--bg-deep);
+  --color-surface: var(--surface);
+  --color-surface-solid: var(--surface-solid);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-signal: var(--signal);
+  --color-ok: var(--ok);
+  --color-thumb: var(--thumb);
+
+  --ease-apple: cubic-bezier(0.28, 0.11, 0.32, 1);
+}
+
+:root,
+.tone-light {
+  --bg: #ffffff;
+  --bg-deep: #f5f5f7;
+  --surface: #f5f5f7;
+  --surface-solid: #ffffff;
+  --fg: #1d1d1f;
+  --muted: #6e6e73;
+  --line: rgb(0 0 0 / 0.1);
+  --accent: #0071e3;
+  --accent-ink: #0066cc;
+  --accent-soft: rgb(0 113 227 / 0.1);
+  --signal: #bf4800;
+  --ok: #1d8a3e;
+  --thumb: #ffffff;
+
+  color-scheme: light;
+}
+
+.tone-gray {
+  --bg: #f5f5f7;
+  --bg-deep: #ebebef;
+  --surface: #ffffff;
+  --surface-solid: #ffffff;
+  --fg: #1d1d1f;
+  --muted: #6e6e73;
+  --line: rgb(0 0 0 / 0.1);
+  --accent: #0071e3;
+  --accent-ink: #0066cc;
+  --accent-soft: rgb(0 113 227 / 0.1);
+  --signal: #bf4800;
+  --ok: #1d8a3e;
+  --thumb: #ffffff;
+
+  color-scheme: light;
+}
+
+.tone-dark {
+  --bg: #000000;
+  --bg-deep: #0d0d0f;
+  --surface: #161617;
+  --surface-solid: #1d1d1f;
+  --fg: #f5f5f7;
+  --muted: #86868b;
+  --line: rgb(255 255 255 / 0.12);
+  --accent: #0071e3;
+  --accent-ink: #2997ff;
+  --accent-soft: rgb(41 151 255 / 0.16);
+  --signal: #ff791b;
+  --ok: #30d158;
+  --thumb: #5b5b60;
+
+  color-scheme: dark;
+}
+
+@layer base {
+  button:not(:disabled),
+  [role='button']:not(:disabled) {
+    cursor: pointer;
+  }
+
+  html {
+    scroll-behavior: smooth;
+    scroll-padding-top: 4rem;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  body {
+    @apply bg-bg font-sans text-[17px] leading-[1.47] tracking-[-0.022em] text-fg antialiased;
+  }
+
+  ::selection {
+    @apply bg-accent text-white;
+  }
+
+  :focus-visible {
+    @apply rounded-md outline-2 outline-offset-2 outline-accent;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    html {
+      scroll-behavior: auto;
+    }
+
+    *,
+    *::before,
+    *::after {
+      transition-duration: 0.01ms !important;
+      animation-duration: 0.01ms !important;
+    }
+  }
+}
+
+@layer components {
+  .type-hero {
+    @apply text-[clamp(3rem,8vw,6rem)] leading-[1.05] font-semibold tracking-[-0.045em];
+  }
+
+  .type-display {
+    @apply text-[clamp(2.5rem,6vw,4.5rem)] leading-[1.06] font-semibold tracking-[-0.04em];
+  }
+
+  .type-title {
+    @apply leading-[1.1] font-semibold tracking-[-0.03em];
+  }
+
+  .type-eyebrow {
+    @apply text-[1.3rem] leading-tight font-semibold tracking-[-0.01em] text-muted;
+  }
+
+  .type-lead {
+    @apply text-[1.3rem] leading-[1.38] tracking-[-0.016em] text-pretty text-muted;
+  }
+
+  .text-gradient {
+    @apply bg-linear-to-r from-[#2997ff] via-[#7a6cff] to-[#c86dd7] bg-clip-text text-transparent;
+  }
+
+  .card {
+    @apply rounded-[1.75rem] bg-surface;
+  }
+
+  .well {
+    @apply rounded-2xl bg-bg-deep;
+  }
+
+  .tone-light .well,
+  .tone-light .card .well {
+    @apply bg-surface-solid;
+  }
+
+  .card .well {
+    @apply bg-bg;
+  }
+
+  .material {
+    @apply backdrop-blur-xl backdrop-saturate-[1.8];
+  }
+
+  .release-notes {
+    @apply space-y-3 leading-relaxed text-pretty text-muted;
+
+    & h1,
+    & h2,
+    & h3 {
+      @apply pt-2 text-lg font-semibold text-fg;
+    }
+
+    & ul {
+      @apply list-disc space-y-1.5 pl-5 marker:text-accent;
+    }
+
+    & ol {
+      @apply list-decimal space-y-1.5 pl-5;
+    }
+
+    & a {
+      @apply text-accent-ink transition hover:underline;
+    }
+
+    & code {
+      @apply rounded-md bg-accent-soft px-1.5 py-0.5 font-mono text-[0.8em] text-fg;
+    }
+
+    & strong {
+      @apply text-fg;
+    }
+  }
+
+  @media (prefers-reduced-transparency: reduce) {
+    .material {
+      @apply backdrop-blur-none;
+    }
+  }
+}
+
+@keyframes expand {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--reka-accordion-content-height);
+  }
+}
+
+@keyframes collapse {
+  from {
+    height: var(--reka-accordion-content-height);
+  }
+  to {
+    height: 0;
+  }
+}
+
+@keyframes expand-collapsible {
+  from {
+    height: 0;
+  }
+  to {
+    height: var(--reka-collapsible-content-height);
+  }
+}
+
+@keyframes collapse-collapsible {
+  from {
+    height: var(--reka-collapsible-content-height);
+  }
+  to {
+    height: 0;
+  }
+}
