@@ -8,6 +8,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/resource.h>
 #include <time.h>
 #include <unistd.h>
 
@@ -150,6 +151,26 @@ int main(int argc, char **argv) {
   check(open_conn(&again) == LS_OK && count_people(again) == 76000,
         "SSH: tunnel reused after every connection closed");
   ls_connection_close(again);
+
+  /* With nothing using the tunnel, the server's keepalives (sshd here
+   * sends one every second) must neither spin the forwarding thread nor
+   * leave a dead tunnel for the next connection to trip over. */
+  struct rusage before;
+  struct rusage after;
+  getrusage(RUSAGE_SELF, &before);
+  sleep(5);
+  getrusage(RUSAGE_SELF, &after);
+  double cpu = (double)(after.ru_utime.tv_sec - before.ru_utime.tv_sec) +
+               (double)(after.ru_stime.tv_sec - before.ru_stime.tv_sec) +
+               ((double)(after.ru_utime.tv_usec - before.ru_utime.tv_usec) +
+                (double)(after.ru_stime.tv_usec - before.ru_stime.tv_usec)) /
+                   1e6;
+  printf("   CPU over 5s with an idle tunnel: %.2fs\n", cpu);
+  check(cpu < 0.5, "SSH: an idle tunnel doesn't spin on server keepalives");
+  LSConnection *later = NULL;
+  check(open_conn(&later) == LS_OK && count_people(later) == 76000,
+        "SSH: the next connection after the idle tunnel retired works first time");
+  ls_connection_close(later);
   ls_shutdown(3000);
   printf(failures ? "SSH CHECKS FAILED\n" : "SSH CHECKS PASSED\n");
   return failures ? 1 : 0;

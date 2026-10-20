@@ -71,6 +71,7 @@ UsePAM no
 PasswordAuthentication no
 KbdInteractiveAuthentication no
 AllowTcpForwarding yes
+ClientAliveInterval 1
 CONF
     /usr/sbin/sshd -D -f "$OUT/sshd_config" -E "$OUT/sshd.log" &
     SSHD_PID=$!

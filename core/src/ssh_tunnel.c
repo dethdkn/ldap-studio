@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "internal.h"
@@ -145,6 +146,9 @@ typedef struct {
 
 #define LS_SSH_MAX_CLIENTS 32
 
+/* A tunnel nobody has used for this long closes itself. */
+#define LS_SSH_RETIRE_IDLE_SECS 30
+
 /* True when the session itself is gone (as opposed to one channel
  * closing), which ends the whole tunnel. */
 static bool session_failed(LIBSSH2_SESSION *session) {
@@ -248,16 +252,51 @@ static void *forward_loop(void *arg) {
    * sitting in its buffers with nothing left on the socket to wake poll.
    * After a round that moved data, look again straight away. */
   bool moved = false;
+  time_t idle_since = 0;
 
   while (!t->stopping && !t->broken) {
+    /* libssh2 only reads the SSH socket while a channel call is being
+     * made: a client's channel read (when its down buffer has room) or a
+     * closing channel's free. With none of those this round, a readable
+     * SSH socket (a server keepalive, say) would wake poll at once,
+     * forever — so it's only polled when something will read it. */
+    size_t live = 0;
+    size_t readers = 0;
+    size_t closers = 0;
+    for (size_t i = 0; i < LS_SSH_MAX_CLIENTS; ++i) {
+      if (clients[i].closing) closers++;
+      if (clients[i].socket < 0) continue;
+      live++;
+      if (clients[i].down_len == 0) readers++;
+    }
+    bool watch_ssh = readers > 0 || closers > 0;
+
+    /* With nothing using it, the session can't answer keepalives and the
+     * server will eventually drop it; retire the tunnel after a while so
+     * the next connection opens a fresh one. (If the session dies sooner,
+     * the next connection's channel open fails, which marks the tunnel
+     * broken, and connect.c retries on a fresh one.) */
+    if (live == 0 && closers == 0) {
+      time_t now = time(NULL);
+      if (idle_since == 0) idle_since = now;
+      if (now - idle_since > LS_SSH_RETIRE_IDLE_SECS) {
+        t->broken = true;
+        break;
+      }
+    } else {
+      idle_since = 0;
+    }
+
     struct pollfd pfds[LS_SSH_MAX_CLIENTS + 2];
     size_t index_of[LS_SSH_MAX_CLIENTS];
     nfds_t n = 0;
     pfds[n++] = (struct pollfd){.fd = t->listen_socket, .events = POLLIN};
-    pfds[n++] = (struct pollfd){.fd = t->ssh_socket, .events = POLLIN};
+    if (watch_ssh)
+      pfds[n++] = (struct pollfd){.fd = t->ssh_socket, .events = POLLIN};
+    nfds_t first_client = n;
     for (size_t i = 0; i < LS_SSH_MAX_CLIENTS; ++i) {
       if (clients[i].socket < 0) continue;
-      index_of[n - 2] = i;
+      index_of[n - first_client] = i;
       short events = 0;
       if (clients[i].up_len == 0) events |= POLLIN;
       if (clients[i].down_len > clients[i].down_sent) events |= POLLOUT;
@@ -290,9 +329,11 @@ static void *forward_loop(void *arg) {
           prepare_client_socket(client);
           clients[slot] = (TunnelClient){.socket = client, .channel = channel};
         } else {
-          close(client);
+          /* Marked broken before the client sees its connection close, so
+           * a caller retrying on a fresh tunnel finds this one dead. */
           if (slot < LS_SSH_MAX_CLIENTS && session_failed(t->session))
             t->broken = true;
+          close(client);
         }
       }
     }
@@ -308,8 +349,8 @@ static void *forward_loop(void *arg) {
       }
       if (c->socket < 0) continue;
       bool readable = false;
-      for (nfds_t k = 2; k < n; ++k)
-        if (index_of[k - 2] == i &&
+      for (nfds_t k = first_client; k < n; ++k)
+        if (index_of[k - first_client] == i &&
             ((unsigned)pfds[k].revents & (unsigned)(POLLIN | POLLHUP)) != 0)
           readable = true;
       if (!pump_client(c, readable, &moved)) {

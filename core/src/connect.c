@@ -290,7 +290,9 @@ static void reap_ssh_cache_locked(time_t now) {
  * opening (and caching) a new one. */
 static int acquire_ssh_tunnel(const ConnPolicy *p, const char *host,
                               uint16_t port, uint16_t *connect_port,
-                              LSError *err) {
+                              LSSSHTunnel **used, bool *reused, LSError *err) {
+  *used = NULL;
+  *reused = false;
   /* The UI won't save a tunnel without these, but an imported connection
    * file can still ask for one — and a NULL host would otherwise crash the
    * strcmp below or, worse, make getaddrinfo(NULL) connect to localhost. */
@@ -310,6 +312,8 @@ static int acquire_ssh_tunnel(const ConnPolicy *p, const char *host,
         strcmp(entry->target_host, host) == 0) {
       entry->last_used = now;
       *connect_port = ls_ssh_tunnel_local_port(entry->tunnel);
+      *used = entry->tunnel;
+      *reused = true;
       pthread_mutex_unlock(&g_ssh_cache_lock);
       return LS_OK;
     }
@@ -339,8 +343,30 @@ static int acquire_ssh_tunnel(const ConnPolicy *p, const char *host,
   g_ssh_cache = entry;
 
   *connect_port = local_port;
+  *used = tunnel;
   pthread_mutex_unlock(&g_ssh_cache_lock);
   return LS_OK;
+}
+
+/* Drops `tunnel` from the cache if it's still there and its session has
+ * died. Returns whether it did. Compared by pointer under the lock, so a
+ * tunnel another thread already reaped is never touched. */
+static bool evict_dead_ssh_tunnel(LSSSHTunnel *tunnel) {
+  pthread_mutex_lock(&g_ssh_cache_lock);
+  bool evicted = false;
+  for (SSHTunnelCacheEntry **slot = &g_ssh_cache; *slot;
+       slot = &(*slot)->next) {
+    SSHTunnelCacheEntry *entry = *slot;
+    if (entry->tunnel != tunnel) continue;
+    if (!ls_ssh_tunnel_is_alive(tunnel)) {
+      *slot = entry->next;
+      free_cache_entry(entry);
+      evicted = true;
+    }
+    break;
+  }
+  pthread_mutex_unlock(&g_ssh_cache_lock);
+  return evicted;
 }
 
 /* Attempts the caller has given up on but that are still running. Counted so
@@ -608,16 +634,19 @@ static LSErrorKind classify_bind_failure(int rc) {
  * before the hard-deadline wrapper below was added. Still reads the g_*
  * policy globals directly; see ls_connect_and_bind for why that's safe
  * even though this can now run on a worker thread. */
-static int ls_connect_and_bind_now(const ConnPolicy *p, const char *host,
-                                   uint16_t port, bool use_ssl,
-                                   const char *bind_dn, const char *password,
-                                   LDAP **out, LSError *err) {
+static int connect_once(const ConnPolicy *p, const char *host, uint16_t port,
+                        bool use_ssl, const char *bind_dn, const char *password,
+                        LSSSHTunnel **tunnel, bool *reused_tunnel, LDAP **out,
+                        LSError *err) {
   *out = NULL;
+  *tunnel = NULL;
+  *reused_tunnel = false;
 
   uint16_t connect_port = port;
   const char *connect_host = host;
   if (p->ssh_enabled) {
-    int tunnel_rc = acquire_ssh_tunnel(p, host, port, &connect_port, err);
+    int tunnel_rc = acquire_ssh_tunnel(p, host, port, &connect_port, tunnel,
+                                       reused_tunnel, err);
     if (tunnel_rc != LS_OK) return tunnel_rc;
     connect_host = "127.0.0.1";
   }
@@ -727,6 +756,27 @@ static int ls_connect_and_bind_now(const ConnPolicy *p, const char *host,
 
   *out = ld;
   return LS_OK;
+}
+
+/* connect_once, plus one retry when the attempt went through a cached SSH
+ * tunnel whose session turned out to have died while idle (the server
+ * dropped it, or the network changed): that's not worth showing anyone an
+ * error for when a fresh tunnel will do. */
+static int ls_connect_and_bind_now(const ConnPolicy *p, const char *host,
+                                   uint16_t port, bool use_ssl,
+                                   const char *bind_dn, const char *password,
+                                   LDAP **out, LSError *err) {
+  LSSSHTunnel *tunnel = NULL;
+  bool reused = false;
+  int rc = connect_once(p, host, port, use_ssl, bind_dn, password, &tunnel,
+                        &reused, out, err);
+  if (rc == LS_CONNECT_FAILED && reused && evict_dead_ssh_tunnel(tunnel)) {
+    ls_error_dispose(err);
+    *err = (LSError){0};
+    rc = connect_once(p, host, port, use_ssl, bind_dn, password, &tunnel,
+                      &reused, out, err);
+  }
+  return rc;
 }
 
 /* ── hard connect deadline ────────────────────────────────────────── */
