@@ -1,10 +1,15 @@
 /* Checks the SSH tunnel against a throwaway sshd (see check.sh): several
  * pooled connections open through one tunnel at once and stream a large
- * branch side by side, and the tunnel is reused afterwards. */
+ * branch side by side; a client that leaves responses unread doesn't
+ * stall the others, and closing it doesn't kill the process; the tunnel
+ * is reused afterwards. */
+#include <ldap.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
+#include <unistd.h>
 
 #include "ldapstudio.h"
 
@@ -90,6 +95,56 @@ int main(int argc, char **argv) {
     all = all && counts[i] == 76000;
   }
   check(all, "SSH: six 76,000-entry searches stream side by side");
+  /* A raw client through the same tunnel that leaves eight pages of full
+   * entries unread — what a cancelled export can leave on a pooled
+   * connection. The tunnel's local port is found with lsof. */
+  char cmd[256];
+  snprintf(cmd, sizeof cmd,
+           "lsof -nP -a -p %d -iTCP@127.0.0.1 -sTCP:LISTEN -Fn | "
+           "sed -n 's/^n.*://p' | head -1",
+           getpid());
+  FILE *lsof = popen(cmd, "r");
+  int port = 0;
+  if (lsof) {
+    if (fscanf(lsof, "%d", &port) != 1) port = 0;
+    pclose(lsof);
+  }
+  char url[64];
+  snprintf(url, sizeof url, "ldap://127.0.0.1:%d", port);
+  LDAP *raw = NULL;
+  ldap_initialize(&raw, url);
+  int version = 3;
+  ldap_set_option(raw, LDAP_OPT_PROTOCOL_VERSION, &version);
+  struct berval cred = {6, (char *)"reader"};
+  int bound = port > 0 && ldap_sasl_bind_s(raw,
+                                          "cn=reader,ou=Service,dc=example,dc=com",
+                                          NULL, &cred, NULL, NULL, NULL) == 0;
+  check(bound, "SSH: raw client bound through the tunnel");
+  for (int i = 0; bound && i < 8; i++) {
+    LDAPControl *page = NULL;
+    ldap_create_page_control(raw, 500, NULL, 0, &page);
+    LDAPControl *ctrls[] = {page, NULL};
+    int msgid;
+    ldap_search_ext(raw, "ou=People,dc=example,dc=com", LDAP_SCOPE_ONELEVEL,
+                    "(objectClass=*)", NULL, 0, ctrls, NULL, NULL, 0, &msgid);
+    ldap_control_free(page);
+  }
+  sleep(1);
+  struct timespec t0;
+  struct timespec t1;
+  clock_gettime(CLOCK_MONOTONIC, &t0);
+  long streamed = count_people(conns[0]);
+  clock_gettime(CLOCK_MONOTONIC, &t1);
+  double secs =
+      (double)(t1.tv_sec - t0.tv_sec) + ((double)(t1.tv_nsec - t0.tv_nsec) / 1e9);
+  printf("   streamed %ld past the stalled client in %.2fs\n", streamed, secs);
+  check(streamed == 76000 && secs < 5,
+        "SSH: a client with unread responses doesn't stall the others");
+  ldap_unbind_ext(raw, NULL, NULL); /* the process must survive this */
+  sleep(1);
+  check(count_people(conns[1]) == 76000,
+        "SSH: closing the stalled client is harmless; others keep working");
+
   for (int i = 0; i < 6; i++) ls_connection_close(conns[i]);
   LSConnection *again = NULL;
   check(open_conn(&again) == LS_OK && count_people(again) == 76000,
