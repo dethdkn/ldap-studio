@@ -134,6 +134,10 @@ func connection(_ bind: String, _ pw: String, base: String = "dc=example,dc=com"
     check(DN.same("cn=a\\2Cb,DC=X", "CN=A\\,B, dc=x"), "DN: \\2C and \\, compare equal")
     check(!DN.same("cn=a,b=c", "cn=a\\,b=c"), "DN: escaped and real commas differ")
     check(DN.isWithin("uid=a,ou=People,dc=x", "OU=people, DC=X") && !DN.isWithin("ou=Peoplex,dc=x", "ou=People,dc=x"), "DN: isWithin")
+    let k = DN.normalize
+    check(DN.keyIsWithin(k("uid=a,ou=P,dc=x"), k("ou=P,dc=x")) && DN.keyIsWithin(k("ou=P,dc=x"), k("ou=P,dc=x"))
+          && !DN.keyIsWithin(k("ou=XP,dc=x"), k("ou=P,dc=x")) && !DN.keyIsWithin(k("cn=a\\,ou=P,dc=x"), k("ou=P,dc=x")),
+          "DN: keyIsWithin respects RDN boundaries and escaped commas")
 
     // writes as manager
     let manager = connection("cn=manager,ou=Service,dc=example,dc=com", "manager")
@@ -181,6 +185,82 @@ func connection(_ bind: String, _ pw: String, base: String = "dc=example,dc=com"
     catch { check("\(error)".contains("read-only"), "read-only blocks branch delete") }
     do { _ = try await EntryActions(connection: ro).copy(dept, to: "ou=Empty,dc=example,dc=com"); check(false, "ro") }
     catch { check("\(error)".contains("read-only"), "read-only blocks copy") }
+
+    // reveal finds an entry added since its parent was loaded
+    let stale = "ou=AddedLater,ou=Deep,dc=example,dc=com"
+    try! await actions.createEntry(dn: stale, attributes: [("objectClass", "organizationalUnit")])
+    let revealed = try? await tree.reveal(stale)
+    check(revealed == stale, "reveal finds an entry added after its parent was loaded")
+    try! await deleteEntry(manager.ldapTarget, readOnly: false, dn: stale)
+
+    // a server that ignores paging: results flagged, branch actions refuse
+    let unpaged = LdapSearchRequest(baseDn: "ou=People,dc=example,dc=com", scope: .oneLevel,
+                                    attributes: ["1.1"], pageSize: 0)
+    let cut = try! await searchAll(tree.target, unpaged)
+    check(cut.wasTruncated && cut.entries.count == 500, "truncated results are flagged (\(cut.entries.count))")
+    do {
+        try await pagedSearch(tree.target, unpaged) { _, _ in true }.requireComplete()
+        check(false, "requireComplete should throw")
+    } catch { check(true, "branch actions refuse truncated results: \(error)") }
+
+    // a network that stops answering: a cancelled request retires its
+    // connection, so the next one fails in time instead of hanging
+    if let proxyPort = ProcessInfo.processInfo.environment["PROXY_PORT"].flatMap(Int.init),
+       let proxyPID = ProcessInfo.processInfo.environment["PROXY_PID"].flatMap(Int32.init) {
+        var proxied = connection("cn=reader,ou=Service,dc=example,dc=com", "reader")
+        proxied.port = proxyPort
+        proxied.timeoutSeconds = 3
+        KeychainService.passwords[proxied.id] = "reader"
+        _ = try? await fetchEntry(proxied.ldapTarget, dn: "dc=example,dc=com")
+        kill(proxyPID, SIGSTOP)
+        let stuck = Task { try await fetchEntry(proxied.ldapTarget, dn: "dc=example,dc=com") }
+        try? await Task.sleep(for: .seconds(2))
+        stuck.cancel()
+        _ = try? await stuck.value
+        t0 = clock.now
+        let next = try? await fetchEntry(proxied.ldapTarget, dn: "dc=example,dc=com")
+        let waited = clock.now - t0
+        check(next == nil && waited < .seconds(10), "frozen network: next request gives up in \(ms(waited)) instead of hanging")
+        kill(proxyPID, SIGCONT)
+        let recovered = try? await fetchEntry(proxied.ldapTarget, dn: "dc=example,dc=com")
+        check(recovered != nil, "network back: requests work again")
+    } else {
+        print("SKIP frozen-network check (no PROXY_PORT)")
+    }
+
+    // the server restarts under idle pooled connections: a read retries,
+    // a write first checks the connection and replaces it
+    if let runScript = ProcessInfo.processInfo.environment["RUN_SCRIPT"] {
+        _ = try? await fetchEntry(manager.ldapTarget, dn: "dc=example,dc=com")
+        let restart = Process()
+        restart.executableURL = URL(fileURLWithPath: runScript)
+        restart.arguments = ["start"]
+        restart.standardOutput = FileHandle.nullDevice
+        try! restart.run()
+        restart.waitUntilExit()
+        do {
+            let afterRestart = try await fetchEntry(tree.target, dn: "dc=example,dc=com")
+            check(afterRestart != nil, "server restarted: a read reconnects and retries")
+        } catch { check(false, "server restarted: a read reconnects and retries — \(error)") }
+        try? await Task.sleep(for: .seconds(6))
+        let probe = "ou=AfterRestart,ou=Empty,dc=example,dc=com"
+        do {
+            try await actions.createEntry(dn: probe, attributes: [("objectClass", "organizationalUnit")])
+            try await deleteEntry(manager.ldapTarget, readOnly: false, dn: probe)
+            check(true, "server restarted: a write on an idle connection checks it first and succeeds")
+        } catch { check(false, "write after restart: \(error)") }
+    } else {
+        print("SKIP server-restart check (no RUN_SCRIPT)")
+    }
+
+    // empty base DN: the tree starts at the naming contexts
+    let rootDSE = DirectoryTree(connection: connection("cn=reader,ou=Service,dc=example,dc=com", "reader", base: ""))
+    await rootDSE.loadRoot()
+    if let r = rootDSE.root { await rootDSE.retryWait(r) }
+    let contexts = rootDSE.root?.children.map(\.dn) ?? []
+    check(contexts.contains("dc=example,dc=com"), "empty base DN lists naming contexts: \(contexts)")
+    let fromRoot = try? await rootDSE.reveal("uid=deep02x1,ou=Level01,ou=Deep,dc=example,dc=com")
+    check(fromRoot == "uid=deep02x1,ou=Level01,ou=Deep,dc=example,dc=com", "empty base DN: reveal walks down from the naming context")
 
     // small directory
     let small = DirectoryTree(connection: connection("cn=manager,dc=small,dc=test", "manager", base: "dc=small,dc=test"))

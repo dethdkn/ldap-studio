@@ -46,6 +46,8 @@ struct AdvancedSearchSheet: View {
     @State private var errorMessage: String?
     @State private var hasSearched = false
     @State private var wasCancelled = false
+    /// The server cut the results short (it ignored paging).
+    @State private var wasTruncated = false
     @State private var selection: Set<String> = []
     @State private var isChoosingMoveDestination = false
     @State private var operations: BranchOperations
@@ -276,7 +278,7 @@ struct AdvancedSearchSheet: View {
         .onAppear {
             operations.onChange = { change in
                 await onChange(change)
-                applyToResults(change)
+                await applyToResults(change)
             }
             operations.onSelect = { _ in }
         }
@@ -356,7 +358,7 @@ struct AdvancedSearchSheet: View {
                         .foregroundStyle(.secondary)
                 }
             } else if hasSearched {
-                Text("\(totalFound.formatted()) result\(totalFound == 1 ? "" : "s")\(wasCancelled ? " (stopped)" : "")")
+                Text("\(totalFound.formatted()) result\(totalFound == 1 ? "" : "s")\(wasCancelled ? " (stopped)" : wasTruncated ? " — incomplete: the server's size limit cut the search short" : "")")
                     .foregroundStyle(.secondary)
             }
         }
@@ -373,6 +375,7 @@ struct AdvancedSearchSheet: View {
                                         attributes: ["1.1"])
         errorMessage = nil
         wasCancelled = false
+        wasTruncated = false
         selection.removeAll()
         store.hits = []
         results = []
@@ -387,7 +390,7 @@ struct AdvancedSearchSheet: View {
             }
             var lastShown = ContinuousClock.now
             do {
-                try await pagedSearch(connection.ldapTarget, request) { page, progress in
+                let outcome = try await pagedSearch(connection.ldapTarget, request) { page, progress in
                     store.hits += page.map { Hit(dn: $0.dn) }
                     // Each update redraws the sheet; a few a second is plenty.
                     if ContinuousClock.now - lastShown > .milliseconds(250) {
@@ -401,6 +404,7 @@ struct AdvancedSearchSheet: View {
                     }
                     return true
                 }
+                wasTruncated = outcome.wasTruncated
                 lastRequest = request
             } catch is CancellationError {
                 wasCancelled = true
@@ -414,17 +418,28 @@ struct AdvancedSearchSheet: View {
     }
 
     /// Keeps the result list honest after a delete or move from here.
-    private func applyToResults(_ change: DirectoryChange) {
+    /// Keys are worked out off the main actor, once per search, so
+    /// deleting or moving many results doesn't re-normalize 100,000 DNs on
+    /// the main thread for each one.
+    private func applyToResults(_ change: DirectoryChange) async {
+        let ancestor: String
         switch change {
-        case let .removed(dn):
-            store.hits.removeAll { DN.isWithin($0.dn, dn) }
-            selection = selection.filter { !DN.isWithin($0, dn) }
+        case let .removed(dn): ancestor = dn
+        case let .moved(from, _): ancestor = from
+        case .added, .modified, .branchChanged: return
+        }
+        let ancestorKey = DN.normalize(ancestor)
+        let keys = await store.keys()
+        let affected = Set(keys.indices.filter { DN.keyIsWithin(keys[$0], ancestorKey) })
+        guard !affected.isEmpty else { return }
+        switch change {
+        case .removed:
+            store.remove(at: affected)
+            selection = selection.filter { !DN.isWithin($0, ancestor) }
         case let .moved(from, to):
-            store.hits = store.hits.map { hit in
-                DN.isWithin(hit.dn, from) ? Hit(dn: DN.rebase(hit.dn, from: from, to: to)) : hit
-            }
+            store.replace(at: affected) { Hit(dn: DN.rebase($0.dn, from: from, to: to)) }
             selection.removeAll()
-        case .added, .modified, .branchChanged:
+        default:
             return
         }
         results = Array(store.hits.prefix(displayLimit))
@@ -493,7 +508,36 @@ struct AdvancedSearchSheet: View {
 
 /// See `AdvancedSearchSheet.store`.
 private final class HitStore {
-    var hits: [AdvancedSearchSheet.Hit] = []
+    var hits: [AdvancedSearchSheet.Hit] = [] {
+        didSet { cachedKeys = nil }
+    }
+    /// `DN.normalize` of each hit, worked out when first needed.
+    private var cachedKeys: [String]?
+
+    func keys() async -> [String] {
+        if let cachedKeys, cachedKeys.count == hits.count { return cachedKeys }
+        let dns = hits.map(\.dn)
+        let keys = await Task.detached(priority: .userInitiated) { dns.map(DN.normalize) }.value
+        cachedKeys = keys
+        return keys
+    }
+
+    func remove(at indices: Set<Int>) {
+        let keys = cachedKeys
+        hits = hits.indices.filter { !indices.contains($0) }.map { hits[$0] }
+        cachedKeys = keys.map { k in k.indices.filter { !indices.contains($0) }.map { k[$0] } }
+    }
+
+    func replace(at indices: Set<Int>, with transform: (AdvancedSearchSheet.Hit) -> AdvancedSearchSheet.Hit) {
+        var keys = cachedKeys
+        var updated = hits
+        for i in indices {
+            updated[i] = transform(updated[i])
+            keys?[i] = DN.normalize(updated[i].dn)
+        }
+        hits = updated
+        cachedKeys = keys
+    }
 }
 
 #Preview {

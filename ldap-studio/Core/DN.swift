@@ -147,6 +147,18 @@ nonisolated enum DN {
         return Array(d.suffix(a.count)) == a
     }
 
+    /// `isWithin` for two keys that already came from `normalize(_:)` — a
+    /// plain suffix check, cheap enough to run over 100,000 DNs.
+    static func keyIsWithin(_ key: String, _ ancestorKey: String) -> Bool {
+        guard key.hasSuffix(ancestorKey) else { return false }
+        if key.count == ancestorKey.count { return true }
+        let rest = key.dropLast(ancestorKey.count)
+        guard rest.last == "," else { return false }
+        // That comma must separate RDNs, not be an escaped one.
+        let backslashes = rest.dropLast().reversed().prefix { $0 == "\\" }.count
+        return backslashes % 2 == 0
+    }
+
     /// The DNs from `base` down to `dn`'s parent, in that order — the
     /// nodes to expand to reveal `dn` in a tree rooted at `base`. Nil when
     /// `dn` isn't under `base`. Built from `dn`'s own spelling.

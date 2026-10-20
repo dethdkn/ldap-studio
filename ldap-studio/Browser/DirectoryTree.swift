@@ -52,6 +52,10 @@ final class TreeNode: Identifiable {
     fileprivate(set) var isRefreshing = false
     /// How many entries the current read has received so far.
     fileprivate(set) var loadedCount = 0
+    /// The server returned only part of the children (it ignored paging
+    /// and hit its size limit) — the row says so rather than passing the
+    /// partial list off as complete.
+    fileprivate(set) var isTruncated = false
     /// Bumped by every read of the children, so a read that's been
     /// superseded (collapse and re-expand, a second refresh) can tell and
     /// leave the node alone.
@@ -367,6 +371,7 @@ final class DirectoryTree {
 
     private func readChildren(of node: TreeNode, isRefresh: Bool, generation: Int) async {
         var received: [TreeRow] = []
+        var truncated = false
         var lastShown = ContinuousClock.now
         // Every write to the node below happens only while this is still
         // its latest read.
@@ -380,7 +385,7 @@ final class DirectoryTree {
                     attributes: TreeRow.treeAttributes,
                     idleTimeout: max(30, connection.timeoutSeconds * 2)
                 )
-                try await pagedSearch(target, request) { page, progress in
+                let outcome = try await pagedSearch(target, request) { page, progress in
                     received += await Self.prepare(page)
                     // Show the first page right away, then merge in batches
                     // so a branch of 100,000 doesn't redraw 200 times.
@@ -396,11 +401,13 @@ final class DirectoryTree {
                     }
                     return true
                 }
+                truncated = outcome.wasTruncated
             }
             guard isCurrent() else { return }
             let sorted = await Self.sorted(received)
             guard isCurrent() else { return }
             setChildren(of: node, to: sorted, complete: true)
+            node.isTruncated = truncated
             node.childrenState = .loaded
         } catch is CancellationError {
             return
@@ -569,33 +576,89 @@ final class DirectoryTree {
     @discardableResult
     func reveal(_ dn: String) async throws -> String {
         guard let root else { throw RevealError.notFound(dn) }
-        guard let path = DN.path(to: dn, from: baseDN) else {
-            throw RevealError.outsideBase(baseDN)
+        if DN.same(dn, root.dn) { return root.dn }
+
+        // The steps from the root down to `dn`. With an empty base DN the
+        // root's children are whole naming contexts, so the path starts at
+        // whichever of those contains `dn`.
+        var steps: [String]
+        if baseDN.isEmpty {
+            try await waitForChildren(of: root)
+            guard let context = root.children.first(where: { DN.isWithin(dn, $0.dn) }),
+                  let path = DN.path(to: dn, from: context.dn) else {
+                throw RevealError.notFound(dn)
+            }
+            steps = [context.dn] + path.dropFirst() + [dn]
+            if DN.same(dn, context.dn) { steps = [context.dn] }
+        } else {
+            guard let path = DN.path(to: dn, from: baseDN) else {
+                throw RevealError.outsideBase(baseDN)
+            }
+            steps = Array(path.dropFirst()) + [dn]
         }
-        if path.isEmpty { return root.dn }
 
         var current = root
-        for step in path.dropFirst() + [dn] {
+        for step in steps {
             current.isExpanded = true
-            // A load can be replaced while we wait (collapsed and expanded
-            // again elsewhere), so wait until one actually finishes.
-            for _ in 0..<3 where current.childrenState != .loaded {
-                if case .failed = current.childrenState { break }
-                if current.childrenState != .loading || loads[current.key] == nil { loadChildren(of: current) }
-                await loads[current.key]?.value
-                try Task.checkCancellation()
+            try await waitForChildren(of: current)
+            var next = nodes[DN.normalize(step)].flatMap { candidate in
+                current.children.contains { $0 === candidate } ? candidate : nil
             }
-            if case let .failed(reason) = current.childrenState {
-                throw RevealError.failed(current.dn, reason)
+            if next == nil {
+                // Not among the children read earlier — it may have been
+                // added since. Ask the server before calling it missing.
+                guard let entry = try await fetchEntry(target, dn: step, attributes: TreeRow.treeAttributes) else {
+                    throw RevealError.notFound(dn)
+                }
+                next = insert(entry, under: current)
             }
-            guard let next = nodes[DN.normalize(step)],
-                  let index = current.children.firstIndex(where: { $0 === next }) else {
+            guard let next, let index = current.children.firstIndex(where: { $0 === next }) else {
                 throw RevealError.notFound(dn)
             }
             if index >= current.displayLimit { current.pinnedChildren.insert(next.id) }
             current = next
         }
         return current.dn
+    }
+
+    /// Waits until `node`'s children have been read, starting the read if
+    /// needed. A load can be replaced while we wait (collapsed and expanded
+    /// again elsewhere), so this waits until one actually finishes.
+    private func waitForChildren(of node: TreeNode) async throws {
+        for _ in 0..<3 where node.childrenState != .loaded {
+            if case .failed = node.childrenState { break }
+            if node.childrenState != .loading || loads[node.key] == nil { loadChildren(of: node) }
+            await loads[node.key]?.value
+            try Task.checkCancellation()
+        }
+        if case let .failed(reason) = node.childrenState {
+            throw RevealError.failed(node.dn, reason)
+        }
+    }
+
+    /// Slots `entry` into `parent`'s loaded children in sort order (or
+    /// updates the node if it's already there).
+    @discardableResult
+    private func insert(_ entry: LdapEntry, under parent: TreeNode) -> TreeNode {
+        let row = TreeRow(entry)
+        if let existing = nodes[row.key], parent.children.contains(where: { $0 === existing }) {
+            existing.update(from: row)
+            return existing
+        }
+        let child = nodes[row.key] ?? TreeNode(row: row)
+        nodes[row.key] = child
+        var children = parent.children
+        let index = children.firstIndex { $0.sortKey > child.sortKey } ?? children.endIndex
+        children.insert(child, at: index)
+        parent.children = children
+        if index >= parent.displayLimit { parent.pinnedChildren.insert(child.id) }
+        return child
+    }
+
+    /// Stops every read in flight — the window showing this tree closed.
+    func cancelAll() {
+        for task in loads.values { task.cancel() }
+        loads = [:]
     }
 
     // MARK: Keeping up with writes
@@ -608,18 +671,7 @@ final class DirectoryTree {
         guard parent.childrenState == .loaded,
               let entry = try? await fetchEntry(target, dn: dn, attributes: TreeRow.treeAttributes)
         else { return }
-        let key = DN.normalize(entry.dn)
-        if let existing = nodes[key] {
-            existing.update(from: entry)
-            return
-        }
-        let child = TreeNode(entry: entry)
-        nodes[key] = child
-        var children = parent.children
-        let index = children.firstIndex { $0.sortKey > child.sortKey } ?? children.endIndex
-        children.insert(child, at: index)
-        parent.children = children
-        if index >= parent.displayLimit { parent.pinnedChildren.insert(child.id) }
+        insert(entry, under: parent)
     }
 
     /// `dn` (and everything under it) no longer exists.

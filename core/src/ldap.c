@@ -104,6 +104,10 @@ static bool is_cancelled(LSCancel *cancel) {
 /* How often a waiting search wakes up to check its LSCancel. */
 #define LS_POLL_USECS 100000
 
+/* Cancelling a search the server hasn't answered for this long retires
+ * the connection instead of returning it to the pool. */
+#define LS_QUIET_SECS 1.5
+
 struct LSSearch {
   LSConnection *conn;
   char *base;
@@ -246,6 +250,11 @@ int ls_search_next_page(LSSearch *s, LSCancel *cancel, LSEntry **out,
     for (;;) {
       if (is_cancelled(cancel)) {
         ldap_abandon_ext(ld, msgid, NULL, NULL);
+        /* A server that's gone quiet may be unreachable (network dropped,
+         * VPN down) rather than slow; don't hand that connection to the
+         * next caller, who would wait on it forever. */
+        if (now_seconds() - last_heard > LS_QUIET_SECS)
+          ls_connection_mark_broken(s->conn);
         ls_entries_free(list.items, list.count);
         s->done = true;
         s->cancelled = true;

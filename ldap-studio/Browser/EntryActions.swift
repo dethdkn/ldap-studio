@@ -54,7 +54,7 @@ struct EntryActions {
                 for ready in order.add(entry) { try await add(ready) }
             }
             return true
-        }
+        }.requireComplete()
         let orphans = order.leftovers()
         if !orphans.isEmpty {
             throw ConnectionError.ModifyFailed(reason: "\(orphans.count) entries weren't copied because their parent entry couldn't be read.")
@@ -82,7 +82,7 @@ struct EntryActions {
             dns.append(contentsOf: page.map(\.dn))
             progress(status.entries)
             return true
-        }
+        }.requireComplete()
         return dns
     }
 
@@ -291,7 +291,7 @@ struct EntryActions {
                     for ready in order.add(entry) { try emit(ready) }
                 }
                 return true
-            }
+            }.requireComplete()
             for orphan in order.leftovers() { try emit(orphan) }
         }
     }
@@ -311,7 +311,7 @@ struct EntryActions {
             }
             progress(written)
             return true
-        }
+        }.requireComplete()
     }
 
     static func ldifText(for entry: LdapEntry) -> String {

@@ -127,6 +127,7 @@ struct EntryDetailLoader: View {
 
     @State private var entry: DirectoryEntry?
     @State private var loadError: String?
+    @State private var retryToken = 0
 
     var body: some View {
         Group {
@@ -149,14 +150,16 @@ struct EntryDetailLoader: View {
                 } description: {
                     Text(loadError)
                 } actions: {
-                    Button("Try Again") { Task { await load() } }
+                    Button("Try Again") { retryToken += 1 }
                 }
             } else {
                 ProgressView("Loading \(DN.rdn(of: dn))…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        .task(id: "\(dn)\n\(reloadToken)") { await load() }
+        // Retries go through the same task, so a newer selection still
+        // cancels them.
+        .task(id: "\(dn)\n\(reloadToken)\n\(retryToken)") { await load() }
     }
 
     private func load() async {
@@ -165,7 +168,7 @@ struct EntryDetailLoader: View {
         loadError = nil
         do {
             let fetched = try await fetchEntry(connection.ldapTarget, dn: dn)
-            guard !Task.isCancelled, dn == self.dn else { return }
+            guard !Task.isCancelled else { return }
             guard let fetched else {
                 loadError = "This entry no longer exists on the server."
                 tree.entryRemoved(dn)
@@ -177,7 +180,7 @@ struct EntryDetailLoader: View {
             entry = loaded
         } catch is CancellationError {
         } catch {
-            guard !Task.isCancelled, dn == self.dn else { return }
+            guard !Task.isCancelled else { return }
             loadError = "\(error)"
         }
     }

@@ -7,6 +7,8 @@
  * ldap.c and only ever work on an LSConnection.
  */
 #include <ctype.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <openssl/evp.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
@@ -689,6 +691,18 @@ static int ls_connect_and_bind_now(const ConnPolicy *p, const char *host,
       socket_fd != (ber_socket_t)-1) {
     setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
     setsockopt(socket_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+    /* Connections are kept open between operations: have the kernel
+     * notice within about a minute and a half if the server or the path
+     * to it has gone away, instead of the next search waiting on it. */
+    int on = 1;
+    int idle = 60;
+    int interval = 10;
+    int count = 3;
+    setsockopt(socket_fd, SOL_SOCKET, SO_KEEPALIVE, &on, sizeof on);
+    setsockopt(socket_fd, IPPROTO_TCP, TCP_KEEPALIVE, &idle, sizeof idle);
+    setsockopt(socket_fd, IPPROTO_TCP, TCP_KEEPINTVL, &interval,
+               sizeof interval);
+    setsockopt(socket_fd, IPPROTO_TCP, TCP_KEEPCNT, &count, sizeof count);
   }
 
   if (p->pinned_sha256 && tls) {

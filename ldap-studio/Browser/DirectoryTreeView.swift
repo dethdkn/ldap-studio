@@ -847,10 +847,11 @@ struct DirectoryTreeView: View {
 
     private func refresh(_ dn: String) {
         guard let node = tree.node(dn) else { return }
-        if node.isExpanded || node.childrenState == .loaded {
+        if node.mayHaveChildren || node.isExpanded || node.childrenState == .loaded {
             Task { await tree.refresh(node) }
         } else {
-            // A leaf by its looks: check whether it has children after all.
+            // A leaf by its looks: check whether it has children after all
+            // (an AD computer with BitLocker keys under it, say).
             Task {
                 await tree.refresh(node)
                 tree.loadChildren(of: node)
@@ -1054,6 +1055,12 @@ private struct TreeNodeRow: View {
             }
             .font(.callout)
         case .loaded:
+            if node.isTruncated {
+                Label("The server returned only these \(node.children.count.formatted()) entries (its size limit). Use Search to find the rest.",
+                      systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.secondary)
+                    .font(.callout)
+            }
             if node.hiddenChildCount > 0 {
                 HStack(spacing: 8) {
                     Text("\(node.hiddenChildCount.formatted()) more")

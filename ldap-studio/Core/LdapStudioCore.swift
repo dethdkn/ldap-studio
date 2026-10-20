@@ -638,6 +638,17 @@ nonisolated public struct LdapSearchOutcome: Sendable {
     /// False when the search stopped early: at `limit`, because `onPage`
     /// asked it to, or because the server ignored paging and cut it off.
     public var isComplete: Bool
+    /// The server stopped early on its own (it ignored the paging control
+    /// and hit its size limit), so the results are a partial set.
+    public var wasTruncated: Bool
+
+    /// Throws unless every result was read — for callers that act on a
+    /// whole branch (copy, export, counting before a delete) and must not
+    /// quietly work on part of it.
+    public func requireComplete() throws {
+        guard wasTruncated else { return }
+        throw ConnectionError.SearchFailed(reason: "the server returned only the first \(entries) entries (its size limit) and ignored the request to page through the rest")
+    }
 }
 
 /// Runs `request` on a pooled connection and hands each page to `onPage`
@@ -647,7 +658,7 @@ nonisolated public struct LdapSearchOutcome: Sendable {
 @discardableResult
 public func pagedSearch(_ target: LdapTarget, _ request: LdapSearchRequest,
                         onPage: ([LdapEntry], LdapSearchProgress) async throws -> Bool) async throws -> LdapSearchOutcome {
-    var outcome = LdapSearchOutcome(pages: 0, entries: 0, isComplete: true)
+    var outcome = LdapSearchOutcome(pages: 0, entries: 0, isComplete: true, wasTruncated: false)
     let attrs = request.attributes.map { $0.joined(separator: " ") } ?? "*"
     let detail = """
         base: \(request.baseDn)
@@ -658,9 +669,13 @@ public func pagedSearch(_ target: LdapTarget, _ request: LdapSearchRequest,
     try await logged(.search, endpoint: target.endpoint,
                      summary: "search \(request.baseDn) (\(request.scope))",
                      detail: detail,
-                     result: { "\(outcome.entries) entr\(outcome.entries == 1 ? "y" : "ies") in \(outcome.pages) page\(outcome.pages == 1 ? "" : "s")\(outcome.isComplete ? "" : ", stopped early")" }) {
+                     result: { "\(outcome.entries) entr\(outcome.entries == 1 ? "y" : "ies") in \(outcome.pages) page\(outcome.pages == 1 ? "" : "s")\(outcome.wasTruncated ? ", cut short by the server's size limit" : outcome.isComplete ? "" : ", stopped early")" }) {
         try await LdapConnectionPool.shared.withConnection(target) { session in
-            outcome = LdapSearchOutcome(pages: 0, entries: 0, isComplete: true)
+            // Nothing waits forever on a server that's stopped answering.
+            let idleTimeout = request.idleTimeout > 0
+                ? request.idleTimeout
+                : max(60, target.options.timeoutSeconds * 4)
+            outcome = LdapSearchOutcome(pages: 0, entries: 0, isComplete: true, wasTruncated: false)
             let cAttrs = request.attributes ?? []
             let search: OpaquePointer = try await session.call { conn in
                 var err = LSError()
@@ -671,7 +686,7 @@ public func pagedSearch(_ target: LdapTarget, _ request: LdapSearchRequest,
                     ls_search_begin(conn, request.baseDn, cScope(request.scope), request.filter,
                                     buf.baseAddress, buf.count, request.includeOperational,
                                     UInt32(clamping: request.pageSize),
-                                    UInt32(clamping: request.idleTimeout), &search, &err)
+                                    UInt32(clamping: idleTimeout), &search, &err)
                 }
                 guard rc == 0, let search else { return .failure(swiftError(&err)) }
                 return .success(search)
@@ -704,7 +719,10 @@ public func pagedSearch(_ target: LdapTarget, _ request: LdapSearchRequest,
                         reachedLimit = !(page.done && outcome.entries + page.entries.count == request.limit)
                     }
                     outcome.entries += entries.count
-                    if page.truncated { outcome.isComplete = false }
+                    if page.truncated {
+                        outcome.isComplete = false
+                        outcome.wasTruncated = true
+                    }
                     let keepGoing = try await onPage(entries, LdapSearchProgress(pages: outcome.pages,
                                                                                 entries: outcome.entries))
                     if reachedLimit || (!keepGoing && !page.done) {
@@ -728,6 +746,8 @@ nonisolated public struct LdapSearchResult: Sendable {
     public var entries: [LdapEntry]
     /// False when `limit` cut the results short (or the server did).
     public var isComplete: Bool
+    /// The server cut them short — see `LdapSearchOutcome.wasTruncated`.
+    public var wasTruncated: Bool
 }
 
 /// Collects every page of `request` into one array.
@@ -737,7 +757,8 @@ public func searchAll(_ target: LdapTarget, _ request: LdapSearchRequest) async 
         entries.append(contentsOf: page)
         return true
     }
-    return LdapSearchResult(entries: entries, isComplete: outcome.isComplete)
+    return LdapSearchResult(entries: entries, isComplete: outcome.isComplete,
+                            wasTruncated: outcome.wasTruncated)
 }
 
 /// One entry by DN with all its user attributes, or nil if it doesn't
@@ -821,7 +842,7 @@ private func write(_ target: LdapTarget, readOnly: Bool, kind: OperationLog.Kind
                    _ work: @escaping (OpaquePointer, inout LSError) -> Int32) async throws {
     guard !readOnly else { throw ConnectionError.ReadOnly }
     try await logged(kind, endpoint: target.endpoint, summary: summary, detail: detail) {
-        try await LdapConnectionPool.shared.withConnection(target) { session in
+        try await LdapConnectionPool.shared.withConnection(target, isWrite: true) { session in
             try await session.call { conn in
                 var err = LSError()
                 let rc = work(conn, &err)

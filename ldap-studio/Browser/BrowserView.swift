@@ -55,6 +55,7 @@ struct BrowserView: View {
             logStrip
         }
         .branchOperations(operations)
+        .onDisappear { tree.cancelAll() }
         .onAppear {
             operations.onChange = { change in await apply(change) }
             operations.onSelect = { dn in
