@@ -19,7 +19,6 @@
 struct LSSSHTunnel {
   int ssh_socket;
   int listen_socket;
-  volatile int client_socket;
   LIBSSH2_SESSION *session;
   pthread_t thread;
   bool thread_started;
@@ -119,92 +118,152 @@ static void sha256_hex(const unsigned char *bytes, size_t length,
   out[(size_t)n * 2] = 0;
 }
 
-/* Forwards one accepted local connection over its own SSH channel until
- * either side closes. Returns false if it gave up because of an I/O
- * error (as opposed to a clean EOF or a requested stop) — that marks the
- * whole tunnel broken so the cache won't hand it out again. */
-static bool serve_client(LSSSHTunnel *t, int client_socket) {
-  /* The forwarding loop below runs the session non-blocking, and a tunnel
-   * serves many connections one after another — so by the second one the
-   * session is still non-blocking from the last. Opening a channel in that
-   * state returns NULL (EAGAIN) almost every time, which used to fail
-   * every other operation on a cached tunnel and mark it broken. Open (and
-   * later close) the channel in blocking mode; only the shuttling loop is
-   * non-blocking. */
-  libssh2_session_set_blocking(t->session, 1);
-  LIBSSH2_CHANNEL *channel = libssh2_channel_direct_tcpip_ex(
-      t->session, t->target_host, t->target_port, "127.0.0.1", 0);
-  if (!channel) return false;
-  libssh2_session_set_blocking(t->session, 0);
-  unsigned char buffer[32768];
-  bool ok = true;
-  while (!t->stopping) {
-    struct pollfd pfds[2] = {
-        {.fd = client_socket, .events = POLLIN},
-        {.fd = t->ssh_socket, .events = POLLIN},
-    };
-    poll(pfds, 2, 200);
-    if (((unsigned)pfds[0].revents & (unsigned)POLLIN) != 0) {
-      ssize_t n = read(client_socket, buffer, sizeof buffer);
-      if (n <= 0) break;
-      size_t sent = 0;
-      while (sent < (size_t)n && !t->stopping) {
-        ssize_t w = libssh2_channel_write(channel, (char *)buffer + sent,
-                                          (size_t)n - sent);
-        if (w > 0) {
-          sent += (size_t)w;
-        } else if (w != LIBSSH2_ERROR_EAGAIN) {
-          ok = false;
-          goto done;
-        }
-      }
-    }
-    for (;;) {
-      ssize_t n = libssh2_channel_read(channel, (char *)buffer, sizeof buffer);
-      if (n == LIBSSH2_ERROR_EAGAIN || n == 0) break;
-      if (n < 0) {
-        ok = false;
-        goto done;
-      }
-      size_t sent = 0;
-      while (sent < (size_t)n) {
-        ssize_t w = write(client_socket, buffer + sent, (size_t)n - sent);
-        if (w <= 0) {
-          ok = false;
-          goto done;
-        }
-        sent += (size_t)w;
-      }
-    }
-    if (libssh2_channel_eof(channel)) break;
-  }
-done:
-  libssh2_session_set_blocking(t->session, 1);
-  libssh2_channel_free(channel);
-  return ok;
+/* One local connection being forwarded over its own SSH channel. */
+typedef struct {
+  int socket;
+  LIBSSH2_CHANNEL *channel;
+  /* Bytes read from the client that the channel hasn't taken yet; the
+   * client isn't read again until they're all sent. */
+  unsigned char pending[32768];
+  size_t pending_len;
+  size_t pending_sent;
+} TunnelClient;
+
+#define LS_SSH_MAX_CLIENTS 32
+
+/* True when the session itself is gone (as opposed to one channel
+ * closing), which ends the whole tunnel. */
+static bool session_failed(LIBSSH2_SESSION *session) {
+  int code = libssh2_session_last_errno(session);
+  return code == LIBSSH2_ERROR_SOCKET_SEND ||
+         code == LIBSSH2_ERROR_SOCKET_RECV ||
+         code == LIBSSH2_ERROR_SOCKET_DISCONNECT ||
+         code == LIBSSH2_ERROR_SOCKET_TIMEOUT || code == LIBSSH2_ERROR_TIMEOUT;
 }
 
-/* Runs for the whole lifetime of the tunnel, accepting one local
- * connection at a time and forwarding it — the tunnel (and its SSH
- * session) survives across many of these so the app doesn't pay for a
- * fresh SSH handshake on every LDAP operation. */
-static void *forward_loop(void *arg) {
-  LSSSHTunnel *t = arg;
-  while (!t->stopping) {
-    int client = accept(t->listen_socket, NULL, NULL);
-    if (client < 0) {
-      if (t->stopping) break;
-      continue;
-    }
-    t->client_socket = client;
-    bool ok = serve_client(t, client);
-    close(client);
-    t->client_socket = -1;
-    if (!ok) {
-      t->broken = true;
-      break;
+static void drop_client(LSSSHTunnel *t, TunnelClient *c) {
+  libssh2_session_set_blocking(t->session, 1);
+  libssh2_channel_free(c->channel);
+  libssh2_session_set_blocking(t->session, 0);
+  shutdown(c->socket, SHUT_RDWR);
+  close(c->socket);
+  c->socket = -1;
+  c->channel = NULL;
+}
+
+/* Moves data both ways for one client. Returns false when this client is
+ * done (either side closed, or its channel failed). */
+static bool pump_client(TunnelClient *c, bool readable) {
+  if (c->pending_len == 0 && readable) {
+    ssize_t n = read(c->socket, c->pending, sizeof c->pending);
+    if (n <= 0) return false;
+    c->pending_len = (size_t)n;
+    c->pending_sent = 0;
+  }
+  while (c->pending_sent < c->pending_len) {
+    ssize_t w =
+        libssh2_channel_write(c->channel, (char *)c->pending + c->pending_sent,
+                              c->pending_len - c->pending_sent);
+    if (w == LIBSSH2_ERROR_EAGAIN) break;
+    if (w < 0) return false;
+    c->pending_sent += (size_t)w;
+  }
+  if (c->pending_sent == c->pending_len) c->pending_len = c->pending_sent = 0;
+
+  unsigned char buffer[32768];
+  for (;;) {
+    ssize_t n = libssh2_channel_read(c->channel, (char *)buffer, sizeof buffer);
+    if (n == LIBSSH2_ERROR_EAGAIN) break;
+    if (n < 0) return false;
+    if (n == 0) break;
+    size_t sent = 0;
+    while (sent < (size_t)n) {
+      ssize_t w = write(c->socket, buffer + sent, (size_t)n - sent);
+      if (w <= 0) return false;
+      sent += (size_t)w;
     }
   }
+  return !libssh2_channel_eof(c->channel);
+}
+
+/* Runs for the whole lifetime of the tunnel on one thread (a libssh2
+ * session isn't safe to use from several), forwarding every accepted
+ * local connection over its own channel of the one SSH session. Several
+ * connections are served at once: the app keeps LDAP connections open in
+ * a pool, so one waiting on another to close would never get through. */
+static void *forward_loop(void *arg) {
+  LSSSHTunnel *t = arg;
+  TunnelClient *clients = ls_xcalloc(LS_SSH_MAX_CLIENTS, sizeof(TunnelClient));
+  for (size_t i = 0; i < LS_SSH_MAX_CLIENTS; ++i) clients[i].socket = -1;
+  libssh2_session_set_blocking(t->session, 0);
+
+  while (!t->stopping && !t->broken) {
+    struct pollfd pfds[LS_SSH_MAX_CLIENTS + 2];
+    size_t index_of[LS_SSH_MAX_CLIENTS];
+    nfds_t n = 0;
+    pfds[n++] = (struct pollfd){.fd = t->listen_socket, .events = POLLIN};
+    pfds[n++] = (struct pollfd){.fd = t->ssh_socket, .events = POLLIN};
+    for (size_t i = 0; i < LS_SSH_MAX_CLIENTS; ++i) {
+      if (clients[i].socket < 0) continue;
+      index_of[n - 2] = i;
+      /* Don't read more from a client until its last read is sent. */
+      short events = clients[i].pending_len == 0 ? POLLIN : 0;
+      pfds[n++] = (struct pollfd){.fd = clients[i].socket, .events = events};
+    }
+    poll(pfds, n, 100);
+    if (t->stopping) break;
+
+    if (((unsigned)pfds[0].revents & (unsigned)POLLIN) != 0) {
+      int client = accept(t->listen_socket, NULL, NULL);
+      if (client >= 0) {
+        size_t slot = LS_SSH_MAX_CLIENTS;
+        for (size_t i = 0; i < LS_SSH_MAX_CLIENTS; ++i)
+          if (clients[i].socket < 0) {
+            slot = i;
+            break;
+          }
+        /* Opened in blocking mode: non-blocking, opening a channel returns
+         * EAGAIN almost every time. Other channels' data that arrives
+         * meanwhile is buffered by libssh2 and picked up below. */
+        libssh2_session_set_blocking(t->session, 1);
+        LIBSSH2_CHANNEL *channel = slot < LS_SSH_MAX_CLIENTS
+                                       ? libssh2_channel_direct_tcpip_ex(
+                                             t->session, t->target_host,
+                                             t->target_port, "127.0.0.1", 0)
+                                       : NULL;
+        libssh2_session_set_blocking(t->session, 0);
+        if (channel) {
+          clients[slot].socket = client;
+          clients[slot].channel = channel;
+          clients[slot].pending_len = clients[slot].pending_sent = 0;
+        } else {
+          close(client);
+          if (slot < LS_SSH_MAX_CLIENTS && session_failed(t->session))
+            t->broken = true;
+        }
+      }
+    }
+
+    /* Channel data can be waiting even when no socket is readable (it
+     * arrived while another channel was being served), so every client
+     * is pumped every time round. */
+    for (size_t i = 0; i < LS_SSH_MAX_CLIENTS; ++i) {
+      if (clients[i].socket < 0) continue;
+      bool readable = false;
+      for (nfds_t k = 2; k < n; ++k)
+        if (index_of[k - 2] == i &&
+            ((unsigned)pfds[k].revents & (unsigned)(POLLIN | POLLHUP)) != 0)
+          readable = true;
+      if (!pump_client(&clients[i], readable)) {
+        if (session_failed(t->session)) t->broken = true;
+        drop_client(t, &clients[i]);
+      }
+    }
+  }
+
+  for (size_t i = 0; i < LS_SSH_MAX_CLIENTS; ++i)
+    if (clients[i].socket >= 0) drop_client(t, &clients[i]);
+  free(clients);
   return NULL;
 }
 
@@ -218,7 +277,7 @@ int ls_ssh_tunnel_start(const char *ssh_host, uint16_t ssh_port,
   *out = NULL;
   libssh2_init(0);
   LSSSHTunnel *t = ls_xcalloc(1, sizeof *t);
-  t->ssh_socket = t->listen_socket = t->client_socket = -1;
+  t->ssh_socket = t->listen_socket = -1;
   t->target_host = ls_xstrdup(target_host);
   t->target_port = target_port;
   char why[256] = "unknown error";
@@ -298,7 +357,7 @@ int ls_ssh_tunnel_start(const char *ssh_host, uint16_t ssh_port,
   inet_pton(AF_INET, "127.0.0.1", &address.sin_addr);
   if (t->listen_socket < 0 ||
       bind(t->listen_socket, (struct sockaddr *)&address, sizeof address) ||
-      listen(t->listen_socket, 1)) {
+      listen(t->listen_socket, LS_SSH_MAX_CLIENTS)) {
     snprintf(why, sizeof why, "could not open a local port for the tunnel: %s",
              strerror(errno));
     goto connect_fail;
@@ -328,10 +387,6 @@ void ls_ssh_tunnel_stop(LSSSHTunnel *t) {
   if (t->listen_socket >= 0) {
     shutdown(t->listen_socket, SHUT_RDWR);
     close(t->listen_socket);
-  }
-  if (t->client_socket >= 0) {
-    shutdown(t->client_socket, SHUT_RDWR);
-    close(t->client_socket);
   }
   if (t->thread_started) pthread_join(t->thread, NULL);
   if (t->session) {
