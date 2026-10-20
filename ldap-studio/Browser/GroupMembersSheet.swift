@@ -167,6 +167,16 @@ struct GroupMembersSheet: View {
     // MARK: - Data
 
     private func loadMembers() async {
+        // The caller may only have the tree's summary of the group (DN and
+        // object classes), so read its current members from the server.
+        var group = group
+        do {
+            if let fresh = try await fetchEntry(connection.ldapTarget, dn: group.dn) {
+                group = DirectoryEntry(ldapEntry: fresh)
+            }
+        } catch {
+            self.error = "\(error)"
+        }
         attribute = Self.membershipAttribute(for: group)
         let dns = group.attributes
             .filter { $0.name.caseInsensitiveCompare(attribute) == .orderedSame }
@@ -242,7 +252,8 @@ struct GroupMembersSheet: View {
                 password: password,
                 baseDn: connection.baseDN,
                 scope: .subtree,
-                filter: filter
+                filter: filter,
+                limit: 50
             )
             if Task.isCancelled { return }
             searchResults = hits.prefix(50).map { hit in
@@ -367,8 +378,7 @@ struct GroupMembersSheet: View {
             attributes: [
                 Attribute(name: "objectClass", value: "groupOfNames"),
                 Attribute(name: "member", value: "cn=Alice Johnson,ou=People,dc=corp,dc=example,dc=com"),
-            ],
-            children: nil
+            ]
         ),
         connection: SavedConnection(name: "Preview", host: "localhost", port: 389, useSSL: false, baseDN: "dc=corp,dc=example,dc=com", bindDN: "")
     ) {}

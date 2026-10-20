@@ -36,9 +36,6 @@ nonisolated public struct LdapEntry: Equatable, Hashable, Sendable {
     public var dn: String
     public var name: String
     public var attributes: [LdapAttribute]
-    /// Only filled in by `fetchRootEntry`, which assembles the whole tree.
-    public var hasChildren = false
-    public var children: [LdapEntry] = []
 
     public init(dn: String, name: String, attributes: [LdapAttribute]) {
         self.dn = dn
@@ -776,42 +773,6 @@ public func searchDirectory(host: String, port: UInt16, useSsl: Bool,
         includeOperational: includeOperational, limit: limit,
         pageSize: scope == .base ? 0 : 500
     )).entries
-}
-
-/// Reads the whole subtree under `baseDn` with paged searches and
-/// assembles it into a tree. Paging means a server's size limit no longer
-/// makes this fail, but it still reads everything — the browser moves to
-/// loading the tree on demand next.
-public func fetchRootEntry(host: String, port: UInt16, useSsl: Bool,
-                           startTLS: Bool = false, pinnedCertSHA256: String? = nil,
-                           options: LDAPConnectionOptions? = nil,
-                           bindDn: String, password: String,
-                           baseDn: String) async throws -> LdapEntry {
-    let target = LdapTarget(host: host, port: port, useSsl: useSsl, startTLS: startTLS,
-                            pinnedCertSHA256: pinnedCertSHA256, options: options,
-                            bindDn: bindDn, password: password)
-    let entries = try await searchAll(target, LdapSearchRequest(baseDn: baseDn, scope: .subtree)).entries
-    var childrenOf: [String: [LdapEntry]] = [:]
-    var root: LdapEntry?
-    for entry in entries {
-        if DN.same(entry.dn, baseDn) {
-            root = entry
-        } else if let parent = DN.parent(of: entry.dn) {
-            childrenOf[DN.normalize(parent), default: []].append(entry)
-        }
-    }
-    func build(_ entry: LdapEntry) -> LdapEntry {
-        var entry = entry
-        entry.children = (childrenOf[DN.normalize(entry.dn)] ?? [])
-            .sorted { $0.name.lowercased() < $1.name.lowercased() }
-            .map(build)
-        entry.hasChildren = !entry.children.isEmpty
-        return entry
-    }
-    guard let root else {
-        throw ConnectionError.SearchFailed(reason: "Base DN \"\(baseDn)\" was not found")
-    }
-    return build(root)
 }
 
 public func fetchSchema(_ target: LdapTarget) async throws -> LdapSchema {
