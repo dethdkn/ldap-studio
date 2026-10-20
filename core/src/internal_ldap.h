@@ -26,10 +26,8 @@ void ls_disconnect(LDAP *ld);
  * `err` with the given kind; returns that kind. */
 int ls_ldap_fail(LSError *err, LSErrorKind kind, int rc);
 
-/* The LDAP* behind an open connection, for one operation. Also marks the
- * SSH tunnel it runs through (if any) as in use, so the tunnel cache
- * doesn't reap it as idle while the connection is still being used. */
-LDAP *ls_connection_touch(LSConnection *conn);
+/* The LDAP* behind an open connection. */
+LDAP *ls_connection_ld(LSConnection *conn);
 
 /* ls_ldap_fail for an operation on `conn`: when `rc` says the connection
  * itself is gone or out of step, marks it broken, and reports a lost

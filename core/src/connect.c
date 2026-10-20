@@ -14,6 +14,7 @@
 #include <openssl/x509v3.h>
 #include <pthread.h>
 #include <sasl/sasl.h>
+#include <signal.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -239,8 +240,8 @@ void ls_disconnect(LDAP *ld) {
  * keyed by the SSH + target-server settings that produced it, and reused
  * by later connections as long as those settings don't change. It's
  * closed and replaced when they do, when it's gone idle, or when the
- * forwarding loop reports it broke. An open LSConnection running through
- * a tunnel counts as using it (see ls_connection_touch).
+ * forwarding loop reports it broke — or retires itself after sitting with
+ * no clients (see ssh_tunnel.c).
  */
 typedef struct SSHTunnelCacheEntry {
   char *ssh_host;
@@ -250,11 +251,13 @@ typedef struct SSHTunnelCacheEntry {
   char *target_host;
   uint16_t target_port;
   LSSSHTunnel *tunnel;
-  time_t last_used;
+  /* Unique per entry, so a caller can tell "my tunnel" apart from a new
+   * one that happens to be allocated at the same address. */
+  uint64_t generation;
   struct SSHTunnelCacheEntry *next;
 } SSHTunnelCacheEntry;
 
-#define LS_SSH_TUNNEL_IDLE_SECS 180
+static uint64_t g_ssh_generation;
 
 static SSHTunnelCacheEntry *g_ssh_cache;
 static pthread_mutex_t g_ssh_cache_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -267,16 +270,16 @@ static void free_cache_entry(SSHTunnelCacheEntry *entry) {
   free(entry);
 }
 
-/* Drops cache entries that have gone idle or whose forwarding loop
- * reported them broken — regardless of whether they match what the
- * current call wants, so a tunnel kept warm for another still-open
- * window isn't touched. Called with the lock held. */
-static void reap_ssh_cache_locked(time_t now) {
+/* Drops cache entries whose forwarding loop has stopped — because it
+ * failed, or because it retired itself after sitting with no clients (see
+ * ssh_tunnel.c). Going by the tunnel's own state rather than how long ago
+ * it was handed out means a tunnel still carrying a slow search is never
+ * torn down underneath it. Called with the lock held. */
+static void reap_ssh_cache_locked(void) {
   SSHTunnelCacheEntry **slot = &g_ssh_cache;
   while (*slot) {
     SSHTunnelCacheEntry *entry = *slot;
-    if (!ls_ssh_tunnel_is_alive(entry->tunnel) ||
-        now - entry->last_used > LS_SSH_TUNNEL_IDLE_SECS) {
+    if (!ls_ssh_tunnel_is_alive(entry->tunnel)) {
       *slot = entry->next;
       free_cache_entry(entry);
       continue;
@@ -290,8 +293,8 @@ static void reap_ssh_cache_locked(time_t now) {
  * opening (and caching) a new one. */
 static int acquire_ssh_tunnel(const ConnPolicy *p, const char *host,
                               uint16_t port, uint16_t *connect_port,
-                              LSSSHTunnel **used, bool *reused, LSError *err) {
-  *used = NULL;
+                              uint64_t *used, bool *reused, LSError *err) {
+  *used = 0;
   *reused = false;
   /* The UI won't save a tunnel without these, but an imported connection
    * file can still ask for one — and a NULL host would otherwise crash the
@@ -301,8 +304,7 @@ static int acquire_ssh_tunnel(const ConnPolicy *p, const char *host,
                    "The SSH tunnel needs a host and a username");
   }
   pthread_mutex_lock(&g_ssh_cache_lock);
-  time_t now = time(NULL);
-  reap_ssh_cache_locked(now);
+  reap_ssh_cache_locked();
 
   for (SSHTunnelCacheEntry *entry = g_ssh_cache; entry; entry = entry->next) {
     if (entry->ssh_port == p->ssh_port && entry->target_port == port &&
@@ -310,9 +312,8 @@ static int acquire_ssh_tunnel(const ConnPolicy *p, const char *host,
         strcmp(entry->ssh_host, p->ssh_host) == 0 &&
         strcmp(entry->ssh_username, p->ssh_username) == 0 &&
         strcmp(entry->target_host, host) == 0) {
-      entry->last_used = now;
       *connect_port = ls_ssh_tunnel_local_port(entry->tunnel);
-      *used = entry->tunnel;
+      *used = entry->generation;
       *reused = true;
       pthread_mutex_unlock(&g_ssh_cache_lock);
       return LS_OK;
@@ -338,35 +339,39 @@ static int acquire_ssh_tunnel(const ConnPolicy *p, const char *host,
   entry->target_host = ls_xstrdup(host);
   entry->target_port = port;
   entry->tunnel = tunnel;
-  entry->last_used = now;
+  entry->generation = ++g_ssh_generation;
   entry->next = g_ssh_cache;
   g_ssh_cache = entry;
 
   *connect_port = local_port;
-  *used = tunnel;
+  *used = entry->generation;
   pthread_mutex_unlock(&g_ssh_cache_lock);
   return LS_OK;
 }
 
-/* Drops `tunnel` from the cache if it's still there and its session has
- * died. Returns whether it did. Compared by pointer under the lock, so a
- * tunnel another thread already reaped is never touched. */
-static bool evict_dead_ssh_tunnel(LSSSHTunnel *tunnel) {
+/* After a connect through cached tunnel `generation` failed: whether the
+ * tunnel was to blame, so trying again on a fresh one makes sense. True
+ * when it's dead (it's evicted here) or already gone from the cache —
+ * another connection that failed through it at the same time got there
+ * first. False only when it's still cached and alive, i.e. the failure
+ * was the LDAP server's, not the tunnel's. */
+static bool tunnel_was_dead(uint64_t generation) {
   pthread_mutex_lock(&g_ssh_cache_lock);
-  bool evicted = false;
+  bool dead = true;
   for (SSHTunnelCacheEntry **slot = &g_ssh_cache; *slot;
        slot = &(*slot)->next) {
     SSHTunnelCacheEntry *entry = *slot;
-    if (entry->tunnel != tunnel) continue;
-    if (!ls_ssh_tunnel_is_alive(tunnel)) {
+    if (entry->generation != generation) continue;
+    if (ls_ssh_tunnel_is_alive(entry->tunnel)) {
+      dead = false;
+    } else {
       *slot = entry->next;
       free_cache_entry(entry);
-      evicted = true;
     }
     break;
   }
   pthread_mutex_unlock(&g_ssh_cache_lock);
-  return evicted;
+  return dead;
 }
 
 /* Attempts the caller has given up on but that are still running. Counted so
@@ -636,10 +641,10 @@ static LSErrorKind classify_bind_failure(int rc) {
  * even though this can now run on a worker thread. */
 static int connect_once(const ConnPolicy *p, const char *host, uint16_t port,
                         bool use_ssl, const char *bind_dn, const char *password,
-                        LSSSHTunnel **tunnel, bool *reused_tunnel, LDAP **out,
+                        uint64_t *tunnel, bool *reused_tunnel, LDAP **out,
                         LSError *err) {
   *out = NULL;
-  *tunnel = NULL;
+  *tunnel = 0;
   *reused_tunnel = false;
 
   uint16_t connect_port = port;
@@ -766,11 +771,11 @@ static int ls_connect_and_bind_now(const ConnPolicy *p, const char *host,
                                    uint16_t port, bool use_ssl,
                                    const char *bind_dn, const char *password,
                                    LDAP **out, LSError *err) {
-  LSSSHTunnel *tunnel = NULL;
+  uint64_t tunnel = 0;
   bool reused = false;
   int rc = connect_once(p, host, port, use_ssl, bind_dn, password, &tunnel,
                         &reused, out, err);
-  if (rc == LS_CONNECT_FAILED && reused && evict_dead_ssh_tunnel(tunnel)) {
+  if (rc == LS_CONNECT_FAILED && reused && tunnel_was_dead(tunnel)) {
     ls_error_dispose(err);
     *err = (LSError){0};
     rc = connect_once(p, host, port, use_ssl, bind_dn, password, &tunnel,
@@ -860,10 +865,20 @@ static void *connect_attempt_run(void *arg) {
   return NULL;
 }
 
+/* Writing to a socket the other end has closed raises SIGPIPE, which kills
+ * the process unless it's ignored — and with connections kept open in a
+ * pool, a server that dropped an idle one (or an SSH tunnel that closed a
+ * client) makes that a matter of time. libldap's sockets don't set
+ * SO_NOSIGPIPE, so ignore the signal process-wide; the write then just
+ * fails, which the core already reports as a lost connection. */
+static pthread_once_t g_sigpipe_once = PTHREAD_ONCE_INIT;
+static void ignore_sigpipe(void) { signal(SIGPIPE, SIG_IGN); }
+
 int ls_connect_and_bind(const char *host, uint16_t port, bool use_ssl,
                         const char *bind_dn, const char *password, LDAP **out,
                         LSError *err) {
   *out = NULL;
+  pthread_once(&g_sigpipe_once, ignore_sigpipe);
 
   ConnectAttempt *a = ls_xcalloc(1, sizeof *a);
   a->policy = policy_clone(&g_policy); /* snapshot before spawning */
@@ -935,15 +950,6 @@ int ls_test_connection(const char *host, uint16_t port, bool use_ssl,
 struct LSConnection {
   LDAP *ld;
   bool broken;
-  /* The SSH tunnel this connection runs through (when ssh_enabled), so
-   * each use can keep it from being reaped as idle underneath us. */
-  bool ssh_enabled;
-  char *ssh_host;
-  uint16_t ssh_port;
-  char *ssh_username;
-  LSSSHAuthMethod ssh_auth_method;
-  char *target_host;
-  uint16_t target_port;
 };
 
 int ls_connection_open(const char *host, uint16_t port, bool use_ssl,
@@ -957,15 +963,6 @@ int ls_connection_open(const char *host, uint16_t port, bool use_ssl,
 
   LSConnection *conn = ls_xcalloc(1, sizeof *conn);
   conn->ld = ld;
-  if (g_policy.ssh_enabled) {
-    conn->ssh_enabled = true;
-    conn->ssh_host = ls_xstrdup(g_policy.ssh_host);
-    conn->ssh_port = g_policy.ssh_port;
-    conn->ssh_username = ls_xstrdup(g_policy.ssh_username);
-    conn->ssh_auth_method = g_policy.ssh_auth_method;
-    conn->target_host = ls_xstrdup(host);
-    conn->target_port = port;
-  }
   *out = conn;
   return LS_OK;
 }
@@ -973,35 +970,12 @@ int ls_connection_open(const char *host, uint16_t port, bool use_ssl,
 void ls_connection_close(LSConnection *conn) {
   if (!conn) return;
   ls_disconnect(conn->ld);
-  free(conn->ssh_host);
-  free(conn->ssh_username);
-  free(conn->target_host);
   free(conn);
 }
 
 bool ls_connection_is_broken(const LSConnection *conn) { return conn->broken; }
 
-static bool str_eq(const char *a, const char *b) {
-  return a && b && strcmp(a, b) == 0;
-}
-
-LDAP *ls_connection_touch(LSConnection *conn) {
-  if (conn->ssh_enabled) {
-    pthread_mutex_lock(&g_ssh_cache_lock);
-    for (SSHTunnelCacheEntry *e = g_ssh_cache; e; e = e->next) {
-      if (e->ssh_port == conn->ssh_port &&
-          e->target_port == conn->target_port &&
-          e->ssh_auth_method == conn->ssh_auth_method &&
-          str_eq(e->ssh_host, conn->ssh_host) &&
-          str_eq(e->ssh_username, conn->ssh_username) &&
-          str_eq(e->target_host, conn->target_host)) {
-        e->last_used = time(NULL);
-      }
-    }
-    pthread_mutex_unlock(&g_ssh_cache_lock);
-  }
-  return conn->ld;
-}
+LDAP *ls_connection_ld(LSConnection *conn) { return conn->ld; }
 
 int ls_connection_fail(LSConnection *conn, LSError *err, LSErrorKind kind,
                        int rc) {

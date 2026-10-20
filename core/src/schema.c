@@ -313,7 +313,7 @@ static char *first_value(LDAP *ld, LDAPMessage *res, const char *attr) {
 
 int ls_fetch_schema(LSConnection *conn, LSSchema **out, LSError *err) {
   *out = NULL;
-  LDAP *ld = ls_connection_touch(conn);
+  LDAP *ld = ls_connection_ld(conn);
 
   /* Root DSE → subschemaSubentry. */
   char *rootattrs[] = {(char *)"subschemaSubentry", NULL};

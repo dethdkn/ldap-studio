@@ -75,6 +75,24 @@ static long count_people(LSConnection *c) {
 
 static LSConnection *conns[6];
 static long counts[6];
+static int open_rcs[4];
+
+/* Opens without touching the connection policy (set once beforehand), so
+ * several threads can do it at once. */
+static void *open_concurrently(void *arg) {
+  long i = (long)arg;
+  LSError e = {0};
+  LSConnection *c = NULL;
+  open_rcs[i] = ls_connection_open("127.0.0.1", 3389, false,
+                                   "cn=reader,ou=Service,dc=example,dc=com",
+                                   "reader", &c, &e);
+  if (open_rcs[i]) {
+    printf("   concurrent open %ld failed: %s\n", i, e.reason);
+    ls_error_dispose(&e);
+  }
+  ls_connection_close(c);
+  return NULL;
+}
 
 static void *stream(void *arg) {
   long i = (long)arg;
@@ -167,6 +185,22 @@ int main(int argc, char **argv) {
                    1e6;
   printf("   CPU over 5s with an idle tunnel: %.2fs\n", cpu);
   check(cpu < 0.5, "SSH: an idle tunnel doesn't spin on server keepalives");
+
+  /* By now sshd has dropped the unanswered session, but the tunnel is
+   * still cached: several connections opening through it at once must all
+   * end up on a fresh tunnel. */
+  policy();
+  pthread_t openers[4];
+  for (long i = 0; i < 4; i++)
+    pthread_create(&openers[i], NULL, open_concurrently, (void *)i);
+  int opened_ok = 0;
+  for (int i = 0; i < 4; i++) {
+    pthread_join(openers[i], NULL);
+    opened_ok += open_rcs[i] == LS_OK;
+  }
+  check(opened_ok == 4,
+        "SSH: four connections opening at once through a dead cached tunnel "
+        "all succeed");
   LSConnection *later = NULL;
   check(open_conn(&later) == LS_OK && count_people(later) == 76000,
         "SSH: the next connection after the idle tunnel retired works first time");

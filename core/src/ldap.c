@@ -234,7 +234,7 @@ int ls_search_next_page(LSSearch *s, LSCancel *cancel, LSEntry **out,
     return LS_OK;
   }
 
-  LDAP *ld = ls_connection_touch(s->conn);
+  LDAP *ld = ls_connection_ld(s->conn);
   EntryList list = {0};
 
   for (;;) { /* once per attempt; again only after shrinking the page */
@@ -340,7 +340,7 @@ void ls_search_free(LSSearch *s) {
      * paged search's state. Wait briefly for the reply so it can't be
      * mistaken for the next caller's; give up and retire the connection
      * if it doesn't come. */
-    LDAP *ld = ls_connection_touch(s->conn);
+    LDAP *ld = ls_connection_ld(s->conn);
     s->page_size = 0;
     LDAPControl *page = NULL;
     if (ldap_create_page_control(ld, 0, s->cookie, 0, &page) == LDAP_SUCCESS) {
@@ -396,7 +396,7 @@ static void value_bytes(const char *value, bool is_binary, char **bytes,
 }
 
 int ls_delete_entry(LSConnection *conn, const char *dn, LSError *err) {
-  LDAP *ld = ls_connection_touch(conn);
+  LDAP *ld = ls_connection_ld(conn);
   int lrc = ldap_delete_ext_s(ld, dn, NULL, NULL);
   if (lrc != LDAP_SUCCESS)
     return ls_connection_fail(conn, err, LS_MODIFY_FAILED, lrc);
@@ -406,7 +406,7 @@ int ls_delete_entry(LSConnection *conn, const char *dn, LSError *err) {
 int ls_rename_entry(LSConnection *conn, const char *dn, const char *new_rdn,
                     bool delete_old_rdn, const char *new_superior,
                     LSError *err) {
-  LDAP *ld = ls_connection_touch(conn);
+  LDAP *ld = ls_connection_ld(conn);
   int lrc = ldap_rename_s(ld, dn, new_rdn ? new_rdn : "",
                           (new_superior && *new_superior) ? new_superior : NULL,
                           (int)delete_old_rdn, NULL, NULL);
@@ -465,7 +465,7 @@ int ls_modify_entry(LSConnection *conn, const char *dn, const LSModOp *ops,
   }
   modp[op_count] = NULL;
 
-  LDAP *ld = ls_connection_touch(conn);
+  LDAP *ld = ls_connection_ld(conn);
   int rc = LS_OK;
   int lrc = ldap_modify_ext_s(ld, dn, modp, NULL, NULL);
   if (lrc != LDAP_SUCCESS)
@@ -551,7 +551,7 @@ int ls_add_entry(LSConnection *conn, const char *dn,
   }
   modp[ngroups] = NULL;
 
-  LDAP *ld = ls_connection_touch(conn);
+  LDAP *ld = ls_connection_ld(conn);
   int rc = LS_OK;
   int lrc = ldap_add_ext_s(ld, dn, modp, NULL, NULL);
   if (lrc != LDAP_SUCCESS)

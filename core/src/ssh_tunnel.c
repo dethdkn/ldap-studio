@@ -229,6 +229,19 @@ static bool pump_client(TunnelClient *c, bool readable, bool *moved) {
   return !(c->down_len == 0 && libssh2_channel_eof(c->channel));
 }
 
+/* Makes connects to the tunnel's port fail at once (and resets any still
+ * waiting to be accepted), so a connection that picked this tunnel just as
+ * it retired gets a quick failure — which connect.c retries on a fresh
+ * tunnel — instead of waiting out its timeout. The listening socket is
+ * swapped for an unconnected one rather than closed, so
+ * ls_ssh_tunnel_stop can still close the descriptor exactly once. */
+static void stop_accepting(LSSSHTunnel *t) {
+  int placeholder = socket(AF_INET, SOCK_STREAM, 0);
+  if (placeholder < 0) return;
+  dup2(placeholder, t->listen_socket);
+  close(placeholder);
+}
+
 /* Accepted client sockets are non-blocking, and never raise SIGPIPE when
  * written after the client hung up — nothing in the app ignores it. */
 static void prepare_client_socket(int fd) {
@@ -281,6 +294,7 @@ static void *forward_loop(void *arg) {
       if (idle_since == 0) idle_since = now;
       if (now - idle_since > LS_SSH_RETIRE_IDLE_SECS) {
         t->broken = true;
+        stop_accepting(t);
         break;
       }
     } else {

@@ -26,7 +26,6 @@ func connection(_ bind: String, _ pw: String, base: String = "dc=example,dc=com"
     check(tree.root?.children.count == 8, "open: 8 top-level children")
     let people = tree.node("ou=People,dc=example,dc=com")!
     let empty = tree.node("ou=Empty,dc=example,dc=com")!
-    let service = tree.node("ou=Service,dc=example,dc=com")!
     check(people.showsDisclosure && !empty.showsDisclosure, "arrows: People has one, Empty (hasSubordinates FALSE) does not")
 
     // expand People: first page time, full load time

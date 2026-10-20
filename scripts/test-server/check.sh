@@ -43,7 +43,10 @@ SSHD_PID=""
 cleanup() {
     kill -CONT "$PROXY_PID" 2>/dev/null || true
     kill "$PROXY_PID" 2>/dev/null || true
-    [[ -n "$SSHD_PID" ]] && kill "$SSHD_PID" 2>/dev/null || true
+    if [[ -n "$SSHD_PID" ]]; then
+        kill "$SSHD_PID" 2>/dev/null || true
+        wait "$SSHD_PID" 2>/dev/null || true
+    fi
     rm -rf "$OUT"
 }
 trap cleanup EXIT
@@ -75,8 +78,8 @@ ClientAliveInterval 1
 CONF
     /usr/sbin/sshd -D -f "$OUT/sshd_config" -E "$OUT/sshd.log" &
     SSHD_PID=$!
-    sleep 1
-    clang -std=c11 -Icore/include scripts/test-server/checks/ssh_check.c core/build/libldapstudio.a \
+    for _ in $(seq 50); do nc -z 127.0.0.1 2222 2>/dev/null && break; sleep 0.1; done
+    clang -std=c11 -Icore/include -I"$B/openldap/include" scripts/test-server/checks/ssh_check.c core/build/libldapstudio.a \
         -L"$B/openldap/lib" -L"$B/openssl@3/lib" -L"$B/libxcrypt/lib" -L"$B/libssh2/lib" \
         -lldap -llber -lcrypto -lcrypt -lssh2 -framework ImageIO -framework CoreGraphics \
         -o "$OUT/ssh_check"
