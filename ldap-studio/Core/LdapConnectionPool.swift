@@ -139,8 +139,8 @@ nonisolated final class LdapConnectionPool: @unchecked Sendable {
     private static let maxInUsePerTarget = 6
     /// Idle connections kept per target for reuse.
     private static let maxIdlePerTarget = 4
-    /// Comfortably below the SSH tunnel cache's idle limit and typical
-    /// server idle timeouts (Active Directory's MaxConnIdleTime is 900s).
+    /// Comfortably below typical server idle timeouts (Active Directory's
+    /// MaxConnIdleTime is 900s).
     private static let idleLifetime: TimeInterval = 90
 
     private struct Idle {

@@ -229,21 +229,9 @@ static bool pump_client(TunnelClient *c, bool readable, bool *moved) {
   return !(c->down_len == 0 && libssh2_channel_eof(c->channel));
 }
 
-/* Makes connects to the tunnel's port fail at once (and resets any still
- * waiting to be accepted), so a connection that picked this tunnel just as
- * it retired gets a quick failure — which connect.c retries on a fresh
- * tunnel — instead of waiting out its timeout. The listening socket is
- * swapped for an unconnected one rather than closed, so
- * ls_ssh_tunnel_stop can still close the descriptor exactly once. */
-static void stop_accepting(LSSSHTunnel *t) {
-  int placeholder = socket(AF_INET, SOCK_STREAM, 0);
-  if (placeholder < 0) return;
-  dup2(placeholder, t->listen_socket);
-  close(placeholder);
-}
-
 /* Accepted client sockets are non-blocking, and never raise SIGPIPE when
- * written after the client hung up — nothing in the app ignores it. */
+ * written after the client hung up (the core also ignores SIGPIPE, but
+ * that's process-wide state this shouldn't have to rely on). */
 static void prepare_client_socket(int fd) {
   int flags = fcntl(fd, F_GETFL, 0);
   fcntl(fd, F_SETFL, (int)((unsigned)flags | (unsigned)O_NONBLOCK));
@@ -294,7 +282,6 @@ static void *forward_loop(void *arg) {
       if (idle_since == 0) idle_since = now;
       if (now - idle_since > LS_SSH_RETIRE_IDLE_SECS) {
         t->broken = true;
-        stop_accepting(t);
         break;
       }
     } else {
@@ -374,6 +361,15 @@ static void *forward_loop(void *arg) {
       }
     }
   }
+
+  /* Stop listening as soon as the loop ends, for whatever reason, so a
+   * connect that picked this tunnel just as it retired or broke is refused
+   * at once (which connect.c retries on a fresh tunnel) instead of waiting
+   * out its timeout. Only this thread ever closes the listening socket —
+   * ls_ssh_tunnel_stop joins it first — so its descriptor number can't be
+   * closed twice or reused underneath anyone. */
+  close(t->listen_socket);
+  t->listen_socket = -1;
 
   /* The session is about to be torn down, which frees whatever channels
    * are left; just let the clients go. */
@@ -503,11 +499,14 @@ connect_fail: {
 void ls_ssh_tunnel_stop(LSSSHTunnel *t) {
   if (!t) return;
   t->stopping = true;
-  if (t->listen_socket >= 0) {
-    shutdown(t->listen_socket, SHUT_RDWR);
+  /* The loop notices `stopping` within one 100ms poll and closes the
+   * listening socket itself; it's only closed here if the loop never
+   * started. */
+  if (t->thread_started) {
+    pthread_join(t->thread, NULL);
+  } else if (t->listen_socket >= 0) {
     close(t->listen_socket);
   }
-  if (t->thread_started) pthread_join(t->thread, NULL);
   if (t->session) {
     libssh2_session_set_blocking(t->session, 1);
     libssh2_session_disconnect(t->session, "tunnel closed");
