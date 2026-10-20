@@ -609,13 +609,15 @@ nonisolated public struct LdapSearchRequest: Sendable {
     /// an error. 0 = read everything.
     public var limit: Int
     public var pageSize: Int
-    /// Fail a page the server sends nothing for in this many seconds;
-    /// 0 = wait as long as it takes (the caller cancels instead).
-    public var idleTimeout: Int
+    /// Fail a page the server sends nothing for in this many seconds.
+    /// nil = a default of max(60, 4 × the connection timeout); 0 = wait as
+    /// long as it takes — for searches the user started and can stop
+    /// (an unindexed filter on a large Active Directory can take minutes).
+    public var idleTimeout: Int?
 
     public init(baseDn: String, scope: LdapSearchScope, filter: String = "(objectClass=*)",
                 attributes: [String]? = nil, includeOperational: Bool = false,
-                limit: Int = 0, pageSize: Int = 500, idleTimeout: Int = 0) {
+                limit: Int = 0, pageSize: Int = 500, idleTimeout: Int? = nil) {
         self.baseDn = baseDn
         self.scope = scope
         self.filter = filter
@@ -672,9 +674,7 @@ public func pagedSearch(_ target: LdapTarget, _ request: LdapSearchRequest,
                      result: { "\(outcome.entries) entr\(outcome.entries == 1 ? "y" : "ies") in \(outcome.pages) page\(outcome.pages == 1 ? "" : "s")\(outcome.wasTruncated ? ", cut short by the server's size limit" : outcome.isComplete ? "" : ", stopped early")" }) {
         try await LdapConnectionPool.shared.withConnection(target) { session in
             // Nothing waits forever on a server that's stopped answering.
-            let idleTimeout = request.idleTimeout > 0
-                ? request.idleTimeout
-                : max(60, target.options.timeoutSeconds * 4)
+            let idleTimeout = request.idleTimeout ?? max(60, target.options.timeoutSeconds * 4)
             outcome = LdapSearchOutcome(pages: 0, entries: 0, isComplete: true, wasTruncated: false)
             let cAttrs = request.attributes ?? []
             let search: OpaquePointer = try await session.call { conn in

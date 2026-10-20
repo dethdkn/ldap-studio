@@ -371,8 +371,11 @@ struct AdvancedSearchSheet: View {
     /// every attribute.
     private func search() {
         guard isValid, !isSearching else { return }
+        // The user started this one and can stop it, so it waits on a slow
+        // server as long as it takes (exporting the results re-runs it the
+        // same way).
         let request = LdapSearchRequest(baseDn: baseDN, scope: scope, filter: normalizedFilter,
-                                        attributes: ["1.1"])
+                                        attributes: ["1.1"], idleTimeout: 0)
         errorMessage = nil
         wasCancelled = false
         wasTruncated = false
