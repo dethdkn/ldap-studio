@@ -35,15 +35,20 @@ To update, just download the newest version from the [Releases page](https://git
 
 - Save, edit, and organize multiple LDAP connections
 - Import/export connections as JSON (with an optional, obscured password) or from LDAP Admin's `.lcf` format
-- Full directory tree browsing, with live filtering and real LDAP filter (RFC 4515) advanced search
+- Directory tree loaded on demand, so it stays fast on directories of any size (Active Directory included): each branch is read when you expand it, with paged searches that never hit the server's size limit
+- Quick search across the whole directory, and real LDAP filter (RFC 4515) advanced search with progress and cancel
 - Add, edit, view, and delete attributes, including binary values
 - View and set photos (`jpegPhoto`), auto-resized and center-cropped to 300×300
 - Set passwords (`userPassword`) with client-side hashing (PBKDF2-SHA512 by default, plus Unix/MD5/SHA-256/SHA-512 Crypt, MD5, SHA1, SMD5, and SSHA for compatibility); the plaintext is never stored or sent as-is
-- Move, copy, create, and delete entries anywhere in the tree
+- Move, copy, create, and delete entries anywhere in the tree — whole branches included, counted first, with progress and cancel
 - Import and export LDIF files
 - Schema browser: object classes and attributes, with full superior-class inheritance resolved
 - Autocomplete for attribute names and object classes when adding attributes or creating entries, driven by the server's own schema
 - Native macOS menu bar integration for every major action
+
+## Testing Against a Large Directory
+
+`scripts/test-server/run.sh start` runs a local OpenLDAP server (from the Homebrew `openldap` in the Brewfile) with about 150,000 entries, one OU with 76,000 direct children, a 30-level-deep branch, and an Active Directory-like 500-entry size limit. `scripts/test-server/check.sh` then exercises browsing, searching and branch operations against it. See the comments in `run.sh` for the accounts to bind as.
 
 ## Requirements
 
