@@ -2,10 +2,6 @@
  * free.c — the public ls_*_free functions plus the internal recursive
  * teardown they share. Every string/array handed across the ABI is
  * plain malloc'd memory, so this is all just free().
- *
- * Tree shape: LSEntry.children is a malloc'd contiguous block of
- * `child_count` LSEntry values, each of which may own its own children
- * block, and so on.
  */
 #include <stdlib.h>
 
@@ -26,21 +22,12 @@ static void free_attributes(LSAttribute *attrs, size_t n) {
   free(attrs);
 }
 
-/* Frees everything the entry owns, recursing into children, but NOT the
- * LSEntry struct itself (it may live inside a parent's children block). */
+/* Frees everything the entry owns, but NOT the LSEntry struct itself (it
+ * lives inside a page's contiguous block). */
 static void entry_dispose_contents(LSEntry *e) {
   free(e->dn);
   free(e->name);
   free_attributes(e->attributes, e->attribute_count);
-  for (size_t i = 0; i < e->child_count; ++i)
-    entry_dispose_contents(&e->children[i]);
-  free(e->children);
-}
-
-void ls_entry_free(LSEntry *entry) {
-  if (!entry) return;
-  entry_dispose_contents(entry);
-  free(entry);
 }
 
 void ls_entries_free(LSEntry *entries, size_t n) {

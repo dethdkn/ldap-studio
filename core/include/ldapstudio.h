@@ -41,7 +41,14 @@ typedef enum {
    * per-connection pinned fingerprint. The app answers this by probing the
    * certificate and offering to trust it. */
   LS_TLS_UNTRUSTED,
-  LS_SSH_HOST_KEY_UNTRUSTED
+  LS_SSH_HOST_KEY_UNTRUSTED,
+  /* An already-open LSConnection found its server gone (closed after
+   * sitting idle, network dropped). Nothing reached the server, so the
+   * app reconnects and retries. */
+  LS_CONNECTION_LOST,
+  /* The LSCancel passed to the call was triggered; the request was
+   * abandoned on the server. */
+  LS_CANCELLED
 } LSErrorKind;
 
 /*
@@ -67,14 +74,11 @@ typedef struct {
   bool is_binary;
 } LSAttribute;
 
-typedef struct LSEntry {
+typedef struct {
   char *dn;
   char *name; /* the RDN, for display */
-  bool has_children;
   LSAttribute *attributes;
   size_t attribute_count;
-  struct LSEntry *children;
-  size_t child_count;
 } LSEntry;
 
 typedef enum { LS_SCOPE_BASE = 0, LS_SCOPE_ONELEVEL, LS_SCOPE_SUBTREE } LSScope;
@@ -138,9 +142,10 @@ typedef enum {
   LS_SHA512_CRYPT
 } LSPasswordScheme;
 
-/* ── Connection-based operations ───────────────────────────────────────
+/* ── Connection policy ─────────────────────────────────────────────────
  *
- * Every one of these takes the same five connection parameters up front:
+ * Opening a connection (ls_connection_open, ls_test_connection,
+ * ls_probe_certificate) takes the same five parameters up front:
  *   host, port, use_ssl, bind_dn, password
  * An empty bind_dn means an anonymous bind. The whole connect+bind is
  * capped at the timeout set via ls_set_connection_policy (15 seconds by
@@ -157,7 +162,7 @@ void ls_set_tls_cacert(const char *path);
 
 /* Per-connection TLS policy, applied by the next connect the same sticky
  * way ls_set_tls_cacert is (the Swift layer sets it immediately before
- * every operation). `start_tls` upgrades a plain ldap:// connection with
+ * every connect). `start_tls` upgrades a plain ldap:// connection with
  * StartTLS after connecting (ignored for ldaps://). When `pinned_sha256`
  * is non-NULL (lowercase hex SHA-256 of the server's leaf certificate,
  * DER), library chain verification is turned off and the connection is
@@ -175,7 +180,7 @@ typedef enum {
   LS_AUTH_DIGEST_MD5
 } LSAuthMethod;
 
-/* Connection behavior and bind method for the next operation. Strings are
+/* Connection behavior and bind method for the next connect. Strings are
  * copied. A timeout below one second is clamped to one second. */
 void ls_set_connection_policy(bool chase_referrals, unsigned timeout_seconds,
                               LSAuthMethod auth_method, const char *auth_id,
@@ -190,17 +195,18 @@ void ls_set_ssh_policy(bool enabled, const char *host, uint16_t port,
 
 /* An SSH tunnel is expensive to open (handshake + auth), so once one is
  * opened for a given target it's kept warm and reused by later
- * operations against the same server instead of being torn down after
- * each one (see ldap.c). Call this to close every cached tunnel right
+ * connections to the same server instead of being torn down after each
+ * one (see connect.c). Call this to close every cached tunnel right
  * away — e.g. when the app is quitting. Tunnels also self-expire after a
  * few minutes of disuse, so this is a courtesy, not a requirement. */
 void ls_close_ssh_tunnels(void);
 
-/* Call once before the process exits. A connection attempt that hit its
- * timeout is abandoned rather than killed, and keeps unwinding on its own
- * thread for a moment; exiting underneath it can race OpenSSL's exit-time
- * cleanup. This waits up to `wait_ms` for any such attempts to finish, then
- * closes every cached SSH tunnel (ls_close_ssh_tunnels). */
+/* Call once before the process exits, after closing every LSConnection.
+ * A connection attempt that hit its timeout is abandoned rather than
+ * killed, and keeps unwinding on its own thread for a moment; exiting
+ * underneath it can race OpenSSL's exit-time cleanup. This waits up to
+ * `wait_ms` for any such attempts to finish, then closes every cached SSH
+ * tunnel (ls_close_ssh_tunnels). */
 void ls_shutdown(unsigned wait_ms);
 
 /* Connects with certificate verification disabled purely to read back the
@@ -223,73 +229,95 @@ int ls_probe_certificate(const char *host, uint16_t port, bool use_ssl,
                          bool start_tls, LSCertInfo *out, LSError *err);
 void ls_cert_info_dispose(LSCertInfo *info);
 
+/* Connects, binds, and disconnects again. */
 int ls_test_connection(const char *host, uint16_t port, bool use_ssl,
                        const char *bind_dn, const char *password, LSError *err);
 
-int ls_fetch_root_entry(const char *host, uint16_t port, bool use_ssl,
-                        const char *bind_dn, const char *password,
-                        const char *base_dn, LSEntry **out, LSError *err);
+/* ── Connections ───────────────────────────────────────────────────────
+ *
+ * A bound connection that stays open across operations, so browsing a
+ * large directory doesn't pay for a TCP + TLS handshake and a bind on
+ * every click. Opened with whatever policy the ls_set_* calls last set.
+ *
+ * One connection serves one call at a time — the app keeps a small pool
+ * and hands each caller its own — but different connections may be used
+ * from different threads at once.
+ *
+ * Every call below that fails because the server went away marks the
+ * connection broken (see ls_connection_is_broken); close it and open a
+ * new one. A connection that sits idle long enough to be closed by the
+ * server fails with LS_CONNECTION_LOST, which is safe to retry on a fresh
+ * connection.
+ */
+typedef struct LSConnection LSConnection;
 
-/* When `include_operational` is true the search also requests "+", so the
- * server-maintained attributes (createTimestamp, entryUUID, pwdChangedTime,
- * …) come back alongside the normal user attributes. */
-int ls_search_directory(const char *host, uint16_t port, bool use_ssl,
-                        const char *bind_dn, const char *password,
-                        const char *base_dn, LSScope scope, const char *filter,
-                        bool include_operational, LSEntry **out,
-                        size_t *out_count, LSError *err);
+int ls_connection_open(const char *host, uint16_t port, bool use_ssl,
+                       const char *bind_dn, const char *password,
+                       LSConnection **out, LSError *err);
+void ls_connection_close(LSConnection *conn); /* NULL is a no-op */
+bool ls_connection_is_broken(const LSConnection *conn);
 
-int ls_fetch_schema(const char *host, uint16_t port, bool use_ssl,
-                    const char *bind_dn, const char *password, LSSchema **out,
-                    LSError *err);
+/* A thread-safe flag that stops a search in progress: trigger it from any
+ * thread and the search abandons its request and returns LS_CANCELLED
+ * within about 100ms. */
+typedef struct LSCancel LSCancel;
+LSCancel *ls_cancel_new(void);
+void ls_cancel_trigger(LSCancel *cancel);
+void ls_cancel_free(LSCancel *cancel);
 
-int ls_delete_entry(const char *host, uint16_t port, bool use_ssl,
-                    const char *bind_dn, const char *password, const char *dn,
-                    LSError *err);
+/* ── Searching ─────────────────────────────────────────────────────────
+ *
+ * A search is read one page at a time, so callers can show the first
+ * results while the rest arrive and stop whenever they like. With
+ * `page_size` > 0 the search sends the paged results control (RFC 2696,
+ * non-critical), which is what lets it read past a server's size limit
+ * (Active Directory's MaxPageSize, OpenLDAP's sizelimit). A server that
+ * rejects the page size as too large is retried with smaller pages.
+ *
+ * `attributes` lists the attributes to return; NULL / 0 means every user
+ * attribute ("*"). Pass {"1.1"} for no attributes at all (just DNs).
+ * `include_operational` adds "+" (createTimestamp, entryUUID, …).
+ *
+ * `idle_timeout_seconds` > 0 fails a page that receives nothing from the
+ * server for that long; 0 waits as long as it takes (callers cancel).
+ */
+typedef struct LSSearch LSSearch;
 
-int ls_add_attribute_value(const char *host, uint16_t port, bool use_ssl,
-                           const char *bind_dn, const char *password,
-                           const char *dn, const char *attribute,
-                           const char *value, LSError *err);
+int ls_search_begin(LSConnection *conn, const char *base_dn, LSScope scope,
+                    const char *filter, const char *const *attributes,
+                    size_t attribute_count, bool include_operational,
+                    unsigned page_size, unsigned idle_timeout_seconds,
+                    LSSearch **out, LSError *err);
 
-/* Replace every value of `attribute` with the single `value` (LDAP
- * Replace). Unlike modify_attribute_value this doesn't need to match an
- * existing value — use it for effectively single-valued attributes like
- * jpegPhoto, where "set" means "this is the value now". */
-int ls_set_attribute_value(const char *host, uint16_t port, bool use_ssl,
-                           const char *bind_dn, const char *password,
-                           const char *dn, const char *attribute,
-                           const char *value, bool is_binary, LSError *err);
+/* Fetches the next page into *out (release with ls_entries_free; may be
+ * empty). Sets *done once there are no more pages. Sets *truncated when
+ * the server stopped early with "size limit exceeded" anyway — it
+ * ignored the paging control — so the results are incomplete. `cancel`
+ * may be NULL. On failure the search is finished; don't call it again. */
+int ls_search_next_page(LSSearch *search, LSCancel *cancel, LSEntry **out,
+                        size_t *out_count, bool *done, bool *truncated,
+                        LSError *err);
 
-int ls_modify_attribute_value(const char *host, uint16_t port, bool use_ssl,
-                              const char *bind_dn, const char *password,
-                              const char *dn, const char *attribute,
-                              const char *old_value, const char *new_value,
-                              bool is_binary, LSError *err);
+/* Ends a search, telling the server to drop an unfinished paged search's
+ * state. NULL is a no-op. Doesn't close the connection. */
+void ls_search_free(LSSearch *search);
 
-int ls_delete_attribute_value(const char *host, uint16_t port, bool use_ssl,
-                              const char *bind_dn, const char *password,
-                              const char *dn, const char *attribute,
-                              const char *value, bool is_binary, LSError *err);
+int ls_fetch_schema(LSConnection *conn, LSSchema **out, LSError *err);
 
-int ls_move_entry(const char *host, uint16_t port, bool use_ssl,
-                  const char *bind_dn, const char *password, const char *dn,
-                  const char *new_superior, LSError *err);
+/* ── Writes ────────────────────────────────────────────────────────── */
+
+int ls_delete_entry(LSConnection *conn, const char *dn, LSError *err);
 
 /* Rename / relocate an entry (LDAP ModifyDN). `new_rdn` is the entry's new
  * RDN (e.g. "cn=Bob"); `new_superior` NULL or empty keeps the current
- * parent. Used by the LDIF editor's `changetype: modrdn`. */
-int ls_rename_entry(const char *host, uint16_t port, bool use_ssl,
-                    const char *bind_dn, const char *password, const char *dn,
-                    const char *new_rdn, bool delete_old_rdn,
-                    const char *new_superior, LSError *err);
+ * parent. A move keeps the RDN and passes a new superior. */
+int ls_rename_entry(LSConnection *conn, const char *dn, const char *new_rdn,
+                    bool delete_old_rdn, const char *new_superior,
+                    LSError *err);
 
-int ls_add_entry(const char *host, uint16_t port, bool use_ssl,
-                 const char *bind_dn, const char *password, const char *dn,
+int ls_add_entry(LSConnection *conn, const char *dn,
                  const LSAttribute *attributes, size_t attribute_count,
                  LSError *err);
-
-/* ── Batched modify (LDIF `changetype: modify`) ────────────────────── */
 
 typedef enum { LS_MOD_ADD = 0, LS_MOD_DELETE, LS_MOD_REPLACE } LSModKind;
 
@@ -302,12 +330,16 @@ typedef struct {
   size_t value_count;
 } LSModOp;
 
-/* Applies every op in one LDAP Modify operation against `dn`. */
-int ls_modify_entry(const char *host, uint16_t port, bool use_ssl,
-                    const char *bind_dn, const char *password, const char *dn,
-                    const LSModOp *ops, size_t op_count, LSError *err);
+/* Applies every op in one LDAP Modify operation against `dn`. Adding,
+ * replacing or deleting a single attribute value are all one-op calls. */
+int ls_modify_entry(LSConnection *conn, const char *dn, const LSModOp *ops,
+                    size_t op_count, LSError *err);
 
 /* ── Standalone helpers ────────────────────────────────────────────── */
+
+/* libldap's text for an LDAP result code (e.g. 32 → "No such object") —
+ * the `reason` a failed operation reports for it. Static; don't free. */
+const char *ls_ldap_error_text(int result_code);
 
 int ls_hash_password(const char *plaintext, LSPasswordScheme scheme, char **out,
                      LSError *err);
@@ -331,9 +363,8 @@ LSDependencyVersions ls_dependency_versions(void);
 /* ── Freeing results ───────────────────────────────────────────────── */
 
 void ls_string_free(char *s);
-void ls_entry_free(LSEntry *entry); /* recursive; also frees `entry` */
 void ls_entries_free(LSEntry *entries,
-                     size_t n); /* frees an array from ls_search_directory */
+                     size_t n); /* frees a page from ls_search_next_page */
 void ls_schema_free(LSSchema *schema); /* recursive; also frees `schema` */
 
 #ifdef __cplusplus

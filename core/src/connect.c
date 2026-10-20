@@ -2,8 +2,9 @@
  * connect.c — everything about getting a bound LDAP* handle: the
  * per-connection policy (TLS, auth, timeout, SSH), the SSH tunnel cache,
  * the hard connect deadline, the certificate probe used by the trust
- * dialog, and ls_connect_and_bind itself. Browsing, searching and
- * modifying live in ldap.c and only ever call ls_connect_and_bind.
+ * dialog, ls_connect_and_bind itself, and the LSConnection handle the
+ * app keeps open across operations. Searching and modifying live in
+ * ldap.c and only ever work on an LSConnection.
  */
 #include <ctype.h>
 #include <openssl/evp.h>
@@ -23,6 +24,10 @@
 
 int ls_ldap_fail(LSError *err, LSErrorKind kind, int rc) {
   return ls_fail(err, kind, NULL, 0, ldap_err2string(rc));
+}
+
+const char *ls_ldap_error_text(int result_code) {
+  return ldap_err2string(result_code);
 }
 
 /* Wall-clock seconds, for measuring how long a connect/StartTLS attempt
@@ -226,15 +231,14 @@ void ls_disconnect(LDAP *ld) {
 
 /* ── SSH tunnel cache ─────────────────────────────────────────────── */
 /*
- * Every exported call above opens a fresh LDAP* and unbinds it when done
- * (see the file header) — fine for a bare TCP connect, but an SSH tunnel
- * means a full handshake plus authentication, which is far too expensive
- * to pay for every browse click or attribute edit. So a tunnel outlives
- * the single operation that first opened it: it's kept here, keyed by
- * the SSH + target-server settings that produced it, and reused by later
- * operations as long as those settings don't change. It's closed and
- * replaced when they do, when it's gone idle, or when the forwarding
- * loop reports it broke.
+ * An SSH tunnel means a full handshake plus authentication, which is far
+ * too expensive to pay for every LDAP connection the app opens. So a
+ * tunnel outlives the connection that first opened it: it's kept here,
+ * keyed by the SSH + target-server settings that produced it, and reused
+ * by later connections as long as those settings don't change. It's
+ * closed and replaced when they do, when it's gone idle, or when the
+ * forwarding loop reports it broke. An open LSConnection running through
+ * a tunnel counts as using it (see ls_connection_touch).
  */
 typedef struct SSHTunnelCacheEntry {
   char *ssh_host;
@@ -861,6 +865,94 @@ int ls_test_connection(const char *host, uint16_t port, bool use_ssl,
   ldap_unbind_ext_s(ld, NULL, NULL);
   return LS_OK;
 }
+
+/* ── persistent connections ───────────────────────────────────────── */
+
+struct LSConnection {
+  LDAP *ld;
+  bool broken;
+  /* The SSH tunnel this connection runs through (when ssh_enabled), so
+   * each use can keep it from being reaped as idle underneath us. */
+  bool ssh_enabled;
+  char *ssh_host;
+  uint16_t ssh_port;
+  char *ssh_username;
+  LSSSHAuthMethod ssh_auth_method;
+  char *target_host;
+  uint16_t target_port;
+};
+
+int ls_connection_open(const char *host, uint16_t port, bool use_ssl,
+                       const char *bind_dn, const char *password,
+                       LSConnection **out, LSError *err) {
+  *out = NULL;
+  LDAP *ld = NULL;
+  int rc =
+      ls_connect_and_bind(host, port, use_ssl, bind_dn, password, &ld, err);
+  if (rc != LS_OK) return rc;
+
+  LSConnection *conn = ls_xcalloc(1, sizeof *conn);
+  conn->ld = ld;
+  if (g_policy.ssh_enabled) {
+    conn->ssh_enabled = true;
+    conn->ssh_host = ls_xstrdup(g_policy.ssh_host);
+    conn->ssh_port = g_policy.ssh_port;
+    conn->ssh_username = ls_xstrdup(g_policy.ssh_username);
+    conn->ssh_auth_method = g_policy.ssh_auth_method;
+    conn->target_host = ls_xstrdup(host);
+    conn->target_port = port;
+  }
+  *out = conn;
+  return LS_OK;
+}
+
+void ls_connection_close(LSConnection *conn) {
+  if (!conn) return;
+  ls_disconnect(conn->ld);
+  free(conn->ssh_host);
+  free(conn->ssh_username);
+  free(conn->target_host);
+  free(conn);
+}
+
+bool ls_connection_is_broken(const LSConnection *conn) { return conn->broken; }
+
+static bool str_eq(const char *a, const char *b) {
+  return a && b && strcmp(a, b) == 0;
+}
+
+LDAP *ls_connection_touch(LSConnection *conn) {
+  if (conn->ssh_enabled) {
+    pthread_mutex_lock(&g_ssh_cache_lock);
+    for (SSHTunnelCacheEntry *e = g_ssh_cache; e; e = e->next) {
+      if (e->ssh_port == conn->ssh_port &&
+          e->target_port == conn->target_port &&
+          e->ssh_auth_method == conn->ssh_auth_method &&
+          str_eq(e->ssh_host, conn->ssh_host) &&
+          str_eq(e->ssh_username, conn->ssh_username) &&
+          str_eq(e->target_host, conn->target_host)) {
+        e->last_used = time(NULL);
+      }
+    }
+    pthread_mutex_unlock(&g_ssh_cache_lock);
+  }
+  return conn->ld;
+}
+
+int ls_connection_fail(LSConnection *conn, LSError *err, LSErrorKind kind,
+                       int rc) {
+  if (rc == LDAP_SERVER_DOWN || rc == LDAP_CONNECT_ERROR) {
+    conn->broken = true;
+    kind = LS_CONNECTION_LOST;
+  } else if (rc == LDAP_TIMEOUT) {
+    /* A reply may still arrive for the timed-out request; don't let the
+     * next caller read it as theirs. */
+    conn->broken = true;
+  }
+  return ls_ldap_fail(err, kind, rc);
+}
+
+void ls_connection_mark_broken(LSConnection *conn) { conn->broken = true; }
 
 /* ── certificate probe (for the trust dialog) ─────────────────────── */
 

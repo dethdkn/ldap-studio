@@ -9,15 +9,16 @@
 //  The C library is exposed through the bridging header
 //  (ldap-studio-Bridging-Header.h), so its symbols are visible here with
 //  no `import`. libldap's calls are synchronous; the `async` functions
-//  below run them on a background queue and resume a continuation, which
-//  keeps the call sites (`try await fetchRootEntry(...)`) unchanged.
+//  below run them on background queues and resume a continuation.
+//  Directory operations run on pooled connections (LdapConnectionPool.swift)
+//  rather than connecting and binding for every call.
 //
 
 import Foundation
 
 // MARK: - Public data types (shapes match the former generated code)
 
-public struct LdapAttribute: Equatable, Hashable {
+nonisolated public struct LdapAttribute: Equatable, Hashable, Sendable {
     public var name: String
     /// For binary attributes (e.g. jpegPhoto) this is base64-encoded raw
     /// bytes rather than literal text — see `isBinary`.
@@ -31,34 +32,39 @@ public struct LdapAttribute: Equatable, Hashable {
     }
 }
 
-public struct LdapEntry: Equatable, Hashable {
+nonisolated public struct LdapEntry: Equatable, Hashable, Sendable {
     public var dn: String
     public var name: String
-    public var hasChildren: Bool
     public var attributes: [LdapAttribute]
-    public var children: [LdapEntry]
+    /// Only filled in by `fetchRootEntry`, which assembles the whole tree.
+    public var hasChildren = false
+    public var children: [LdapEntry] = []
 
-    public init(dn: String, name: String, hasChildren: Bool,
-                attributes: [LdapAttribute], children: [LdapEntry]) {
+    public init(dn: String, name: String, attributes: [LdapAttribute]) {
         self.dn = dn
         self.name = name
-        self.hasChildren = hasChildren
         self.attributes = attributes
-        self.children = children
+    }
+
+    /// Every value of `attribute`, matched case-insensitively.
+    public func values(_ attribute: String) -> [String] {
+        attributes
+            .filter { $0.name.caseInsensitiveCompare(attribute) == .orderedSame }
+            .map(\.value)
     }
 }
 
-public enum LdapSearchScope: Equatable, Hashable {
+nonisolated public enum LdapSearchScope: Equatable, Hashable, Sendable {
     case base
     case oneLevel
     case subtree
 }
 
-public enum LdapAuthenticationMethod: Int32, Sendable {
+nonisolated public enum LdapAuthenticationMethod: Int32, Hashable, Sendable {
     case simple = 0, external, gssapi, digestMD5
 }
 
-public struct LDAPConnectionOptions: Sendable {
+nonisolated public struct LDAPConnectionOptions: Hashable, Sendable {
     public var chaseReferrals: Bool
     public var timeoutSeconds: Int
     public var authentication: LdapAuthenticationMethod
@@ -101,7 +107,7 @@ public struct LDAPConnectionOptions: Sendable {
     }
 }
 
-public struct SchemaObjectClass: Equatable, Hashable {
+nonisolated public struct SchemaObjectClass: Equatable, Hashable {
     public var oid: String
     /// All NAME values — the first is the conventional display name, the
     /// rest are aliases.
@@ -133,7 +139,7 @@ public struct SchemaObjectClass: Equatable, Hashable {
     }
 }
 
-public struct SchemaAttributeType: Equatable, Hashable {
+nonisolated public struct SchemaAttributeType: Equatable, Hashable {
     public var oid: String
     public var names: [String]
     public var description: String?
@@ -175,7 +181,7 @@ public struct SchemaAttributeType: Equatable, Hashable {
     }
 }
 
-public struct LdapSchema: Equatable, Hashable {
+nonisolated public struct LdapSchema: Equatable, Hashable {
     public var objectClasses: [SchemaObjectClass]
     public var attributeTypes: [SchemaAttributeType]
 
@@ -213,6 +219,9 @@ public enum ConnectionError: Error, CustomStringConvertible {
     /// A write was attempted on a connection marked read-only. Blocked
     /// before it ever reaches the server.
     case ReadOnly
+    /// A pooled connection found the server gone, and reconnecting didn't
+    /// help either.
+    case ConnectionLost(reason: String)
 
     public var description: String {
         switch self {
@@ -229,6 +238,8 @@ public enum ConnectionError: Error, CustomStringConvertible {
             return "The SSH host key for \(host):\(port) is not trusted (\(SSHHostKeyFingerprint.openSSH(fromHex: fingerprint)))."
         case .ReadOnly:
             return "This connection is read-only. Turn off read-only mode in its settings to make changes."
+        case let .ConnectionLost(reason):
+            return "Lost the connection to the server: \(reason)"
         }
     }
     public var errorDescription: String? { description }
@@ -256,22 +267,22 @@ public enum PhotoError: Error, CustomStringConvertible {
 
 // MARK: - C ↔ Swift marshalling helpers
 
-private func str(_ p: UnsafePointer<CChar>?) -> String {
+nonisolated private func str(_ p: UnsafePointer<CChar>?) -> String {
     p.map { String(cString: $0) } ?? ""
 }
 
-private func optStr(_ p: UnsafePointer<CChar>?) -> String? {
+nonisolated private func optStr(_ p: UnsafePointer<CChar>?) -> String? {
     p.map { String(cString: $0) }
 }
 
-private func strArray(_ p: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?, _ n: Int) -> [String] {
+nonisolated private func strArray(_ p: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>?, _ n: Int) -> [String] {
     guard let p, n > 0 else { return [] }
     return (0..<n).map { String(cString: p[$0]!) }
 }
 
 /// Turns a populated `LSError` into the matching Swift error and disposes
 /// the strings it owns.
-private func swiftError(_ err: inout LSError) -> Error {
+nonisolated private func swiftError(_ err: inout LSError) -> Error {
     defer { ls_error_dispose(&err) }
     let host = str(err.host)
     let reason = str(err.reason)
@@ -286,11 +297,13 @@ private func swiftError(_ err: inout LSError) -> Error {
     case LS_HASH_FAILED:       return PasswordError.HashFailed(reason: reason)
     case LS_DECODE_FAILED:     return PhotoError.DecodeFailed(reason: reason)
     case LS_ENCODE_FAILED:     return PhotoError.EncodeFailed(reason: reason)
+    case LS_CONNECTION_LOST:   return ConnectionError.ConnectionLost(reason: reason)
+    case LS_CANCELLED:         return CancellationError()
     default:                   return ConnectionError.SearchFailed(reason: reason.isEmpty ? "unknown error" : reason)
     }
 }
 
-private func convert(_ e: UnsafePointer<LSEntry>) -> LdapEntry {
+nonisolated func convert(_ e: UnsafePointer<LSEntry>) -> LdapEntry {
     let v = e.pointee
     var attributes: [LdapAttribute] = []
     if let ap = v.attributes, v.attribute_count > 0 {
@@ -302,17 +315,10 @@ private func convert(_ e: UnsafePointer<LSEntry>) -> LdapEntry {
                                             isBinary: a.is_binary))
         }
     }
-    var children: [LdapEntry] = []
-    if let cp = v.children, v.child_count > 0 {
-        children.reserveCapacity(v.child_count)
-        for i in 0..<v.child_count { children.append(convert(cp + i)) }
-    }
-    return LdapEntry(dn: str(v.dn), name: str(v.name),
-                     hasChildren: v.has_children,
-                     attributes: attributes, children: children)
+    return LdapEntry(dn: str(v.dn), name: str(v.name), attributes: attributes)
 }
 
-private func convert(objectClass o: LSObjectClass) -> SchemaObjectClass {
+nonisolated private func convert(objectClass o: LSObjectClass) -> SchemaObjectClass {
     SchemaObjectClass(oid: str(o.oid),
                       names: strArray(o.names, o.name_count),
                       description: optStr(o.description),
@@ -325,7 +331,7 @@ private func convert(objectClass o: LSObjectClass) -> SchemaObjectClass {
                       raw: str(o.raw))
 }
 
-private func convert(attributeType a: LSAttributeType) -> SchemaAttributeType {
+nonisolated private func convert(attributeType a: LSAttributeType) -> SchemaAttributeType {
     SchemaAttributeType(oid: str(a.oid),
                         names: strArray(a.names, a.name_count),
                         description: optStr(a.description),
@@ -343,7 +349,7 @@ private func convert(attributeType a: LSAttributeType) -> SchemaAttributeType {
                         raw: str(a.raw))
 }
 
-private func cScope(_ s: LdapSearchScope) -> LSScope {
+nonisolated private func cScope(_ s: LdapSearchScope) -> LSScope {
     switch s {
     case .base:     return LS_SCOPE_BASE
     case .oneLevel: return LS_SCOPE_ONELEVEL
@@ -411,7 +417,7 @@ private func background<T>(startTLS: Bool, pinnedCertSHA256: String?,
 /// A file the user picked in the connection editor (client certificate,
 /// private key), resolved from its security-scoped bookmark. Sandboxed
 /// access to it lasts only while `stop()` hasn't been called.
-private struct ScopedFile {
+nonisolated private struct ScopedFile {
     let path: String
     private let url: URL?
     private let isAccessing: Bool
@@ -434,7 +440,7 @@ private struct ScopedFile {
 /// Pushes `options` into the C core's per-operation policy, then runs
 /// `work` with any security-scoped files that policy points at held open
 /// until it returns.
-private func withConnectionPolicy<T>(_ options: LDAPConnectionOptions, _ work: () -> T) -> T {
+nonisolated private func withConnectionPolicy<T>(_ options: LDAPConnectionOptions, _ work: () -> T) -> T {
     let certFile = ScopedFile(bookmark: options.clientCertificateBookmark)
     let keyFile = ScopedFile(bookmark: options.clientKeyBookmark)
     let sshKeyFile = ScopedFile(bookmark: options.sshPrivateKeyBookmark)
@@ -467,10 +473,13 @@ private func withConnectionPolicy<T>(_ options: LDAPConnectionOptions, _ work: (
 }
 
 /// Wraps an operation so it lands in the Operation Log with timing and
-/// outcome. Any thrown error is recorded and rethrown unchanged.
-private func logged<T>(_ kind: OperationLog.Kind, endpoint: String,
-                       summary: String, detail: String,
-                       _ work: () async throws -> T) async throws -> T {
+/// outcome. Any thrown error is recorded and rethrown unchanged. `result`,
+/// when given, is appended to the summary and detail once the work is done
+/// (or has failed) — e.g. how many pages and entries a search read.
+nonisolated private func logged<T>(_ kind: OperationLog.Kind, endpoint: String,
+                                   summary: String, detail: String,
+                                   result: (() -> String)? = nil,
+                                   _ work: () async throws -> T) async throws -> T {
     let start = DispatchTime.now()
     func ms() -> Double {
         Double(DispatchTime.now().uptimeNanoseconds - start.uptimeNanoseconds) / 1_000_000
@@ -478,6 +487,9 @@ private func logged<T>(_ kind: OperationLog.Kind, endpoint: String,
     do {
         let value = try await work()
         let elapsed = ms()
+        let note = result?()
+        let summary = note.map { "\(summary) · \($0)" } ?? summary
+        let detail = note.map { "\(detail)\nresult: \($0)" } ?? detail
         await MainActor.run {
             OperationLog.shared.record(endpoint: endpoint, kind: kind, summary: summary,
                                        detail: detail, millis: elapsed, outcome: .ok)
@@ -485,7 +497,9 @@ private func logged<T>(_ kind: OperationLog.Kind, endpoint: String,
         return value
     } catch {
         let elapsed = ms()
-        let message = "\(error)"
+        let message = error is CancellationError ? "Cancelled" : "\(error)"
+        let note = result?()
+        let detail = note.map { "\(detail)\nresult: \($0)" } ?? detail
         await MainActor.run {
             OperationLog.shared.record(endpoint: endpoint, kind: kind, summary: summary,
                                        detail: detail, millis: elapsed,
@@ -504,7 +518,7 @@ private func abbrev(_ s: String, _ n: Int = 120) -> String {
 /// Sets the per-connection TLS policy in the C core. `allowUntrusted`
 /// only makes sense together with a pin (verification off, the pin is
 /// what's trusted); with no pin it's plain chain verification.
-public func setTLSPolicy(startTLS: Bool, allowUntrusted: Bool, pinnedCertSHA256: String?) {
+nonisolated public func setTLSPolicy(startTLS: Bool, allowUntrusted: Bool, pinnedCertSHA256: String?) {
     if let pin = pinnedCertSHA256 {
         pin.withCString { ls_set_tls_policy(startTLS, allowUntrusted, $0) }
     } else {
@@ -547,7 +561,7 @@ public func probeCertificate(host: String, port: UInt16, useSsl: Bool,
     }
 }
 
-// MARK: - Public API (same signatures the app already calls)
+// MARK: - Public API
 
 public func testConnection(host: String, port: UInt16, useSsl: Bool,
                            startTLS: Bool = false, pinnedCertSHA256: String? = nil,
@@ -564,51 +578,267 @@ public func testConnection(host: String, port: UInt16, useSsl: Bool,
     }
 }
 
-public func fetchRootEntry(host: String, port: UInt16, useSsl: Bool,
-                           startTLS: Bool = false, pinnedCertSHA256: String? = nil,
-                           options: LDAPConnectionOptions? = nil,
-                           bindDn: String, password: String,
-                           baseDn: String) async throws -> LdapEntry {
-    try await logged(.search, endpoint: endpoint(host, port),
-                     summary: "load subtree \(baseDn)",
-                     detail: "base: \(baseDn)\nscope: subtree\nfilter: (objectClass=*)") {
-        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256, options: options) {
-        var err = LSError()
-        var out: UnsafeMutablePointer<LSEntry>?
-        let rc = ls_fetch_root_entry(host, port, useSsl, bindDn, password, baseDn, &out, &err)
-        guard rc == 0, let out else { return .failure(swiftError(&err)) }
-        let entry = convert(out)
-        ls_entry_free(out)
-        return .success(entry)
-    }
+/// Opens one pooled connection for `target` on the core queue — the
+/// connection policy is sticky global state in the C layer, so it's set
+/// and consumed in the same serialized step. Logged like a bind.
+nonisolated func openPooledConnection(_ target: LdapTarget) async throws -> OpaquePointer {
+    try await logged(.connect, endpoint: target.endpoint,
+                     summary: "bind \(target.bindDn.isEmpty ? "anonymous" : target.bindDn)",
+                     detail: "host: \(target.endpoint)\nbind: \(target.bindDn.isEmpty ? "anonymous" : target.bindDn)\nkept open for reuse") {
+        try await background(startTLS: target.startTLS, pinnedCertSHA256: target.pinnedCertSHA256,
+                             options: target.options) {
+            var err = LSError()
+            var conn: OpaquePointer?
+            let rc = ls_connection_open(target.host, target.port, target.useSsl,
+                                        target.bindDn, target.password, &conn, &err)
+            guard rc == 0, let conn else { return .failure(swiftError(&err)) }
+            return .success(conn)
+        }
     }
 }
+
+// MARK: Searching
+
+/// A search, read in pages (RFC 2696) so a server's size limit is never
+/// the reason it fails.
+nonisolated public struct LdapSearchRequest: Sendable {
+    public var baseDn: String
+    public var scope: LdapSearchScope
+    public var filter: String
+    /// nil = every user attribute; `["1.1"]` = none, just DNs.
+    public var attributes: [String]?
+    public var includeOperational: Bool
+    /// Stop after this many entries — client-side, so reaching it is never
+    /// an error. 0 = read everything.
+    public var limit: Int
+    public var pageSize: Int
+    /// Fail a page the server sends nothing for in this many seconds;
+    /// 0 = wait as long as it takes (the caller cancels instead).
+    public var idleTimeout: Int
+
+    public init(baseDn: String, scope: LdapSearchScope, filter: String = "(objectClass=*)",
+                attributes: [String]? = nil, includeOperational: Bool = false,
+                limit: Int = 0, pageSize: Int = 500, idleTimeout: Int = 0) {
+        self.baseDn = baseDn
+        self.scope = scope
+        self.filter = filter
+        self.attributes = attributes
+        self.includeOperational = includeOperational
+        self.limit = limit
+        self.pageSize = pageSize
+        self.idleTimeout = idleTimeout
+    }
+}
+
+nonisolated public struct LdapSearchProgress: Sendable {
+    public var pages: Int
+    public var entries: Int
+}
+
+nonisolated public struct LdapSearchOutcome: Sendable {
+    public var pages: Int
+    public var entries: Int
+    /// False when the search stopped early: at `limit`, because `onPage`
+    /// asked it to, or because the server ignored paging and cut it off.
+    public var isComplete: Bool
+}
+
+/// Runs `request` on a pooled connection and hands each page to `onPage`
+/// as it arrives; return false from `onPage` to stop early. Cancelling the
+/// calling task abandons the request on the server. Logged as one row,
+/// with the page and entry counts.
+@discardableResult
+public func pagedSearch(_ target: LdapTarget, _ request: LdapSearchRequest,
+                        onPage: ([LdapEntry], LdapSearchProgress) async throws -> Bool) async throws -> LdapSearchOutcome {
+    var outcome = LdapSearchOutcome(pages: 0, entries: 0, isComplete: true)
+    let attrs = request.attributes.map { $0.joined(separator: " ") } ?? "*"
+    let detail = """
+        base: \(request.baseDn)
+        scope: \(request.scope)
+        filter: \(request.filter)
+        attrs: \(attrs)\(request.includeOperational ? " +" : "")
+        """
+    try await logged(.search, endpoint: target.endpoint,
+                     summary: "search \(request.baseDn) (\(request.scope))",
+                     detail: detail,
+                     result: { "\(outcome.entries) entr\(outcome.entries == 1 ? "y" : "ies") in \(outcome.pages) page\(outcome.pages == 1 ? "" : "s")\(outcome.isComplete ? "" : ", stopped early")" }) {
+        try await LdapConnectionPool.shared.withConnection(target) { session in
+            outcome = LdapSearchOutcome(pages: 0, entries: 0, isComplete: true)
+            let cAttrs = request.attributes ?? []
+            let search: OpaquePointer = try await session.call { conn in
+                var err = LSError()
+                var search: OpaquePointer?
+                let cStrings: [UnsafeMutablePointer<CChar>?] = cAttrs.map { strdup($0) }
+                defer { cStrings.forEach { free($0) } }
+                let rc = cStrings.map { UnsafePointer($0) }.withUnsafeBufferPointer { buf in
+                    ls_search_begin(conn, request.baseDn, cScope(request.scope), request.filter,
+                                    buf.baseAddress, buf.count, request.includeOperational,
+                                    UInt32(clamping: request.pageSize),
+                                    UInt32(clamping: request.idleTimeout), &search, &err)
+                }
+                guard rc == 0, let search else { return .failure(swiftError(&err)) }
+                return .success(search)
+            }
+            do {
+                while true {
+                    let page: (entries: [LdapEntry], done: Bool, truncated: Bool) =
+                        try await session.call(cancellable: true) { _, cancel in
+                            var err = LSError()
+                            var out: UnsafeMutablePointer<LSEntry>?
+                            var count = 0
+                            var done = false
+                            var truncated = false
+                            let rc = ls_search_next_page(search, cancel, &out, &count, &done, &truncated, &err)
+                            guard rc == 0 else { return .failure(swiftError(&err)) }
+                            var entries: [LdapEntry] = []
+                            if let out {
+                                entries.reserveCapacity(count)
+                                for i in 0..<count { entries.append(convert(out + i)) }
+                                ls_entries_free(out, count)
+                            }
+                            return .success((entries, done, truncated))
+                        }
+                    session.markCommitted()
+                    outcome.pages += 1
+                    var entries = page.entries
+                    var reachedLimit = false
+                    if request.limit > 0, outcome.entries + entries.count >= request.limit {
+                        entries = Array(entries.prefix(request.limit - outcome.entries))
+                        reachedLimit = !(page.done && outcome.entries + page.entries.count == request.limit)
+                    }
+                    outcome.entries += entries.count
+                    if page.truncated { outcome.isComplete = false }
+                    let keepGoing = try await onPage(entries, LdapSearchProgress(pages: outcome.pages,
+                                                                                entries: outcome.entries))
+                    if reachedLimit || (!keepGoing && !page.done) {
+                        outcome.isComplete = false
+                        break
+                    }
+                    if page.done { break }
+                    try Task.checkCancellation()
+                }
+            } catch {
+                await session.finish(search: search)
+                throw error
+            }
+            await session.finish(search: search)
+        }
+    }
+    return outcome
+}
+
+nonisolated public struct LdapSearchResult: Sendable {
+    public var entries: [LdapEntry]
+    /// False when `limit` cut the results short (or the server did).
+    public var isComplete: Bool
+}
+
+/// Collects every page of `request` into one array.
+public func searchAll(_ target: LdapTarget, _ request: LdapSearchRequest) async throws -> LdapSearchResult {
+    var entries: [LdapEntry] = []
+    let outcome = try await pagedSearch(target, request) { page, _ in
+        entries.append(contentsOf: page)
+        return true
+    }
+    return LdapSearchResult(entries: entries, isComplete: outcome.isComplete)
+}
+
+/// One entry by DN with all its user attributes, or nil if it doesn't
+/// exist (or isn't visible to this bind).
+public func fetchEntry(_ target: LdapTarget, dn: String, attributes: [String]? = nil,
+                       includeOperational: Bool = false) async throws -> LdapEntry? {
+    do {
+        return try await searchAll(target, LdapSearchRequest(
+            baseDn: dn, scope: .base, attributes: attributes,
+            includeOperational: includeOperational, pageSize: 0
+        )).entries.first
+    } catch ConnectionError.SearchFailed(let reason) where reason == noSuchObjectReason {
+        return nil
+    }
+}
+
+/// libldap's text for result code 32 — what a base search on a DN that
+/// doesn't exist fails with.
+nonisolated let noSuchObjectReason = String(cString: ls_ldap_error_text(32))
 
 public func searchDirectory(host: String, port: UInt16, useSsl: Bool,
                             startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                             options: LDAPConnectionOptions? = nil,
                             bindDn: String, password: String, baseDn: String,
                             scope: LdapSearchScope, filter: String,
-                            includeOperational: Bool = false) async throws -> [LdapEntry] {
-    try await logged(.search, endpoint: endpoint(host, port),
-                     summary: "search \(baseDn)",
-                     detail: "base: \(baseDn)\nscope: \(scope)\nfilter: \(filter)\(includeOperational ? "\nattrs: * +" : "")") {
-        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256, options: options) {
-        var err = LSError()
-        var out: UnsafeMutablePointer<LSEntry>?
-        var count = 0
-        let rc = ls_search_directory(host, port, useSsl, bindDn, password, baseDn,
-                                     cScope(scope), filter, includeOperational,
-                                     &out, &count, &err)
-        guard rc == 0 else { return .failure(swiftError(&err)) }
-        var results: [LdapEntry] = []
-        if let out {
-            results.reserveCapacity(count)
-            for i in 0..<count { results.append(convert(out + i)) }
-            ls_entries_free(out, count)
+                            includeOperational: Bool = false,
+                            limit: Int = 0) async throws -> [LdapEntry] {
+    let target = LdapTarget(host: host, port: port, useSsl: useSsl, startTLS: startTLS,
+                            pinnedCertSHA256: pinnedCertSHA256, options: options,
+                            bindDn: bindDn, password: password)
+    return try await searchAll(target, LdapSearchRequest(
+        baseDn: baseDn, scope: scope, filter: filter,
+        includeOperational: includeOperational, limit: limit,
+        pageSize: scope == .base ? 0 : 500
+    )).entries
+}
+
+/// Reads the whole subtree under `baseDn` with paged searches and
+/// assembles it into a tree. Paging means a server's size limit no longer
+/// makes this fail, but it still reads everything — the browser moves to
+/// loading the tree on demand next.
+public func fetchRootEntry(host: String, port: UInt16, useSsl: Bool,
+                           startTLS: Bool = false, pinnedCertSHA256: String? = nil,
+                           options: LDAPConnectionOptions? = nil,
+                           bindDn: String, password: String,
+                           baseDn: String) async throws -> LdapEntry {
+    let target = LdapTarget(host: host, port: port, useSsl: useSsl, startTLS: startTLS,
+                            pinnedCertSHA256: pinnedCertSHA256, options: options,
+                            bindDn: bindDn, password: password)
+    let entries = try await searchAll(target, LdapSearchRequest(baseDn: baseDn, scope: .subtree)).entries
+    var childrenOf: [String: [LdapEntry]] = [:]
+    var root: LdapEntry?
+    for entry in entries {
+        if DN.same(entry.dn, baseDn) {
+            root = entry
+        } else if let parent = DN.parent(of: entry.dn) {
+            childrenOf[DN.normalize(parent), default: []].append(entry)
         }
-        return .success(results)
     }
+    func build(_ entry: LdapEntry) -> LdapEntry {
+        var entry = entry
+        entry.children = (childrenOf[DN.normalize(entry.dn)] ?? [])
+            .sorted { $0.name.lowercased() < $1.name.lowercased() }
+            .map(build)
+        entry.hasChildren = !entry.children.isEmpty
+        return entry
+    }
+    guard let root else {
+        throw ConnectionError.SearchFailed(reason: "Base DN \"\(baseDn)\" was not found")
+    }
+    return build(root)
+}
+
+public func fetchSchema(_ target: LdapTarget) async throws -> LdapSchema {
+    try await logged(.schema, endpoint: target.endpoint,
+                     summary: "load schema",
+                     detail: "base: cn=Subschema\nscope: base\nattrs: objectClasses attributeTypes") {
+        try await LdapConnectionPool.shared.withConnection(target) { session in
+            try await session.call { conn in
+                var err = LSError()
+                var out: UnsafeMutablePointer<LSSchema>?
+                let rc = ls_fetch_schema(conn, &out, &err)
+                guard rc == 0, let out else { return .failure(swiftError(&err)) }
+                let v = out.pointee
+                var classes: [SchemaObjectClass] = []
+                if let p = v.object_classes, v.object_class_count > 0 {
+                    classes.reserveCapacity(v.object_class_count)
+                    for i in 0..<v.object_class_count { classes.append(convert(objectClass: p[i])) }
+                }
+                var attrs: [SchemaAttributeType] = []
+                if let p = v.attribute_types, v.attribute_type_count > 0 {
+                    attrs.reserveCapacity(v.attribute_type_count)
+                    for i in 0..<v.attribute_type_count { attrs.append(convert(attributeType: p[i])) }
+                }
+                ls_schema_free(out)
+                return .success(LdapSchema(objectClasses: classes, attributeTypes: attrs))
+            }
+        }
     }
 }
 
@@ -616,164 +846,50 @@ public func fetchSchema(host: String, port: UInt16, useSsl: Bool,
                         startTLS: Bool = false, pinnedCertSHA256: String? = nil,
                         options: LDAPConnectionOptions? = nil,
                         bindDn: String, password: String) async throws -> LdapSchema {
-    try await logged(.schema, endpoint: endpoint(host, port),
-                     summary: "load schema",
-                     detail: "base: cn=Subschema\nscope: base\nattrs: objectClasses attributeTypes") {
-        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256, options: options) {
-        var err = LSError()
-        var out: UnsafeMutablePointer<LSSchema>?
-        let rc = ls_fetch_schema(host, port, useSsl, bindDn, password, &out, &err)
-        guard rc == 0, let out else { return .failure(swiftError(&err)) }
-        let v = out.pointee
-        var classes: [SchemaObjectClass] = []
-        if let p = v.object_classes, v.object_class_count > 0 {
-            classes.reserveCapacity(v.object_class_count)
-            for i in 0..<v.object_class_count { classes.append(convert(objectClass: p[i])) }
+    try await fetchSchema(LdapTarget(host: host, port: port, useSsl: useSsl, startTLS: startTLS,
+                                     pinnedCertSHA256: pinnedCertSHA256, options: options,
+                                     bindDn: bindDn, password: password))
+}
+
+// MARK: Writes
+
+/// Runs one write on a pooled connection, logged. Blocked up front on a
+/// read-only connection.
+private func write(_ target: LdapTarget, readOnly: Bool, kind: OperationLog.Kind,
+                   summary: String, detail: String,
+                   _ work: @escaping (OpaquePointer, inout LSError) -> Int32) async throws {
+    guard !readOnly else { throw ConnectionError.ReadOnly }
+    try await logged(kind, endpoint: target.endpoint, summary: summary, detail: detail) {
+        try await LdapConnectionPool.shared.withConnection(target) { session in
+            try await session.call { conn in
+                var err = LSError()
+                let rc = work(conn, &err)
+                return rc == 0 ? .success(()) : .failure(swiftError(&err))
+            }
         }
-        var attrs: [SchemaAttributeType] = []
-        if let p = v.attribute_types, v.attribute_type_count > 0 {
-            attrs.reserveCapacity(v.attribute_type_count)
-            for i in 0..<v.attribute_type_count { attrs.append(convert(attributeType: p[i])) }
-        }
-        ls_schema_free(out)
-        return .success(LdapSchema(objectClasses: classes, attributeTypes: attrs))
-    }
     }
 }
 
-public func deleteEntry(host: String, port: UInt16, useSsl: Bool,
-                        readOnly: Bool = false,
-                        startTLS: Bool = false, pinnedCertSHA256: String? = nil,
-                        options: LDAPConnectionOptions? = nil,
-                        bindDn: String, password: String, dn: String) async throws {
-    guard !readOnly else { throw ConnectionError.ReadOnly }
-    try await logged(.delete, endpoint: endpoint(host, port),
-                     summary: "delete \(dn)",
-                     detail: "dn: \(dn)") {
-        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256, options: options) {
-        var err = LSError()
-        let rc = ls_delete_entry(host, port, useSsl, bindDn, password, dn, &err)
-        return rc == 0 ? .success(()) : .failure(swiftError(&err))
-    }
+public func deleteEntry(_ target: LdapTarget, readOnly: Bool, dn: String) async throws {
+    try await write(target, readOnly: readOnly, kind: .delete,
+                    summary: "delete \(dn)", detail: "dn: \(dn)") { conn, err in
+        ls_delete_entry(conn, dn, &err)
     }
 }
 
-public func addAttributeValue(host: String, port: UInt16, useSsl: Bool,
-                              readOnly: Bool = false,
-                              startTLS: Bool = false, pinnedCertSHA256: String? = nil,
-                              options: LDAPConnectionOptions? = nil,
-                              bindDn: String, password: String, dn: String,
-                              attribute: String, value: String) async throws {
-    guard !readOnly else { throw ConnectionError.ReadOnly }
-    try await logged(.modify, endpoint: endpoint(host, port),
-                     summary: "add value: \(attribute) on \(dn)",
-                     detail: "dn: \(dn)\nadd: \(attribute) = \(abbrev(value))") {
-        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256, options: options) {
-        var err = LSError()
-        let rc = ls_add_attribute_value(host, port, useSsl, bindDn, password,
-                                        dn, attribute, value, &err)
-        return rc == 0 ? .success(()) : .failure(swiftError(&err))
-    }
+public func renameEntry(_ target: LdapTarget, readOnly: Bool, dn: String,
+                        newRDN: String, deleteOldRDN: Bool, newSuperior: String?) async throws {
+    let isMove = newSuperior != nil && newRDN == DN.rdn(of: dn)
+    try await write(target, readOnly: readOnly, kind: .rename,
+                    summary: isMove ? "move \(dn)" : "rename \(dn)",
+                    detail: isMove
+                        ? "dn: \(dn)\nnew superior: \(newSuperior ?? "")"
+                        : "dn: \(dn)\nnew RDN: \(newRDN)\ndelete old RDN: \(deleteOldRDN)\nnew superior: \(newSuperior ?? "(same)")") { conn, err in
+        ls_rename_entry(conn, dn, newRDN, deleteOldRDN, newSuperior ?? "", &err)
     }
 }
 
-public func modifyAttributeValue(host: String, port: UInt16, useSsl: Bool,
-                                 readOnly: Bool = false,
-                                 startTLS: Bool = false, pinnedCertSHA256: String? = nil,
-                                 options: LDAPConnectionOptions? = nil,
-                                 bindDn: String, password: String, dn: String,
-                                 attribute: String, oldValue: String, newValue: String,
-                                 isBinary: Bool) async throws {
-    guard !readOnly else { throw ConnectionError.ReadOnly }
-    try await logged(.modify, endpoint: endpoint(host, port),
-                     summary: "replace: \(attribute) on \(dn)",
-                     detail: "dn: \(dn)\n\(attribute): \(abbrev(oldValue)) -> \(abbrev(newValue))") {
-        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256, options: options) {
-        var err = LSError()
-        let rc = ls_modify_attribute_value(host, port, useSsl, bindDn, password,
-                                           dn, attribute, oldValue, newValue, isBinary, &err)
-        return rc == 0 ? .success(()) : .failure(swiftError(&err))
-    }
-    }
-}
-
-public func setAttributeValue(host: String, port: UInt16, useSsl: Bool,
-                              readOnly: Bool = false,
-                              startTLS: Bool = false, pinnedCertSHA256: String? = nil,
-                              options: LDAPConnectionOptions? = nil,
-                              bindDn: String, password: String, dn: String,
-                              attribute: String, value: String, isBinary: Bool) async throws {
-    guard !readOnly else { throw ConnectionError.ReadOnly }
-    try await logged(.modify, endpoint: endpoint(host, port),
-                     summary: "set: \(attribute) on \(dn)",
-                     detail: "dn: \(dn)\nreplace: \(attribute) = \(abbrev(value))") {
-        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256, options: options) {
-        var err = LSError()
-        let rc = ls_set_attribute_value(host, port, useSsl, bindDn, password,
-                                        dn, attribute, value, isBinary, &err)
-        return rc == 0 ? .success(()) : .failure(swiftError(&err))
-    }
-    }
-}
-
-public func deleteAttributeValue(host: String, port: UInt16, useSsl: Bool,
-                                 readOnly: Bool = false,
-                                 startTLS: Bool = false, pinnedCertSHA256: String? = nil,
-                                 options: LDAPConnectionOptions? = nil,
-                                 bindDn: String, password: String, dn: String,
-                                 attribute: String, value: String, isBinary: Bool) async throws {
-    guard !readOnly else { throw ConnectionError.ReadOnly }
-    try await logged(.modify, endpoint: endpoint(host, port),
-                     summary: "delete value: \(attribute) on \(dn)",
-                     detail: "dn: \(dn)\ndelete: \(attribute) = \(abbrev(value))") {
-        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256, options: options) {
-        var err = LSError()
-        let rc = ls_delete_attribute_value(host, port, useSsl, bindDn, password,
-                                           dn, attribute, value, isBinary, &err)
-        return rc == 0 ? .success(()) : .failure(swiftError(&err))
-    }
-    }
-}
-
-public func moveEntry(host: String, port: UInt16, useSsl: Bool,
-                      readOnly: Bool = false,
-                      startTLS: Bool = false, pinnedCertSHA256: String? = nil,
-                      options: LDAPConnectionOptions? = nil,
-                      bindDn: String, password: String,
-                      dn: String, newSuperior: String) async throws {
-    guard !readOnly else { throw ConnectionError.ReadOnly }
-    try await logged(.rename, endpoint: endpoint(host, port),
-                     summary: "move \(dn)",
-                     detail: "dn: \(dn)\nnew superior: \(newSuperior)") {
-        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256, options: options) {
-        var err = LSError()
-        let rc = ls_move_entry(host, port, useSsl, bindDn, password, dn, newSuperior, &err)
-        return rc == 0 ? .success(()) : .failure(swiftError(&err))
-    }
-    }
-}
-
-public func renameEntry(host: String, port: UInt16, useSsl: Bool,
-                        readOnly: Bool = false,
-                        startTLS: Bool = false, pinnedCertSHA256: String? = nil,
-                        options: LDAPConnectionOptions? = nil,
-                        bindDn: String, password: String, dn: String,
-                        newRDN: String, deleteOldRDN: Bool,
-                        newSuperior: String?) async throws {
-    guard !readOnly else { throw ConnectionError.ReadOnly }
-    try await logged(.rename, endpoint: endpoint(host, port),
-                     summary: "rename \(dn)",
-                     detail: "dn: \(dn)\nnew RDN: \(newRDN)\ndelete old RDN: \(deleteOldRDN)\nnew superior: \(newSuperior ?? "(same)")") {
-        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256, options: options) {
-        var err = LSError()
-        let rc = ls_rename_entry(host, port, useSsl, bindDn, password, dn,
-                                 newRDN, deleteOldRDN, newSuperior ?? "", &err)
-        return rc == 0 ? .success(()) : .failure(swiftError(&err))
-    }
-    }
-}
-
-public enum LdapModKind {
+nonisolated public enum LdapModKind: Sendable {
     case add, delete, replace
     fileprivate var c: LSModKind {
         switch self {
@@ -784,7 +900,7 @@ public enum LdapModKind {
     }
 }
 
-public struct LdapModOp {
+nonisolated public struct LdapModOp: Sendable {
     public let kind: LdapModKind
     public let attribute: String
     /// Empty for a whole-attribute delete / replace-with-nothing.
@@ -799,45 +915,37 @@ public struct LdapModOp {
 }
 
 /// One LDAP Modify with every op applied together (LDIF `changetype: modify`).
-public func modifyEntry(host: String, port: UInt16, useSsl: Bool,
-                        readOnly: Bool = false,
-                        startTLS: Bool = false, pinnedCertSHA256: String? = nil,
-                        options: LDAPConnectionOptions? = nil,
-                        bindDn: String, password: String, dn: String,
-                        ops: [LdapModOp]) async throws {
-    guard !readOnly else { throw ConnectionError.ReadOnly }
-    let flatValues = ops.flatMap(\.values)
-    let valueStrings = flatValues.map { strdup($0.value) }
-    let attrStrings: [UnsafeMutablePointer<CChar>] = ops.map { strdup($0.attribute)! }
-    let emptyName = strdup("")
-    defer {
-        valueStrings.forEach { free($0) }
-        attrStrings.forEach { free($0) }
-        free(emptyName)
-    }
+public func modifyEntry(_ target: LdapTarget, readOnly: Bool, dn: String, ops: [LdapModOp],
+                        summary: String? = nil, detail: String? = nil) async throws {
+    try await write(target, readOnly: readOnly, kind: .modify,
+                    summary: summary ?? "modify \(dn) (\(ops.count) op\(ops.count == 1 ? "" : "s"))",
+                    detail: detail ?? ("dn: \(dn)\n" + ops.map { "\($0.kind) \($0.attribute)" }.joined(separator: "\n"))) { conn, err in
+        let flatValues = ops.flatMap(\.values)
+        let valueStrings = flatValues.map { strdup($0.value) }
+        let attrStrings: [UnsafeMutablePointer<CChar>] = ops.map { strdup($0.attribute)! }
+        let emptyName = strdup("")
+        defer {
+            valueStrings.forEach { free($0) }
+            attrStrings.forEach { free($0) }
+            free(emptyName)
+        }
 
-    var cValues: [LSAttribute] = []
-    cValues.reserveCapacity(flatValues.count)
-    for (i, v) in flatValues.enumerated() {
-        cValues.append(LSAttribute(name: emptyName, value: valueStrings[i], is_binary: v.isBinary))
-    }
+        var cValues: [LSAttribute] = []
+        cValues.reserveCapacity(flatValues.count)
+        for (i, v) in flatValues.enumerated() {
+            cValues.append(LSAttribute(name: emptyName, value: valueStrings[i], is_binary: v.isBinary))
+        }
 
-    var offsets: [Int] = []
-    var running = 0
-    for op in ops {
-        offsets.append(running)
-        running += op.values.count
-    }
+        var offsets: [Int] = []
+        var running = 0
+        for op in ops {
+            offsets.append(running)
+            running += op.values.count
+        }
 
-    let count = ops.count
-    try await logged(.modify, endpoint: endpoint(host, port),
-                     summary: "modify \(dn) (\(ops.count) op\(ops.count == 1 ? "" : "s"))",
-                     detail: "dn: \(dn)\n" + ops.map { "\($0.kind) \($0.attribute)" }.joined(separator: "\n")) {
-        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256, options: options) {
-        var err = LSError()
-        let rc: Int32 = cValues.withUnsafeBufferPointer { valBuf in
+        return cValues.withUnsafeBufferPointer { valBuf in
             var cOps: [LSModOp] = []
-            cOps.reserveCapacity(count)
+            cOps.reserveCapacity(ops.count)
             for (i, op) in ops.enumerated() {
                 let n = op.values.count
                 let base: UnsafePointer<LSAttribute>? =
@@ -848,13 +956,155 @@ public func modifyEntry(host: String, port: UInt16, useSsl: Bool,
                                     value_count: n))
             }
             return cOps.withUnsafeBufferPointer { opBuf in
-                ls_modify_entry(host, port, useSsl, bindDn, password, dn,
-                                opBuf.baseAddress, opBuf.count, &err)
+                ls_modify_entry(conn, dn, opBuf.baseAddress, opBuf.count, &err)
             }
         }
-        return rc == 0 ? .success(()) : .failure(swiftError(&err))
     }
+}
+
+public func addEntry(_ target: LdapTarget, readOnly: Bool, dn: String,
+                     attributes: [LdapAttribute]) async throws {
+    try await write(target, readOnly: readOnly, kind: .add,
+                    summary: "add \(dn)",
+                    detail: "dn: \(dn)\nattributes: \(attributes.map(\.name).joined(separator: ", "))") { conn, err in
+        // Build a C LSAttribute[] whose char* fields stay valid for the call.
+        let names = attributes.map { strdup($0.name) }
+        let values = attributes.map { strdup($0.value) }
+        defer {
+            names.forEach { free($0) }
+            values.forEach { free($0) }
+        }
+        var cAttrs: [LSAttribute] = []
+        cAttrs.reserveCapacity(attributes.count)
+        for (i, a) in attributes.enumerated() {
+            cAttrs.append(LSAttribute(name: names[i], value: values[i], is_binary: a.isBinary))
+        }
+        return cAttrs.withUnsafeBufferPointer { buf in
+            ls_add_entry(conn, dn, buf.baseAddress, buf.count, &err)
+        }
     }
+}
+
+// MARK: Writes — the call shapes the views already use
+
+public func deleteEntry(host: String, port: UInt16, useSsl: Bool,
+                        readOnly: Bool = false,
+                        startTLS: Bool = false, pinnedCertSHA256: String? = nil,
+                        options: LDAPConnectionOptions? = nil,
+                        bindDn: String, password: String, dn: String) async throws {
+    try await deleteEntry(LdapTarget(host: host, port: port, useSsl: useSsl, startTLS: startTLS,
+                                     pinnedCertSHA256: pinnedCertSHA256, options: options,
+                                     bindDn: bindDn, password: password),
+                          readOnly: readOnly, dn: dn)
+}
+
+public func addAttributeValue(host: String, port: UInt16, useSsl: Bool,
+                              readOnly: Bool = false,
+                              startTLS: Bool = false, pinnedCertSHA256: String? = nil,
+                              options: LDAPConnectionOptions? = nil,
+                              bindDn: String, password: String, dn: String,
+                              attribute: String, value: String) async throws {
+    try await modifyEntry(LdapTarget(host: host, port: port, useSsl: useSsl, startTLS: startTLS,
+                                     pinnedCertSHA256: pinnedCertSHA256, options: options,
+                                     bindDn: bindDn, password: password),
+                          readOnly: readOnly, dn: dn,
+                          ops: [LdapModOp(kind: .add, attribute: attribute, values: [(value, false)])],
+                          summary: "add value: \(attribute) on \(dn)",
+                          detail: "dn: \(dn)\nadd: \(attribute) = \(abbrev(value))")
+}
+
+/// Targeted delete-then-add of just this value, so other values of a
+/// multi-valued attribute survive (a plain Replace would wipe them).
+public func modifyAttributeValue(host: String, port: UInt16, useSsl: Bool,
+                                 readOnly: Bool = false,
+                                 startTLS: Bool = false, pinnedCertSHA256: String? = nil,
+                                 options: LDAPConnectionOptions? = nil,
+                                 bindDn: String, password: String, dn: String,
+                                 attribute: String, oldValue: String, newValue: String,
+                                 isBinary: Bool) async throws {
+    try await modifyEntry(LdapTarget(host: host, port: port, useSsl: useSsl, startTLS: startTLS,
+                                     pinnedCertSHA256: pinnedCertSHA256, options: options,
+                                     bindDn: bindDn, password: password),
+                          readOnly: readOnly, dn: dn,
+                          ops: [LdapModOp(kind: .delete, attribute: attribute, values: [(oldValue, isBinary)]),
+                                LdapModOp(kind: .add, attribute: attribute, values: [(newValue, isBinary)])],
+                          summary: "replace: \(attribute) on \(dn)",
+                          detail: "dn: \(dn)\n\(attribute): \(abbrev(oldValue)) -> \(abbrev(newValue))")
+}
+
+/// Replace every value of `attribute` with the single `value` (LDAP
+/// Replace) — for effectively single-valued attributes like jpegPhoto.
+public func setAttributeValue(host: String, port: UInt16, useSsl: Bool,
+                              readOnly: Bool = false,
+                              startTLS: Bool = false, pinnedCertSHA256: String? = nil,
+                              options: LDAPConnectionOptions? = nil,
+                              bindDn: String, password: String, dn: String,
+                              attribute: String, value: String, isBinary: Bool) async throws {
+    try await modifyEntry(LdapTarget(host: host, port: port, useSsl: useSsl, startTLS: startTLS,
+                                     pinnedCertSHA256: pinnedCertSHA256, options: options,
+                                     bindDn: bindDn, password: password),
+                          readOnly: readOnly, dn: dn,
+                          ops: [LdapModOp(kind: .replace, attribute: attribute, values: [(value, isBinary)])],
+                          summary: "set: \(attribute) on \(dn)",
+                          detail: "dn: \(dn)\nreplace: \(attribute) = \(abbrev(value))")
+}
+
+public func deleteAttributeValue(host: String, port: UInt16, useSsl: Bool,
+                                 readOnly: Bool = false,
+                                 startTLS: Bool = false, pinnedCertSHA256: String? = nil,
+                                 options: LDAPConnectionOptions? = nil,
+                                 bindDn: String, password: String, dn: String,
+                                 attribute: String, value: String, isBinary: Bool) async throws {
+    try await modifyEntry(LdapTarget(host: host, port: port, useSsl: useSsl, startTLS: startTLS,
+                                     pinnedCertSHA256: pinnedCertSHA256, options: options,
+                                     bindDn: bindDn, password: password),
+                          readOnly: readOnly, dn: dn,
+                          ops: [LdapModOp(kind: .delete, attribute: attribute, values: [(value, isBinary)])],
+                          summary: "delete value: \(attribute) on \(dn)",
+                          detail: "dn: \(dn)\ndelete: \(attribute) = \(abbrev(value))")
+}
+
+/// Moves `dn` (and, on the server, everything under it) beneath
+/// `newSuperior`, keeping its RDN.
+public func moveEntry(host: String, port: UInt16, useSsl: Bool,
+                      readOnly: Bool = false,
+                      startTLS: Bool = false, pinnedCertSHA256: String? = nil,
+                      options: LDAPConnectionOptions? = nil,
+                      bindDn: String, password: String,
+                      dn: String, newSuperior: String) async throws {
+    try await renameEntry(LdapTarget(host: host, port: port, useSsl: useSsl, startTLS: startTLS,
+                                     pinnedCertSHA256: pinnedCertSHA256, options: options,
+                                     bindDn: bindDn, password: password),
+                          readOnly: readOnly, dn: dn, newRDN: DN.rdn(of: dn),
+                          deleteOldRDN: true, newSuperior: newSuperior)
+}
+
+/// Rename / relocate an entry (LDAP ModifyDN). `newSuperior` nil keeps the
+/// current parent. Used by the LDIF editor's `changetype: modrdn`.
+public func renameEntry(host: String, port: UInt16, useSsl: Bool,
+                        readOnly: Bool = false,
+                        startTLS: Bool = false, pinnedCertSHA256: String? = nil,
+                        options: LDAPConnectionOptions? = nil,
+                        bindDn: String, password: String, dn: String,
+                        newRDN: String, deleteOldRDN: Bool,
+                        newSuperior: String?) async throws {
+    try await renameEntry(LdapTarget(host: host, port: port, useSsl: useSsl, startTLS: startTLS,
+                                     pinnedCertSHA256: pinnedCertSHA256, options: options,
+                                     bindDn: bindDn, password: password),
+                          readOnly: readOnly, dn: dn, newRDN: newRDN,
+                          deleteOldRDN: deleteOldRDN, newSuperior: newSuperior)
+}
+
+public func modifyEntry(host: String, port: UInt16, useSsl: Bool,
+                        readOnly: Bool = false,
+                        startTLS: Bool = false, pinnedCertSHA256: String? = nil,
+                        options: LDAPConnectionOptions? = nil,
+                        bindDn: String, password: String, dn: String,
+                        ops: [LdapModOp]) async throws {
+    try await modifyEntry(LdapTarget(host: host, port: port, useSsl: useSsl, startTLS: startTLS,
+                                     pinnedCertSHA256: pinnedCertSHA256, options: options,
+                                     bindDn: bindDn, password: password),
+                          readOnly: readOnly, dn: dn, ops: ops)
 }
 
 public func addEntry(host: String, port: UInt16, useSsl: Bool,
@@ -863,33 +1113,10 @@ public func addEntry(host: String, port: UInt16, useSsl: Bool,
                      options: LDAPConnectionOptions? = nil,
                      bindDn: String, password: String, dn: String,
                      attributes: [LdapAttribute]) async throws {
-    guard !readOnly else { throw ConnectionError.ReadOnly }
-    // Build a C LSAttribute[] whose char* fields stay valid for the call.
-    let names = attributes.map { strdup($0.name) }
-    let values = attributes.map { strdup($0.value) }
-    defer {
-        names.forEach { free($0) }
-        values.forEach { free($0) }
-    }
-    var cAttrs: [LSAttribute] = []
-    cAttrs.reserveCapacity(attributes.count)
-    for (i, a) in attributes.enumerated() {
-        cAttrs.append(LSAttribute(name: names[i], value: values[i], is_binary: a.isBinary))
-    }
-
-    let count = cAttrs.count
-    try await logged(.add, endpoint: endpoint(host, port),
-                     summary: "add \(dn)",
-                     detail: "dn: \(dn)\nattributes: \(attributes.map(\.name).joined(separator: ", "))") {
-        try await background(startTLS: startTLS, pinnedCertSHA256: pinnedCertSHA256, options: options) {
-        var err = LSError()
-        let rc: Int32 = cAttrs.withUnsafeBufferPointer { buf in
-            ls_add_entry(host, port, useSsl, bindDn, password, dn,
-                         buf.baseAddress, count, &err)
-        }
-        return rc == 0 ? .success(()) : .failure(swiftError(&err))
-    }
-    }
+    try await addEntry(LdapTarget(host: host, port: port, useSsl: useSsl, startTLS: startTLS,
+                                  pinnedCertSHA256: pinnedCertSHA256, options: options,
+                                  bindDn: bindDn, password: password),
+                       readOnly: readOnly, dn: dn, attributes: attributes)
 }
 
 public func hashPassword(plaintext: String, scheme: PasswordScheme) throws -> String {
@@ -930,10 +1157,11 @@ public func dependencyVersions() -> DependencyVersions {
     )
 }
 
-/// Call once as the app quits. Waits briefly for any connection attempt
+/// Call once as the app quits. Closes the pooled connections, then waits briefly for any connection attempt
 /// that already timed out but is still unwinding in the background (exiting
 /// underneath it can crash during OpenSSL's exit-time cleanup), then closes
 /// every SSH tunnel kept warm for reuse so none linger after the app closes.
 public func shutdownCore() {
+    LdapConnectionPool.shared.closeAll()
     ls_shutdown(2000)
 }
