@@ -1048,19 +1048,6 @@ public func deleteAttributeValue(host: String, port: UInt16, useSsl: Bool,
 
 /// Moves `dn` (and, on the server, everything under it) beneath
 /// `newSuperior`, keeping its RDN.
-public func moveEntry(host: String, port: UInt16, useSsl: Bool,
-                      readOnly: Bool = false,
-                      startTLS: Bool = false, pinnedCertSHA256: String? = nil,
-                      options: LDAPConnectionOptions? = nil,
-                      bindDn: String, password: String,
-                      dn: String, newSuperior: String) async throws {
-    try await renameEntry(LdapTarget(host: host, port: port, useSsl: useSsl, startTLS: startTLS,
-                                     pinnedCertSHA256: pinnedCertSHA256, options: options,
-                                     bindDn: bindDn, password: password),
-                          readOnly: readOnly, dn: dn, newRDN: DN.rdn(of: dn),
-                          deleteOldRDN: true, newSuperior: newSuperior)
-}
-
 /// Rename / relocate an entry (LDAP ModifyDN). `newSuperior` nil keeps the
 /// current parent. Used by the LDIF editor's `changetype: modrdn`.
 public func renameEntry(host: String, port: UInt16, useSsl: Bool,

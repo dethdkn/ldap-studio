@@ -873,7 +873,7 @@ static void *connect_attempt_run(void *arg) {
  * SO_NOSIGPIPE, so ignore the signal process-wide; the write then just
  * fails, which the core already reports as a lost connection. */
 static pthread_once_t g_sigpipe_once = PTHREAD_ONCE_INIT;
-static void ignore_sigpipe(void) { signal(SIGPIPE, SIG_IGN); }
+static void ignore_sigpipe(void) { (void)signal(SIGPIPE, SIG_IGN); }
 
 int ls_connect_and_bind(const char *host, uint16_t port, bool use_ssl,
                         const char *bind_dn, const char *password, LDAP **out,

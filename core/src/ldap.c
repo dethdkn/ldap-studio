@@ -92,7 +92,8 @@ void ls_cancel_trigger(LSCancel *cancel) {
 void ls_cancel_free(LSCancel *cancel) { free(cancel); }
 
 static bool is_cancelled(LSCancel *cancel) {
-  return cancel && atomic_load(&cancel->fired);
+  if (!cancel) return false;
+  return atomic_load(&cancel->fired) != 0;
 }
 
 /* ── paged search ────────────────────────────────────────────────── */
@@ -223,6 +224,61 @@ static int send_page(LSSearch *s, LDAP *ld, int *msgid) {
   return rc;
 }
 
+/* Waits for the replies to page request `msgid`, adding its entries to
+ * `list`, until the SearchResultDone (whose result code goes to *code).
+ * Returns LS_OK, or the error — cancellation included — leaving `list` for
+ * the caller to free. */
+static int collect_page(LSSearch *s, LDAP *ld, int msgid, LSCancel *cancel,
+                        EntryList *list, int *code, LSError *err) {
+  double last_heard = now_seconds();
+  for (;;) {
+    if (is_cancelled(cancel)) {
+      ldap_abandon_ext(ld, msgid, NULL, NULL);
+      /* A server that's gone quiet may be unreachable (network dropped,
+       * VPN down) rather than slow; don't hand that connection to the
+       * next caller, who would wait on it forever. */
+      if (now_seconds() - last_heard > LS_QUIET_SECS)
+        ls_connection_mark_broken(s->conn);
+      s->cancelled = true;
+      return ls_fail(err, LS_CANCELLED, NULL, 0, "Cancelled");
+    }
+    struct timeval tick = {0, LS_POLL_USECS};
+    LDAPMessage *msg = NULL;
+    int type = ldap_result(ld, msgid, LDAP_MSG_ONE, &tick, &msg);
+    if (type == 0) {
+      if (s->idle_timeout > 0 &&
+          now_seconds() - last_heard > (double)s->idle_timeout) {
+        ldap_abandon_ext(ld, msgid, NULL, NULL);
+        ls_connection_mark_broken(s->conn);
+        return ls_fail(err, LS_SEARCH_FAILED, NULL, 0,
+                       "The server stopped responding");
+      }
+      continue;
+    }
+    if (type < 0) {
+      int lrc = LDAP_OTHER;
+      ldap_get_option(ld, LDAP_OPT_RESULT_CODE, &lrc);
+      return ls_connection_fail(s->conn, err, LS_SEARCH_FAILED, lrc);
+    }
+    last_heard = now_seconds();
+    if (type == LDAP_RES_SEARCH_ENTRY) {
+      entry_list_push(list, ld, msg);
+      ldap_msgfree(msg);
+      continue;
+    }
+    if (type != LDAP_RES_SEARCH_RESULT) {
+      /* Search references (AD's ForestDnsZones and the like) — the
+       * entries they point at live on other naming contexts. */
+      ldap_msgfree(msg);
+      continue;
+    }
+    int rc = finish_page(s, ld, msg, code);
+    if (rc != LDAP_SUCCESS)
+      return ls_connection_fail(s->conn, err, LS_SEARCH_FAILED, rc);
+    return LS_OK;
+  }
+}
+
 int ls_search_next_page(LSSearch *s, LSCancel *cancel, LSEntry **out,
                         size_t *out_count, bool *done, bool *truncated,
                         LSError *err) {
@@ -246,62 +302,12 @@ int ls_search_next_page(LSSearch *s, LSCancel *cancel, LSEntry **out,
       return ls_connection_fail(s->conn, err, LS_SEARCH_FAILED, rc);
     }
 
-    double last_heard = now_seconds();
     int code = LDAP_SUCCESS;
-    for (;;) {
-      if (is_cancelled(cancel)) {
-        ldap_abandon_ext(ld, msgid, NULL, NULL);
-        /* A server that's gone quiet may be unreachable (network dropped,
-         * VPN down) rather than slow; don't hand that connection to the
-         * next caller, who would wait on it forever. */
-        if (now_seconds() - last_heard > LS_QUIET_SECS)
-          ls_connection_mark_broken(s->conn);
-        ls_entries_free(list.items, list.count);
-        s->done = true;
-        s->cancelled = true;
-        return ls_fail(err, LS_CANCELLED, NULL, 0, "Cancelled");
-      }
-      struct timeval poll = {0, LS_POLL_USECS};
-      LDAPMessage *msg = NULL;
-      int type = ldap_result(ld, msgid, LDAP_MSG_ONE, &poll, &msg);
-      if (type == 0) {
-        if (s->idle_timeout > 0 &&
-            now_seconds() - last_heard > (double)s->idle_timeout) {
-          ldap_abandon_ext(ld, msgid, NULL, NULL);
-          ls_connection_mark_broken(s->conn);
-          ls_entries_free(list.items, list.count);
-          s->done = true;
-          return ls_fail(err, LS_SEARCH_FAILED, NULL, 0,
-                         "The server stopped responding");
-        }
-        continue;
-      }
-      if (type < 0) {
-        int lrc = LDAP_OTHER;
-        ldap_get_option(ld, LDAP_OPT_RESULT_CODE, &lrc);
-        ls_entries_free(list.items, list.count);
-        s->done = true;
-        return ls_connection_fail(s->conn, err, LS_SEARCH_FAILED, lrc);
-      }
-      last_heard = now_seconds();
-      if (type == LDAP_RES_SEARCH_ENTRY) {
-        entry_list_push(&list, ld, msg);
-        ldap_msgfree(msg);
-        continue;
-      }
-      if (type != LDAP_RES_SEARCH_RESULT) {
-        /* Search references (AD's ForestDnsZones and the like) — the
-         * entries they point at live on other naming contexts. */
-        ldap_msgfree(msg);
-        continue;
-      }
-      rc = finish_page(s, ld, msg, &code);
-      if (rc != LDAP_SUCCESS) {
-        ls_entries_free(list.items, list.count);
-        s->done = true;
-        return ls_connection_fail(s->conn, err, LS_SEARCH_FAILED, rc);
-      }
-      break;
+    rc = collect_page(s, ld, msgid, cancel, &list, &code, err);
+    if (rc != LS_OK) {
+      ls_entries_free(list.items, list.count);
+      s->done = true;
+      return rc;
     }
 
     if (code == LDAP_ADMINLIMIT_EXCEEDED && !s->started && list.count == 0 &&

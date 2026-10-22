@@ -43,8 +43,9 @@ typedef enum {
   LS_TLS_UNTRUSTED,
   LS_SSH_HOST_KEY_UNTRUSTED,
   /* An already-open LSConnection found its server gone (closed after
-   * sitting idle, network dropped). Nothing reached the server, so the
-   * app reconnects and retries. */
+   * sitting idle, network dropped). A read can be retried on a fresh
+   * connection; a write can't — the server may have applied it before the
+   * connection went (LdapConnectionPool probes before writing instead). */
   LS_CONNECTION_LOST,
   /* The LSCancel passed to the call was triggered; the request was
    * abandoned on the server. */
@@ -246,8 +247,8 @@ int ls_test_connection(const char *host, uint16_t port, bool use_ssl,
  * Every call below that fails because the server went away marks the
  * connection broken (see ls_connection_is_broken); close it and open a
  * new one. A connection that sits idle long enough to be closed by the
- * server fails with LS_CONNECTION_LOST, which is safe to retry on a fresh
- * connection.
+ * server fails with LS_CONNECTION_LOST; a read is safe to retry on a fresh
+ * connection, a write is not.
  */
 typedef struct LSConnection LSConnection;
 

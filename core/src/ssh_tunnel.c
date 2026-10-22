@@ -153,11 +153,16 @@ typedef struct {
 /* True when the session itself is gone (as opposed to one channel
  * closing), which ends the whole tunnel. */
 static bool session_failed(LIBSSH2_SESSION *session) {
-  int code = libssh2_session_last_errno(session);
-  return code == LIBSSH2_ERROR_SOCKET_SEND ||
-         code == LIBSSH2_ERROR_SOCKET_RECV ||
-         code == LIBSSH2_ERROR_SOCKET_DISCONNECT ||
-         code == LIBSSH2_ERROR_SOCKET_TIMEOUT || code == LIBSSH2_ERROR_TIMEOUT;
+  switch (libssh2_session_last_errno(session)) {
+    case LIBSSH2_ERROR_SOCKET_SEND:
+    case LIBSSH2_ERROR_SOCKET_RECV:
+    case LIBSSH2_ERROR_SOCKET_DISCONNECT:
+    case LIBSSH2_ERROR_SOCKET_TIMEOUT:
+    case LIBSSH2_ERROR_TIMEOUT:
+      return true;
+    default:
+      return false;
+  }
 }
 
 /* Closes the client's socket now and starts closing its channel without
@@ -227,7 +232,8 @@ static bool pump_client(TunnelClient *c, bool readable, bool *moved) {
     *moved = true;
     if (!flush_down(c)) return false;
   }
-  return !(c->down_len == 0 && libssh2_channel_eof(c->channel));
+  if (c->down_len > 0) return true;
+  return libssh2_channel_eof(c->channel) == 0;
 }
 
 /* Accepted client sockets are non-blocking, and never raise SIGPIPE when
@@ -238,6 +244,119 @@ static void prepare_client_socket(int fd) {
   fcntl(fd, F_SETFL, (int)((unsigned)flags | (unsigned)O_NONBLOCK));
   int on = 1;
   setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof on);
+}
+
+/* What forward_loop decides its next round by. */
+typedef struct {
+  size_t live;    /* slots serving a client */
+  size_t readers; /* live clients with room to read from their channel */
+  size_t closers; /* slots whose channel is still being freed */
+} ClientCounts;
+
+static ClientCounts count_clients(const TunnelClient *clients) {
+  ClientCounts counts = {0, 0, 0};
+  for (size_t i = 0; i < LS_SSH_MAX_CLIENTS; ++i) {
+    if (clients[i].closing) counts.closers++;
+    if (clients[i].socket < 0) continue;
+    counts.live++;
+    if (clients[i].down_len == 0) counts.readers++;
+  }
+  return counts;
+}
+
+/* With nothing using it, the session can't answer keepalives and the
+ * server will eventually drop it; so a tunnel that has had no clients for
+ * a while retires, and the next connection opens a fresh one. (If the
+ * session dies sooner, the next connection's channel open fails, which
+ * marks the tunnel broken, and connect.c retries on a fresh one.) */
+static bool idle_too_long(ClientCounts counts, time_t *idle_since) {
+  if (counts.live > 0 || counts.closers > 0) {
+    *idle_since = 0;
+    return false;
+  }
+  time_t now = time(NULL);
+  if (*idle_since == 0) *idle_since = now;
+  return now - *idle_since > LS_SSH_RETIRE_IDLE_SECS;
+}
+
+/* Fills `pfds`: the listening socket, then the SSH socket when `watch_ssh`,
+ * then each live client. `client_pfd[i]` is where client i landed, 0 for a
+ * client with no entry (0 is always the listening socket). */
+static nfds_t build_pollfds(const LSSSHTunnel *t, const TunnelClient *clients,
+                            bool watch_ssh, struct pollfd *pfds,
+                            nfds_t *client_pfd) {
+  nfds_t n = 0;
+  pfds[n++] = (struct pollfd){.fd = t->listen_socket, .events = POLLIN};
+  if (watch_ssh)
+    pfds[n++] = (struct pollfd){.fd = t->ssh_socket, .events = POLLIN};
+  for (size_t i = 0; i < LS_SSH_MAX_CLIENTS; ++i) {
+    client_pfd[i] = 0;
+    if (clients[i].socket < 0) continue;
+    unsigned events = 0;
+    if (clients[i].up_len == 0) events |= (unsigned)POLLIN;
+    if (clients[i].down_len > clients[i].down_sent) events |= (unsigned)POLLOUT;
+    client_pfd[i] = n;
+    pfds[n++] =
+        (struct pollfd){.fd = clients[i].socket, .events = (short)events};
+  }
+  return n;
+}
+
+/* Accepts one waiting local connection and opens its SSH channel. */
+static void accept_client(LSSSHTunnel *t, TunnelClient *clients) {
+  int client = accept(t->listen_socket, NULL, NULL);
+  if (client < 0) return;
+  size_t slot = LS_SSH_MAX_CLIENTS;
+  for (size_t i = 0; i < LS_SSH_MAX_CLIENTS; ++i) {
+    if (clients[i].socket < 0 && !clients[i].closing) {
+      slot = i;
+      break;
+    }
+  }
+  if (slot == LS_SSH_MAX_CLIENTS) {
+    close(client); /* every slot busy */
+    return;
+  }
+  /* Opened in blocking mode: non-blocking, opening a channel returns
+   * EAGAIN almost every time. Other channels' data that arrives meanwhile
+   * is buffered by libssh2 and picked up by the next pump. */
+  libssh2_session_set_blocking(t->session, 1);
+  LIBSSH2_CHANNEL *channel = libssh2_channel_direct_tcpip_ex(
+      t->session, t->target_host, t->target_port, "127.0.0.1", 0);
+  libssh2_session_set_blocking(t->session, 0);
+  if (!channel) {
+    /* Marked broken before the client sees its connection close, so a
+     * caller retrying on a fresh tunnel finds this one dead. */
+    if (session_failed(t->session)) t->broken = true;
+    close(client);
+    return;
+  }
+  prepare_client_socket(client);
+  clients[slot] = (TunnelClient){.socket = client, .channel = channel};
+}
+
+/* Moves data for every client and finishes closing channels. Channel data
+ * can be waiting even when no socket is ready (it arrived while another
+ * channel was being served), so every client is pumped every round. */
+static void pump_clients(LSSSHTunnel *t, TunnelClient *clients,
+                         const struct pollfd *pfds, const nfds_t *client_pfd,
+                         bool *moved) {
+  for (size_t i = 0; i < LS_SSH_MAX_CLIENTS; ++i) {
+    TunnelClient *c = &clients[i];
+    if (c->closing) {
+      finish_close(c);
+      continue;
+    }
+    if (c->socket < 0) continue;
+    unsigned revents =
+        client_pfd[i] > 0 ? (unsigned)pfds[client_pfd[i]].revents : 0U;
+    bool readable = (revents & (unsigned)(POLLIN | POLLHUP)) != 0;
+    if (!pump_client(c, readable, moved)) {
+      if (session_failed(t->session)) t->broken = true;
+      drop_client(c);
+      finish_close(c);
+    }
+  }
 }
 
 /* Runs for the whole lifetime of the tunnel on one thread (a libssh2
@@ -257,110 +376,27 @@ static void *forward_loop(void *arg) {
   time_t idle_since = 0;
 
   while (!t->stopping && !t->broken) {
+    ClientCounts counts = count_clients(clients);
+    if (idle_too_long(counts, &idle_since)) {
+      t->broken = true;
+      break;
+    }
     /* libssh2 only reads the SSH socket while a channel call is being
      * made: a client's channel read (when its down buffer has room) or a
      * closing channel's free. With none of those this round, a readable
      * SSH socket (a server keepalive, say) would wake poll at once,
      * forever — so it's only polled when something will read it. */
-    size_t live = 0;
-    size_t readers = 0;
-    size_t closers = 0;
-    for (size_t i = 0; i < LS_SSH_MAX_CLIENTS; ++i) {
-      if (clients[i].closing) closers++;
-      if (clients[i].socket < 0) continue;
-      live++;
-      if (clients[i].down_len == 0) readers++;
-    }
-    bool watch_ssh = readers > 0 || closers > 0;
-
-    /* With nothing using it, the session can't answer keepalives and the
-     * server will eventually drop it; retire the tunnel after a while so
-     * the next connection opens a fresh one. (If the session dies sooner,
-     * the next connection's channel open fails, which marks the tunnel
-     * broken, and connect.c retries on a fresh one.) */
-    if (live == 0 && closers == 0) {
-      time_t now = time(NULL);
-      if (idle_since == 0) idle_since = now;
-      if (now - idle_since > LS_SSH_RETIRE_IDLE_SECS) {
-        t->broken = true;
-        break;
-      }
-    } else {
-      idle_since = 0;
-    }
-
+    bool watch_ssh = (counts.readers + counts.closers) > 0;
     struct pollfd pfds[LS_SSH_MAX_CLIENTS + 2];
-    size_t index_of[LS_SSH_MAX_CLIENTS];
-    nfds_t n = 0;
-    pfds[n++] = (struct pollfd){.fd = t->listen_socket, .events = POLLIN};
-    if (watch_ssh)
-      pfds[n++] = (struct pollfd){.fd = t->ssh_socket, .events = POLLIN};
-    nfds_t first_client = n;
-    for (size_t i = 0; i < LS_SSH_MAX_CLIENTS; ++i) {
-      if (clients[i].socket < 0) continue;
-      index_of[n - first_client] = i;
-      short events = 0;
-      if (clients[i].up_len == 0) events |= POLLIN;
-      if (clients[i].down_len > clients[i].down_sent) events |= POLLOUT;
-      pfds[n++] = (struct pollfd){.fd = clients[i].socket, .events = events};
-    }
+    nfds_t client_pfd[LS_SSH_MAX_CLIENTS];
+    nfds_t n = build_pollfds(t, clients, watch_ssh, pfds, client_pfd);
     poll(pfds, n, moved ? 0 : 100);
     moved = false;
     if (t->stopping) break;
 
-    if (((unsigned)pfds[0].revents & (unsigned)POLLIN) != 0) {
-      int client = accept(t->listen_socket, NULL, NULL);
-      if (client >= 0) {
-        size_t slot = LS_SSH_MAX_CLIENTS;
-        for (size_t i = 0; i < LS_SSH_MAX_CLIENTS; ++i)
-          if (clients[i].socket < 0 && !clients[i].closing) {
-            slot = i;
-            break;
-          }
-        /* Opened in blocking mode: non-blocking, opening a channel returns
-         * EAGAIN almost every time. Other channels' data that arrives
-         * meanwhile is buffered by libssh2 and picked up below. */
-        libssh2_session_set_blocking(t->session, 1);
-        LIBSSH2_CHANNEL *channel = slot < LS_SSH_MAX_CLIENTS
-                                       ? libssh2_channel_direct_tcpip_ex(
-                                             t->session, t->target_host,
-                                             t->target_port, "127.0.0.1", 0)
-                                       : NULL;
-        libssh2_session_set_blocking(t->session, 0);
-        if (channel) {
-          prepare_client_socket(client);
-          clients[slot] = (TunnelClient){.socket = client, .channel = channel};
-        } else {
-          /* Marked broken before the client sees its connection close, so
-           * a caller retrying on a fresh tunnel finds this one dead. */
-          if (slot < LS_SSH_MAX_CLIENTS && session_failed(t->session))
-            t->broken = true;
-          close(client);
-        }
-      }
-    }
-
-    /* Channel data can be waiting even when no socket is ready (it
-     * arrived while another channel was being served), so every client
-     * is pumped every time round. */
-    for (size_t i = 0; i < LS_SSH_MAX_CLIENTS; ++i) {
-      TunnelClient *c = &clients[i];
-      if (c->closing) {
-        finish_close(c);
-        continue;
-      }
-      if (c->socket < 0) continue;
-      bool readable = false;
-      for (nfds_t k = first_client; k < n; ++k)
-        if (index_of[k - first_client] == i &&
-            ((unsigned)pfds[k].revents & (unsigned)(POLLIN | POLLHUP)) != 0)
-          readable = true;
-      if (!pump_client(c, readable, &moved)) {
-        if (session_failed(t->session)) t->broken = true;
-        drop_client(c);
-        finish_close(c);
-      }
-    }
+    if (((unsigned)pfds[0].revents & (unsigned)POLLIN) != 0)
+      accept_client(t, clients);
+    pump_clients(t, clients, pfds, client_pfd, &moved);
   }
 
   /* Stop listening as soon as the loop ends, for whatever reason, so a

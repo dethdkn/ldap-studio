@@ -231,7 +231,7 @@ struct GroupMembersSheet: View {
         isSearching = true
         defer { isSearching = false }
 
-        let escaped = LDAPFilterClause.escape(query)
+        let escaped = DN.escapeFilterValue(query)
         let nameClauses = ["cn", "uid", "sn", "givenName", "displayName", "mail"]
             .map { "(\($0)=*\(escaped)*)" }.joined()
         let filter = "(&(|(objectClass=person)(objectClass=inetOrgPerson)(objectClass=posixAccount))(|\(nameClauses)))"
