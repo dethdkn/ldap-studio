@@ -35,11 +35,12 @@ To update, just download the newest version from the [Releases page](https://git
 
 - Save, edit, and organize multiple LDAP connections
 - Import/export connections as JSON (with an optional, obscured password) or from LDAP Admin's `.lcf` format
-- Full directory tree browsing, with live filtering and real LDAP filter (RFC 4515) advanced search
+- Directory tree loaded on demand, so it stays fast on directories of any size (Active Directory included): each branch is read when you expand it, with paged searches that never hit the server's size limit
+- Quick search across the whole directory, and real LDAP filter (RFC 4515) advanced search with progress and cancel
 - Add, edit, view, and delete attributes, including binary values
 - View and set photos (`jpegPhoto`), auto-resized and center-cropped to 300×300
 - Set passwords (`userPassword`) with client-side hashing (PBKDF2-SHA512 by default, plus Unix/MD5/SHA-256/SHA-512 Crypt, MD5, SHA1, SMD5, and SSHA for compatibility); the plaintext is never stored or sent as-is
-- Move, copy, create, and delete entries anywhere in the tree
+- Move, copy, create, and delete entries anywhere in the tree — whole branches included, counted first, with progress and cancel
 - Import and export LDIF files
 - Schema browser: object classes and attributes, with full superior-class inheritance resolved
 - Autocomplete for attribute names and object classes when adding attributes or creating entries, driven by the server's own schema

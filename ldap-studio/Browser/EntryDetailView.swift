@@ -109,9 +109,87 @@ private struct PasswordPolicyCard: View {
     }
 }
 
+/// Reads the selected entry's full attributes (binary values and photos
+/// included) when it's selected, then shows them. The tree never holds them.
+/// A newer selection cancels an older read, and an entry is only shown
+/// under its own DN — switching quickly can't show the wrong attributes.
+struct EntryDetailLoader: View {
+    let dn: String
+    /// Bumped by `BrowserView` to re-read the same entry after a change.
+    let reloadToken: Int
+    let tree: DirectoryTree
+    let connection: SavedConnection
+    let schema: LdapSchema?
+    let operations: BranchOperations
+    let isBookmarked: Bool
+    let onToggleBookmark: () -> Void
+    let onChange: (DirectoryChange) async -> Void
+
+    @State private var entry: DirectoryEntry?
+    @State private var loadError: String?
+    @State private var retryToken = 0
+
+    var body: some View {
+        Group {
+            if let current = entry, DN.same(current.dn, dn) {
+                // Not `Binding($entry)`: that force-unwraps, and switching
+                // entries clears `entry` while this view can still read it.
+                EntryDetailView(
+                    entry: Binding(get: { entry ?? current }, set: { entry = $0 }),
+                    tree: tree,
+                    connection: connection,
+                    schema: schema,
+                    isBookmarked: isBookmarked,
+                    onToggleBookmark: onToggleBookmark,
+                    operations: operations,
+                    onChange: onChange
+                )
+            } else if let loadError {
+                ContentUnavailableView {
+                    Label("Couldn't Load Entry", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(loadError)
+                } actions: {
+                    Button("Try Again") { retryToken += 1 }
+                }
+            } else {
+                ProgressView("Loading \(DN.rdn(of: dn))…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+        }
+        // Retries go through the same task, so a newer selection still
+        // cancels them.
+        .task(id: "\(dn)\n\(reloadToken)\n\(retryToken)") { await load() }
+    }
+
+    private func load() async {
+        let dn = dn
+        if let current = entry, !DN.same(current.dn, dn) { entry = nil }
+        loadError = nil
+        do {
+            let fetched = try await fetchEntry(connection.ldapTarget, dn: dn)
+            guard !Task.isCancelled else { return }
+            guard let fetched else {
+                loadError = "This entry no longer exists on the server."
+                tree.entryRemoved(dn)
+                return
+            }
+            var loaded = DirectoryEntry(ldapEntry: fetched,
+                                        hasChildren: tree.node(dn)?.mayHaveChildren ?? false)
+            if let icon = tree.node(dn)?.icon { loaded.icon = icon }
+            entry = loaded
+        } catch is CancellationError {
+        } catch {
+            guard !Task.isCancelled else { return }
+            loadError = "\(error)"
+        }
+    }
+}
+
 struct EntryDetailView: View {
     @Binding var entry: DirectoryEntry
-    let root: DirectoryEntry
+    /// For the Move/Copy destination picker, which browses it lazily.
+    let tree: DirectoryTree
     let connection: SavedConnection
     /// Optional — feeds Add Attribute's autocomplete; nil just means no
     /// suggestions, never a blocker.
@@ -120,12 +198,12 @@ struct EntryDetailView: View {
     /// by `BrowserView`.
     let isBookmarked: Bool
     let onToggleBookmark: () -> Void
-    /// Tells `BrowserView` to refetch the whole directory from the server —
-    /// every write below goes straight to LDAP, so the tree is reloaded from
-    /// there afterward instead of being patched locally. Pass the dn that
-    /// should stay selected once the fresh tree comes back (`nil` if the
-    /// entry no longer exists, e.g. after a delete).
-    let reload: (String?) async -> Void
+    /// Branch-level move / copy / export, run with progress over the window.
+    let operations: BranchOperations
+    /// Tells `BrowserView` what a write changed — every write below goes
+    /// straight to LDAP, and the tree node and this view are then re-read
+    /// from there rather than patched locally.
+    let onChange: (DirectoryChange) async -> Void
 
     @State private var sortOrder = [KeyPathComparator(\Attribute.name)]
     @State private var selection: Attribute.ID?
@@ -450,22 +528,20 @@ struct EntryDetailView: View {
             AttributeValueDetailSheet(attribute: attribute)
         }
         .sheet(isPresented: $isShowingMovePicker) {
-            if let pruned = root.pruned(removing: entry.id) {
-                DestinationPickerSheet(root: pruned, title: "Move \(entry.name) To", confirmLabel: "Move") { destinationDN in
-                    move(to: destinationDN)
-                }
+            DestinationPickerSheet(tree: tree, excluding: [entry.dn],
+                                   title: "Move \(entry.name) To", confirmLabel: "Move") { destinationDN in
+                operations.requestMove([entry.dn], to: destinationDN)
             }
         }
         .sheet(isPresented: $isShowingCopyPicker) {
-            if let pruned = root.pruned(removing: entry.id) {
-                DestinationPickerSheet(root: pruned, title: "Copy \(entry.name) To", confirmLabel: "Copy") { destinationDN in
-                    copy(to: destinationDN)
-                }
+            DestinationPickerSheet(tree: tree, excluding: [entry.dn],
+                                   title: "Copy \(entry.name) To", confirmLabel: "Copy") { destinationDN in
+                operations.requestCopy(entry.dn, to: destinationDN)
             }
         }
         .sheet(isPresented: $isShowingGroupMembers) {
             GroupMembersSheet(group: entry, connection: connection) {
-                await reload(entry.dn)
+                await onChange(.modified(entry.dn))
             }
         }
         .sheet(isPresented: $isShowingAddAttribute) {
@@ -536,8 +612,8 @@ struct EntryDetailView: View {
             },
             moveDN: { isShowingMovePicker = true },
             copyDN: { isShowingCopyPicker = true },
-            exportLDIF: { actions.exportLDIF(entry) },
-            copyLDIF: { actions.copyLDIF(entry) },
+            exportLDIF: { exportLDIF() },
+            copyLDIF: { copyLDIF() },
             refresh: { refresh() },
             viewValue: selectedAttribute.map { attribute in { attributeBeingViewed = attribute } },
             jumpToSchema: selectedAttribute.map { attribute in { jumpToSchema(attribute) } },
@@ -606,14 +682,14 @@ struct EntryDetailView: View {
             .disabled(isReadOnly)
 
             Button {
-                actions.exportLDIF(entry)
+                exportLDIF()
             } label: {
                 Image(systemName: "square.and.arrow.up")
             }
             .help("Export as LDIF (⇧⌘X)")
 
             Button {
-                actions.copyLDIF(entry)
+                copyLDIF()
             } label: {
                 Image(systemName: "doc.on.clipboard")
             }
@@ -781,35 +857,46 @@ struct EntryDetailView: View {
         NSPasteboard.general.setString(string, forType: .string)
     }
 
-    /// Runs a write against the server, then refreshes the whole tree from
-    /// it — simpler and safer than hand-patching local state, since it can
-    /// never drift from what the server actually has.
-    private func perform(reloadSelecting dn: String?, _ operation: @escaping () async throws -> Void) {
+    /// Whether the export/copy commands should offer "Entry + Subtree".
+    private var mayHaveChildren: Bool {
+        tree.node(entry.dn)?.showsDisclosure ?? true
+    }
+
+    private func exportLDIF() {
+        operations.exportLDIF([entry.dn], mayHaveChildren: mayHaveChildren)
+    }
+
+    private func copyLDIF() {
+        operations.copyLDIF([entry.dn], mayHaveChildren: mayHaveChildren)
+    }
+
+    /// Runs a write against the server, then has the entry re-read from it —
+    /// simpler and safer than hand-patching local state, since it can never
+    /// drift from what the server actually has.
+    private func perform(_ operation: @escaping () async throws -> Void) {
+        let dn = entry.dn
         Task {
             isPerformingAction = true
             defer { isPerformingAction = false }
             do {
                 try await operation()
-                await reload(dn)
+                await onChange(.modified(dn))
             } catch {
                 actionError = "\(error)"
             }
         }
     }
 
+    /// Re-reads this entry (and its tree row) from the server.
     private func refresh() {
-        let dn = entry.dn
         refreshToken += 1
-        Task {
-            isPerformingAction = true
-            defer { isPerformingAction = false }
-            await reload(dn)
-        }
+        let dn = entry.dn
+        Task { await onChange(.modified(dn)) }
     }
 
     private func addAttribute(name: String, value: String) {
         let dn = entry.dn
-        perform(reloadSelecting: dn) {
+        perform {
             try await addAttributeValue(
                 host: connection.host,
                 port: UInt16(clamping: connection.port),
@@ -832,7 +919,7 @@ struct EntryDetailView: View {
         let name = attribute.name
         let oldValue = attribute.value
         let newValue = editedValue
-        perform(reloadSelecting: dn) {
+        perform {
             try await modifyAttributeValue(
                 host: connection.host,
                 port: UInt16(clamping: connection.port),
@@ -856,7 +943,7 @@ struct EntryDetailView: View {
         let dn = entry.dn
         let name = attribute.name
         let oldValue = attribute.value
-        perform(reloadSelecting: dn) {
+        perform {
             try await actions.setPassword(plaintext, scheme: scheme, replacing: oldValue, forDN: dn, attribute: name)
         }
     }
@@ -876,7 +963,7 @@ struct EntryDetailView: View {
 
             panel.begin { response in
                 guard response == .OK, let url = panel.url else { return }
-                perform(reloadSelecting: dn) {
+                perform {
                     try await actions.setPhoto(fileURL: url, forDN: dn, attribute: name)
                 }
             }
@@ -885,7 +972,7 @@ struct EntryDetailView: View {
 
     private func deleteAttribute(_ attribute: Attribute) {
         let dn = entry.dn
-        perform(reloadSelecting: dn) {
+        perform {
             try await deleteAttributeValue(
                 host: connection.host,
                 port: UInt16(clamping: connection.port),
@@ -904,32 +991,19 @@ struct EntryDetailView: View {
         }
     }
 
-    private func move(to newSuperiorDN: String) {
-        let entry = entry
-        let newDN = "\(entry.name),\(newSuperiorDN)"
-        perform(reloadSelecting: newDN) {
-            _ = try await actions.move(entry, to: newSuperiorDN)
-        }
-    }
-
-    private func copy(to newSuperiorDN: String) {
-        let entry = entry
-        let newRootDN = "\(entry.name),\(newSuperiorDN)"
-        perform(reloadSelecting: newRootDN) {
-            _ = try await actions.copy(entry, to: newSuperiorDN)
-        }
-    }
 }
 
 #Preview {
+    let connection = SavedConnection(name: "Preview", host: "localhost", port: 389, useSSL: false, baseDN: "", bindDN: "")
     EntryDetailView(
-        entry: .constant(.mockRoot),
-        root: .mockRoot,
-        connection: SavedConnection(name: "Preview", host: "localhost", port: 389, useSSL: false, baseDN: "", bindDN: ""),
+        entry: .constant(.mockEntry),
+        tree: DirectoryTree(connection: connection),
+        connection: connection,
         schema: nil,
         isBookmarked: false,
         onToggleBookmark: {},
-        reload: { _ in }
+        operations: BranchOperations(connection: connection),
+        onChange: { _ in }
     )
     .frame(width: 500, height: 400)
 }

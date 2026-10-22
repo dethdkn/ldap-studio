@@ -26,4 +26,14 @@ void ls_disconnect(LDAP *ld);
  * `err` with the given kind; returns that kind. */
 int ls_ldap_fail(LSError *err, LSErrorKind kind, int rc);
 
+/* The LDAP* behind an open connection. */
+LDAP *ls_connection_ld(LSConnection *conn);
+
+/* ls_ldap_fail for an operation on `conn`: when `rc` says the connection
+ * itself is gone or out of step, marks it broken, and reports a lost
+ * server as LS_CONNECTION_LOST instead of `kind`. */
+int ls_connection_fail(LSConnection *conn, LSError *err, LSErrorKind kind,
+                       int rc);
+void ls_connection_mark_broken(LSConnection *conn);
+
 #endif /* LDAPSTUDIO_INTERNAL_LDAP_H */

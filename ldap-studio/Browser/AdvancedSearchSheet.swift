@@ -6,30 +6,51 @@
 import SwiftUI
 
 /// A real LDAP search — base DN, scope, and a raw RFC 4515 filter string,
-/// evaluated by the server itself. The basic search field over the tree
-/// only matches against dn text; this is for everything a filter can do
-/// (attribute values, AND/OR/NOT, substrings, presence, …).
+/// evaluated by the server itself. The quick search over the tree only
+/// matches names; this is for everything a filter can do (attribute values,
+/// AND/OR/NOT, substrings, presence, …). Results are read with paged
+/// searches, so every match comes back however many there are; a long
+/// search shows its progress and can be cancelled.
 struct AdvancedSearchSheet: View {
     let connection: SavedConnection
-    let root: DirectoryEntry
+    let tree: DirectoryTree
     let schema: LdapSchema?
     let onSelect: (String) -> Void
-    let reload: (String?) async -> Void
+    let onChange: (DirectoryChange) async -> Void
     let onUpdateSavedFilters: ([SavedLDAPFilter]) -> Void
 
     @Environment(\.dismiss) private var dismiss
 
+    /// One match — just enough to list it; anything else is read when used.
+    struct Hit: Identifiable, Hashable {
+        let dn: String
+        var id: String { dn }
+        var name: String { DN.rdn(of: dn) }
+    }
+
     @State private var baseDN: String
     @State private var scope: LdapSearchScope = .subtree
     @State private var filter = "(objectClass=*)"
-    @State private var results: [LdapEntry] = []
-    @State private var isSearching = false
+    /// Every match, kept out of SwiftUI's sight: re-diffing a list of
+    /// 100,000 rows on each page would slow the search to a crawl.
+    @State private var store = HitStore()
+    /// The matches the list draws — the first `displayLimit` of them.
+    @State private var results: [Hit] = []
+    @State private var displayLimit = AdvancedSearchSheet.displayStep
+    @State private var totalFound = 0
+    private static let displayStep = 5_000
+    @State private var searchTask: Task<Void, Never>?
+    @State private var foundSoFar = 0
+    /// The request the current results came from — what Export re-runs.
+    @State private var lastRequest: LdapSearchRequest?
     @State private var errorMessage: String?
     @State private var hasSearched = false
+    @State private var wasCancelled = false
+    /// The server cut the results short (it ignored paging).
+    @State private var wasTruncated = false
     @State private var selection: Set<String> = []
-    @State private var isPerformingAction = false
-    @State private var isConfirmingDelete = false
     @State private var isChoosingMoveDestination = false
+    @State private var operations: BranchOperations
     @State private var savedFilters: [SavedLDAPFilter]
     @State private var isNamingPinnedFilter = false
     @State private var pinnedFilterName = ""
@@ -39,39 +60,28 @@ struct AdvancedSearchSheet: View {
 
     init(
         connection: SavedConnection,
-        root: DirectoryEntry,
+        tree: DirectoryTree,
         schema: LdapSchema?,
         defaultBaseDN: String,
         onSelect: @escaping (String) -> Void,
-        reload: @escaping (String?) async -> Void,
+        onChange: @escaping (DirectoryChange) async -> Void,
         onUpdateSavedFilters: @escaping ([SavedLDAPFilter]) -> Void
     ) {
         self.connection = connection
-        self.root = root
+        self.tree = tree
         self.schema = schema
         self.onSelect = onSelect
-        self.reload = reload
+        self.onChange = onChange
         self.onUpdateSavedFilters = onUpdateSavedFilters
         _baseDN = State(initialValue: defaultBaseDN)
         _savedFilters = State(initialValue: connection.savedFilters)
+        _operations = State(initialValue: BranchOperations(connection: connection, schema: schema))
     }
+
+    private var isSearching: Bool { searchTask != nil }
 
     private var isValid: Bool {
         !baseDN.isEmpty && !normalizedFilter.isEmpty
-    }
-
-    private var selectedEntries: [DirectoryEntry] {
-        root.operationRoots(in: selection)
-    }
-
-    private var selectedResultEntries: [DirectoryEntry] {
-        results
-            .filter { selection.contains($0.dn) }
-            .map { DirectoryEntry(ldapEntry: $0) }
-    }
-
-    private var selectedEntryCount: Int {
-        selectedEntries.reduce(0) { $0 + $1.subtreeCount }
     }
 
     private var currentSavedFilter: SavedLDAPFilter? {
@@ -174,33 +184,47 @@ struct AdvancedSearchSheet: View {
             .padding(.horizontal)
             .padding(.top, 8)
 
-            List(results, id: \.dn, selection: $selection) { entry in
-                HStack {
-                    Text(entry.name)
-                        .frame(width: 200, alignment: .leading)
-                    Text(entry.dn)
-                        .foregroundStyle(.secondary)
-                    Spacer()
-                    Button {
+            List(selection: $selection) {
+                ForEach(results) { entry in
+                    HStack {
+                        Text(entry.name)
+                            .frame(width: 200, alignment: .leading)
+                        Text(entry.dn)
+                            .foregroundStyle(.secondary)
+                        Spacer()
+                        Button {
+                            onSelect(entry.dn)
+                            dismiss()
+                        } label: {
+                            Image(systemName: "arrow.right.circle")
+                        }
+                        .buttonStyle(.borderless)
+                        .help("Reveal in Directory")
+                    }
+                    .contentShape(Rectangle())
+                    .tag(entry.dn)
+                    .onTapGesture(count: 2) {
                         onSelect(entry.dn)
                         dismiss()
-                    } label: {
-                        Image(systemName: "arrow.right.circle")
                     }
-                    .buttonStyle(.borderless)
-                    .help("Reveal in Directory")
                 }
-                .contentShape(Rectangle())
-                .tag(entry.dn)
-                .onTapGesture(count: 2) {
-                    onSelect(entry.dn)
-                    dismiss()
+                if totalFound > results.count, !isSearching {
+                    HStack(spacing: 8) {
+                        Text("Showing the first \(results.count.formatted()) of \(totalFound.formatted())")
+                            .foregroundStyle(.secondary)
+                        Button("Show \(min(Self.displayStep, totalFound - results.count).formatted()) More") {
+                            displayLimit += Self.displayStep
+                            results = Array(store.hits.prefix(displayLimit))
+                        }
+                        .controlSize(.small)
+                    }
+                    .font(.callout)
                 }
             }
             .overlay {
-                if isSearching {
+                if isSearching && results.isEmpty {
                     ProgressView()
-                } else if hasSearched && results.isEmpty && errorMessage == nil {
+                } else if hasSearched && !isSearching && results.isEmpty && errorMessage == nil {
                     ContentUnavailableView.search
                 }
             }
@@ -211,72 +235,62 @@ struct AdvancedSearchSheet: View {
                 Button("Move…", systemImage: "arrow.turn.up.right") {
                     isChoosingMoveDestination = true
                 }
-                .disabled(selection.isEmpty || connection.isReadOnly || isPerformingAction)
+                .disabled(selection.isEmpty || connection.isReadOnly || isSearching)
 
                 Button("Export LDIF…", systemImage: "square.and.arrow.up") {
-                    EntryActions(connection: connection).exportLDIF(selectedResultEntries)
+                    if let lastRequest {
+                        operations.exportLDIF(of: lastRequest, selected: selection.isEmpty ? nil : selection)
+                    }
                 }
-                .disabled(selection.isEmpty || isPerformingAction)
+                .disabled(totalFound == 0 || isSearching)
+                .help(selection.isEmpty ? "Export every result" : "Export the selected results")
 
                 Button("Delete", systemImage: "trash", role: .destructive) {
-                    isConfirmingDelete = true
+                    operations.requestDelete(Array(selection))
                 }
-                .disabled(selection.isEmpty || connection.isReadOnly || isPerformingAction)
+                .disabled(selection.isEmpty || connection.isReadOnly || isSearching)
 
-                if let errorMessage {
-                    Text(errorMessage)
-                        .foregroundStyle(.red)
-                        .font(.caption)
-                        .lineLimit(2)
-                } else {
-                    Text(hasSearched ? "\(results.count) result\(results.count == 1 ? "" : "s")" : "")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+                statusText
                 Spacer()
                 Button("Close") {
+                    searchTask?.cancel()
                     dismiss()
                 }
                 .keyboardShortcut(.cancelAction)
-                Button("Search") {
-                    search()
+                if isSearching {
+                    Button("Stop") {
+                        searchTask?.cancel()
+                    }
+                    .keyboardShortcut(".", modifiers: .command)
+                } else {
+                    Button("Search") {
+                        search()
+                    }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
+                    .disabled(!isValid)
                 }
-                .keyboardShortcut(.defaultAction)
-                .buttonStyle(.borderedProminent)
-                .disabled(!isValid || isSearching)
             }
             .padding()
         }
         .frame(width: 800, height: filterEditorMode == .raw ? 620 : 795)
-        .overlay {
-            if isPerformingAction {
-                ZStack {
-                    Color.black.opacity(0.08)
-                    ProgressView()
-                        .controlSize(.large)
-                }
+        .branchOperations(operations)
+        .onAppear {
+            operations.onChange = { change in
+                await onChange(change)
+                await applyToResults(change)
             }
+            operations.onSelect = { _ in }
         }
-        .alert(
-            "Delete Selected Entries?",
-            isPresented: $isConfirmingDelete
-        ) {
-            Button("Delete \(selectedEntryCount) \(selectedEntryCount == 1 ? "Entry" : "Entries")", role: .destructive) {
-                deleteSelected()
-            }
-            Button("Cancel", role: .cancel) {}
-        } message: {
-            Text("This permanently deletes the selected entries and their descendants from the server. This cannot be undone.")
-        }
+        .onDisappear { searchTask?.cancel() }
         .sheet(isPresented: $isChoosingMoveDestination) {
-            if let destinationRoot = root.pruned(removing: selection) {
-                DestinationPickerSheet(
-                    root: destinationRoot,
-                    title: "Move \(selectedEntries.count) Selected \(selectedEntries.count == 1 ? "Entry" : "Entries") To",
-                    confirmLabel: "Move"
-                ) { destinationDN in
-                    moveSelected(to: destinationDN)
-                }
+            DestinationPickerSheet(
+                tree: tree,
+                excluding: Array(selection),
+                title: "Move \(selection.count) Selected \(selection.count == 1 ? "Entry" : "Entries") To",
+                confirmLabel: "Move"
+            ) { destinationDN in
+                operations.requestMove(Array(selection), to: destinationDN)
             }
         }
         .alert("Pin Filter", isPresented: $isNamingPinnedFilter) {
@@ -330,37 +344,109 @@ struct AdvancedSearchSheet: View {
         .help("Saved and Recent Filters")
     }
 
-    private func search() {
-        guard isValid, !isSearching else { return }
-        let searchFilter = normalizedFilter
-        isSearching = true
-        errorMessage = nil
-        selection.removeAll()
-        recordCurrentFilter()
-        Task {
-            defer {
-                isSearching = false
-                hasSearched = true
-            }
-            do {
-                results = try await searchDirectory(
-                    host: connection.host,
-                    port: UInt16(clamping: connection.port),
-                    useSsl: connection.useSSL,
-                    startTLS: connection.useStartTLS,
-                    pinnedCertSHA256: connection.trustedCertSHA256,
-                    options: connection.ldapOptions,
-                    bindDn: connection.bindDN,
-                    password: KeychainService.readPassword(for: connection.id) ?? "",
-                    baseDn: baseDN,
-                    scope: scope,
-                    filter: searchFilter
-                )
-            } catch {
-                errorMessage = "\(error)"
-                results = []
+    @ViewBuilder
+    private var statusText: some View {
+        Group {
+            if let errorMessage {
+                Text(errorMessage)
+                    .foregroundStyle(.red)
+                    .lineLimit(2)
+            } else if isSearching {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Searching… \(foundSoFar.formatted()) found")
+                        .foregroundStyle(.secondary)
+                }
+            } else if hasSearched {
+                Text("\(totalFound.formatted()) result\(totalFound == 1 ? "" : "s")\(wasCancelled ? " (stopped)" : wasTruncated ? " — incomplete: the server's size limit cut the search short" : "")")
+                    .foregroundStyle(.secondary)
             }
         }
+        .font(.caption.monospacedDigit())
+    }
+
+    /// Reads every match, page by page, listing them as they arrive (in
+    /// batches, so a search with 100,000 matches doesn't redraw the list
+    /// 200 times). Only DNs are requested; Export re-runs the search with
+    /// every attribute.
+    private func search() {
+        guard isValid, !isSearching else { return }
+        // The user started this one and can stop it, so it waits on a slow
+        // server as long as it takes (exporting the results re-runs it the
+        // same way).
+        let request = LdapSearchRequest(baseDn: baseDN, scope: scope, filter: normalizedFilter,
+                                        attributes: ["1.1"], idleTimeout: 0)
+        errorMessage = nil
+        wasCancelled = false
+        wasTruncated = false
+        selection.removeAll()
+        store.hits = []
+        results = []
+        totalFound = 0
+        displayLimit = Self.displayStep
+        foundSoFar = 0
+        recordCurrentFilter()
+        searchTask = Task {
+            defer {
+                searchTask = nil
+                hasSearched = true
+            }
+            var lastShown = ContinuousClock.now
+            do {
+                let outcome = try await pagedSearch(connection.ldapTarget, request) { page, progress in
+                    store.hits += page.map { Hit(dn: $0.dn) }
+                    // Each update redraws the sheet; a few a second is plenty.
+                    if ContinuousClock.now - lastShown > .milliseconds(250) {
+                        foundSoFar = progress.entries
+                        lastShown = .now
+                    }
+                    // Only the first rows are drawn, so later pages don't
+                    // touch the list at all.
+                    if results.count < displayLimit {
+                        results = Array(store.hits.prefix(displayLimit))
+                    }
+                    return true
+                }
+                wasTruncated = outcome.wasTruncated
+                lastRequest = request
+            } catch is CancellationError {
+                wasCancelled = true
+                lastRequest = request
+            } catch {
+                errorMessage = "\(error)"
+            }
+            results = Array(store.hits.prefix(displayLimit))
+            totalFound = store.hits.count
+        }
+    }
+
+    /// Keeps the result list honest after a delete or move from here.
+    /// Keys are worked out off the main actor, once per search, so
+    /// deleting or moving many results doesn't re-normalize 100,000 DNs on
+    /// the main thread for each one.
+    private func applyToResults(_ change: DirectoryChange) async {
+        let ancestor: String
+        switch change {
+        case let .removed(dn): ancestor = dn
+        case let .moved(from, _): ancestor = from
+        case .added, .modified, .branchChanged: return
+        }
+        let ancestorKey = DN.normalize(ancestor)
+        let keys = await store.keys()
+        let affected = Set(keys.indices.filter { DN.keyIsWithin(keys[$0], ancestorKey) })
+        guard !affected.isEmpty else { return }
+        switch change {
+        case .removed:
+            store.remove(at: affected)
+            selection = selection.filter { !DN.isWithin($0, ancestor) }
+        case let .moved(from, to):
+            store.replace(at: affected) { Hit(dn: DN.rebase($0.dn, from: from, to: to)) }
+            selection.removeAll()
+        default:
+            return
+        }
+        results = Array(store.hits.prefix(displayLimit))
+        totalFound = store.hits.count
     }
 
     private func applySavedFilter(_ item: SavedLDAPFilter) {
@@ -421,72 +507,51 @@ struct AdvancedSearchSheet: View {
         onUpdateSavedFilters(savedFilters)
     }
 
-    /// Delete and Move act on the directory tree this sheet was opened with
-    /// (they need each entry's descendants), not on the search results. A
-    /// result the tree doesn't contain — added on the server since the tree
-    /// was loaded — would otherwise be skipped silently while the
-    /// confirmation still counted it.
-    private func selectionIsInLoadedTree() -> Bool {
-        let missing = selection.filter { root.find(id: $0) == nil }
-        guard missing.isEmpty else {
-            errorMessage = "\(missing.count) selected \(missing.count == 1 ? "entry isn't" : "entries aren't") in the loaded directory tree. Refresh it (⌘R), search again, and retry."
-            return false
-        }
-        return true
+}
+
+/// See `AdvancedSearchSheet.store`.
+private final class HitStore {
+    var hits: [AdvancedSearchSheet.Hit] = [] {
+        didSet { cachedKeys = nil }
+    }
+    /// `DN.normalize` of each hit, worked out when first needed.
+    private var cachedKeys: [String]?
+
+    func keys() async -> [String] {
+        if let cachedKeys, cachedKeys.count == hits.count { return cachedKeys }
+        let dns = hits.map(\.dn)
+        let keys = await Task.detached(priority: .userInitiated) { dns.map(DN.normalize) }.value
+        cachedKeys = keys
+        return keys
     }
 
-    private func deleteSelected() {
-        guard selectionIsInLoadedTree() else { return }
-        let entries = selectedEntries
-        guard !entries.isEmpty else { return }
-        performBulkAction {
-            let actions = EntryActions(connection: connection)
-            for entry in entries.sorted(by: { $0.dn.count > $1.dn.count }) {
-                try await actions.delete(entry)
-            }
-        }
+    func remove(at indices: Set<Int>) {
+        let keys = cachedKeys
+        hits = hits.indices.filter { !indices.contains($0) }.map { hits[$0] }
+        cachedKeys = keys.map { k in k.indices.filter { !indices.contains($0) }.map { k[$0] } }
     }
 
-    private func moveSelected(to destinationDN: String) {
-        guard selectionIsInLoadedTree() else { return }
-        let entries = selectedEntries
-        guard !entries.isEmpty else { return }
-        performBulkAction {
-            let actions = EntryActions(connection: connection)
-            for entry in entries {
-                _ = try await actions.move(entry, to: destinationDN)
-            }
+    func replace(at indices: Set<Int>, with transform: (AdvancedSearchSheet.Hit) -> AdvancedSearchSheet.Hit) {
+        var keys = cachedKeys
+        var updated = hits
+        for i in indices {
+            updated[i] = transform(updated[i])
+            keys?[i] = DN.normalize(updated[i].dn)
         }
-    }
-
-    private func performBulkAction(_ operation: @escaping () async throws -> Void) {
-        Task {
-            isPerformingAction = true
-            errorMessage = nil
-            defer { isPerformingAction = false }
-            do {
-                try await operation()
-                selection.removeAll()
-                await reload(nil)
-                search()
-            } catch {
-                let actionError = "\(error)"
-                await reload(nil)
-                search()
-                errorMessage = actionError
-            }
-        }
+        hits = updated
+        cachedKeys = keys
     }
 }
 
 #Preview {
+    let connection = SavedConnection(name: "Preview", host: "localhost", port: 389, useSSL: false, baseDN: "dc=example,dc=com", bindDN: "")
     AdvancedSearchSheet(
-        connection: SavedConnection(name: "Preview", host: "localhost", port: 389, useSSL: false, baseDN: "dc=example,dc=com", bindDN: ""),
-        root: .mockRoot,
+        connection: connection,
+        tree: DirectoryTree(connection: connection),
         schema: nil,
         defaultBaseDN: "dc=example,dc=com",
         onSelect: { _ in },
-        reload: { _ in },
+        onChange: { _ in },
         onUpdateSavedFilters: { _ in }
     )
 }

@@ -43,7 +43,7 @@ struct LDAPFilterClause: Identifiable, Hashable {
         let attribute = attribute.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !attribute.isEmpty else { return nil }
 
-        let escaped = Self.escape(value)
+        let escaped = DN.escapeFilterValue(value)
         let assertion: String
         switch operation {
         case .equals: assertion = "\(attribute)=\(escaped)"
@@ -58,17 +58,6 @@ struct LDAPFilterClause: Identifiable, Hashable {
 
         let filter = "(\(assertion))"
         return isNegated ? "(!\(filter))" : filter
-    }
-
-    /// RFC 4515 requires these assertion-value bytes to be escaped. Keeping
-    /// ordinary Unicode intact produces readable, valid UTF-8 filters.
-    static func escape(_ value: String) -> String {
-        value
-            .replacingOccurrences(of: "\\", with: "\\5c")
-            .replacingOccurrences(of: "*", with: "\\2a")
-            .replacingOccurrences(of: "(", with: "\\28")
-            .replacingOccurrences(of: ")", with: "\\29")
-            .replacingOccurrences(of: "\0", with: "\\00")
     }
 }
 

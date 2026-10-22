@@ -311,15 +311,9 @@ static char *first_value(LDAP *ld, LDAPMessage *res, const char *attr) {
   return out;
 }
 
-int ls_fetch_schema(const char *host, uint16_t port, bool use_ssl,
-                    const char *bind_dn, const char *password, LSSchema **out,
-                    LSError *err) {
+int ls_fetch_schema(LSConnection *conn, LSSchema **out, LSError *err) {
   *out = NULL;
-
-  LDAP *ld = NULL;
-  int rc =
-      ls_connect_and_bind(host, port, use_ssl, bind_dn, password, &ld, err);
-  if (rc != LS_OK) return rc;
+  LDAP *ld = ls_connection_ld(conn);
 
   /* Root DSE → subschemaSubentry. */
   char *rootattrs[] = {(char *)"subschemaSubentry", NULL};
@@ -329,8 +323,7 @@ int ls_fetch_schema(const char *host, uint16_t port, bool use_ssl,
                         0, NULL, NULL, NULL, LDAP_NO_LIMIT, &dse);
   if (lrc != LDAP_SUCCESS) {
     if (dse) ldap_msgfree(dse);
-    ls_disconnect(ld);
-    return ls_ldap_fail(err, LS_SEARCH_FAILED, lrc);
+    return ls_connection_fail(conn, err, LS_SEARCH_FAILED, lrc);
   }
   char *subschema = first_value(ld, dse, "subschemaSubentry");
   ldap_msgfree(dse);
@@ -348,7 +341,11 @@ int ls_fetch_schema(const char *host, uint16_t port, bool use_ssl,
                         schemaattrs, 0, NULL, NULL, NULL, LDAP_NO_LIMIT, &sres);
   if (lrc != LDAP_SUCCESS) {
     if (sres) ldap_msgfree(sres);
-    ls_disconnect(ld);
+    if (lrc == LDAP_SERVER_DOWN || lrc == LDAP_CONNECT_ERROR ||
+        lrc == LDAP_TIMEOUT) {
+      free(subschema);
+      return ls_connection_fail(conn, err, LS_SEARCH_FAILED, lrc);
+    }
     char *reason = ls_aprintf("Schema entry \"%s\" was not found", subschema);
     free(subschema);
     int r = ls_fail(err, LS_SEARCH_FAILED, NULL, 0, reason);
@@ -361,7 +358,6 @@ int ls_fetch_schema(const char *host, uint16_t port, bool use_ssl,
     char *reason = ls_aprintf("Schema entry \"%s\" was not found", subschema);
     free(subschema);
     ldap_msgfree(sres);
-    ls_disconnect(ld);
     int r = ls_fail(err, LS_SEARCH_FAILED, NULL, 0, reason);
     free(reason);
     return r;
@@ -401,7 +397,6 @@ int ls_fetch_schema(const char *host, uint16_t port, bool use_ssl,
   }
 
   ldap_msgfree(sres);
-  ls_disconnect(ld);
 
   *out = schema;
   return LS_OK;

@@ -364,7 +364,7 @@ struct EditEntryView: View {
     // MARK: - Derived
 
     private var rdn: String { DN.rdn(of: dn) }
-    private var parentDN: String { DN.parent(of: dn) }
+    private var parentDN: String { DN.parent(of: dn) ?? "" }
 
     private var mustNames: Set<String> {
         guard let schema else { return [] }

@@ -2,15 +2,19 @@
  * connect.c — everything about getting a bound LDAP* handle: the
  * per-connection policy (TLS, auth, timeout, SSH), the SSH tunnel cache,
  * the hard connect deadline, the certificate probe used by the trust
- * dialog, and ls_connect_and_bind itself. Browsing, searching and
- * modifying live in ldap.c and only ever call ls_connect_and_bind.
+ * dialog, ls_connect_and_bind itself, and the LSConnection handle the
+ * app keeps open across operations. Searching and modifying live in
+ * ldap.c and only ever work on an LSConnection.
  */
 #include <ctype.h>
+#include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <openssl/evp.h>
 #include <openssl/x509.h>
 #include <openssl/x509v3.h>
 #include <pthread.h>
 #include <sasl/sasl.h>
+#include <signal.h>
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
@@ -24,6 +28,10 @@
 
 int ls_ldap_fail(LSError *err, LSErrorKind kind, int rc) {
   return ls_fail(err, kind, NULL, 0, ldap_err2string(rc));
+}
+
+const char *ls_ldap_error_text(int result_code) {
+  return ldap_err2string(result_code);
 }
 
 /* Wall-clock seconds, for measuring how long a connect/StartTLS attempt
@@ -227,15 +235,14 @@ void ls_disconnect(LDAP *ld) {
 
 /* ── SSH tunnel cache ─────────────────────────────────────────────── */
 /*
- * Every exported call above opens a fresh LDAP* and unbinds it when done
- * (see the file header) — fine for a bare TCP connect, but an SSH tunnel
- * means a full handshake plus authentication, which is far too expensive
- * to pay for every browse click or attribute edit. So a tunnel outlives
- * the single operation that first opened it: it's kept here, keyed by
- * the SSH + target-server settings that produced it, and reused by later
- * operations as long as those settings don't change. It's closed and
- * replaced when they do, when it's gone idle, or when the forwarding
- * loop reports it broke.
+ * An SSH tunnel means a full handshake plus authentication, which is far
+ * too expensive to pay for every LDAP connection the app opens. So a
+ * tunnel outlives the connection that first opened it: it's kept here,
+ * keyed by the SSH + target-server settings that produced it, and reused
+ * by later connections as long as those settings don't change. It's
+ * closed and replaced when they do, when it's gone idle, or when the
+ * forwarding loop reports it broke — or retires itself after sitting with
+ * no clients (see ssh_tunnel.c).
  */
 typedef struct SSHTunnelCacheEntry {
   char *ssh_host;
@@ -245,11 +252,13 @@ typedef struct SSHTunnelCacheEntry {
   char *target_host;
   uint16_t target_port;
   LSSSHTunnel *tunnel;
-  time_t last_used;
+  /* Unique per entry, so a caller can tell "my tunnel" apart from a new
+   * one that happens to be allocated at the same address. */
+  uint64_t generation;
   struct SSHTunnelCacheEntry *next;
 } SSHTunnelCacheEntry;
 
-#define LS_SSH_TUNNEL_IDLE_SECS 180
+static uint64_t g_ssh_generation;
 
 static SSHTunnelCacheEntry *g_ssh_cache;
 static pthread_mutex_t g_ssh_cache_lock = PTHREAD_MUTEX_INITIALIZER;
@@ -262,16 +271,16 @@ static void free_cache_entry(SSHTunnelCacheEntry *entry) {
   free(entry);
 }
 
-/* Drops cache entries that have gone idle or whose forwarding loop
- * reported them broken — regardless of whether they match what the
- * current call wants, so a tunnel kept warm for another still-open
- * window isn't touched. Called with the lock held. */
-static void reap_ssh_cache_locked(time_t now) {
+/* Drops cache entries whose forwarding loop has stopped — because it
+ * failed, or because it retired itself after sitting with no clients (see
+ * ssh_tunnel.c). Going by the tunnel's own state rather than how long ago
+ * it was handed out means a tunnel still carrying a slow search is never
+ * torn down underneath it. Called with the lock held. */
+static void reap_ssh_cache_locked(void) {
   SSHTunnelCacheEntry **slot = &g_ssh_cache;
   while (*slot) {
     SSHTunnelCacheEntry *entry = *slot;
-    if (!ls_ssh_tunnel_is_alive(entry->tunnel) ||
-        now - entry->last_used > LS_SSH_TUNNEL_IDLE_SECS) {
+    if (!ls_ssh_tunnel_is_alive(entry->tunnel)) {
       *slot = entry->next;
       free_cache_entry(entry);
       continue;
@@ -285,7 +294,9 @@ static void reap_ssh_cache_locked(time_t now) {
  * opening (and caching) a new one. */
 static int acquire_ssh_tunnel(const ConnPolicy *p, const char *host,
                               uint16_t port, uint16_t *connect_port,
-                              LSError *err) {
+                              uint64_t *used, bool *reused, LSError *err) {
+  *used = 0;
+  *reused = false;
   /* The UI won't save a tunnel without these, but an imported connection
    * file can still ask for one — and a NULL host would otherwise crash the
    * strcmp below or, worse, make getaddrinfo(NULL) connect to localhost. */
@@ -294,8 +305,7 @@ static int acquire_ssh_tunnel(const ConnPolicy *p, const char *host,
                    "The SSH tunnel needs a host and a username");
   }
   pthread_mutex_lock(&g_ssh_cache_lock);
-  time_t now = time(NULL);
-  reap_ssh_cache_locked(now);
+  reap_ssh_cache_locked();
 
   for (SSHTunnelCacheEntry *entry = g_ssh_cache; entry; entry = entry->next) {
     if (entry->ssh_port == p->ssh_port && entry->target_port == port &&
@@ -303,8 +313,9 @@ static int acquire_ssh_tunnel(const ConnPolicy *p, const char *host,
         strcmp(entry->ssh_host, p->ssh_host) == 0 &&
         strcmp(entry->ssh_username, p->ssh_username) == 0 &&
         strcmp(entry->target_host, host) == 0) {
-      entry->last_used = now;
       *connect_port = ls_ssh_tunnel_local_port(entry->tunnel);
+      *used = entry->generation;
+      *reused = true;
       pthread_mutex_unlock(&g_ssh_cache_lock);
       return LS_OK;
     }
@@ -329,13 +340,39 @@ static int acquire_ssh_tunnel(const ConnPolicy *p, const char *host,
   entry->target_host = ls_xstrdup(host);
   entry->target_port = port;
   entry->tunnel = tunnel;
-  entry->last_used = now;
+  entry->generation = ++g_ssh_generation;
   entry->next = g_ssh_cache;
   g_ssh_cache = entry;
 
   *connect_port = local_port;
+  *used = entry->generation;
   pthread_mutex_unlock(&g_ssh_cache_lock);
   return LS_OK;
+}
+
+/* After a connect through cached tunnel `generation` failed: whether the
+ * tunnel was to blame, so trying again on a fresh one makes sense. True
+ * when it's dead (it's evicted here) or already gone from the cache —
+ * another connection that failed through it at the same time got there
+ * first. False only when it's still cached and alive, i.e. the failure
+ * was the LDAP server's, not the tunnel's. */
+static bool tunnel_was_dead(uint64_t generation) {
+  pthread_mutex_lock(&g_ssh_cache_lock);
+  bool dead = true;
+  for (SSHTunnelCacheEntry **slot = &g_ssh_cache; *slot;
+       slot = &(*slot)->next) {
+    SSHTunnelCacheEntry *entry = *slot;
+    if (entry->generation != generation) continue;
+    if (ls_ssh_tunnel_is_alive(entry->tunnel)) {
+      dead = false;
+    } else {
+      *slot = entry->next;
+      free_cache_entry(entry);
+    }
+    break;
+  }
+  pthread_mutex_unlock(&g_ssh_cache_lock);
+  return dead;
 }
 
 /* Attempts the caller has given up on but that are still running. Counted so
@@ -603,16 +640,19 @@ static LSErrorKind classify_bind_failure(int rc) {
  * before the hard-deadline wrapper below was added. Still reads the g_*
  * policy globals directly; see ls_connect_and_bind for why that's safe
  * even though this can now run on a worker thread. */
-static int ls_connect_and_bind_now(const ConnPolicy *p, const char *host,
-                                   uint16_t port, bool use_ssl,
-                                   const char *bind_dn, const char *password,
-                                   LDAP **out, LSError *err) {
+static int connect_once(const ConnPolicy *p, const char *host, uint16_t port,
+                        bool use_ssl, const char *bind_dn, const char *password,
+                        uint64_t *tunnel, bool *reused_tunnel, LDAP **out,
+                        LSError *err) {
   *out = NULL;
+  *tunnel = 0;
+  *reused_tunnel = false;
 
   uint16_t connect_port = port;
   const char *connect_host = host;
   if (p->ssh_enabled) {
-    int tunnel_rc = acquire_ssh_tunnel(p, host, port, &connect_port, err);
+    int tunnel_rc = acquire_ssh_tunnel(p, host, port, &connect_port, tunnel,
+                                       reused_tunnel, err);
     if (tunnel_rc != LS_OK) return tunnel_rc;
     connect_host = "127.0.0.1";
   }
@@ -686,6 +726,18 @@ static int ls_connect_and_bind_now(const ConnPolicy *p, const char *host,
       socket_fd != (ber_socket_t)-1) {
     setsockopt(socket_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof tv);
     setsockopt(socket_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof tv);
+    /* Connections are kept open between operations: have the kernel
+     * notice within about a minute and a half if the server or the path
+     * to it has gone away, instead of the next search waiting on it. */
+    int on = 1;
+    int idle = 60;
+    int interval = 10;
+    int count = 3;
+    setsockopt(socket_fd, SOL_SOCKET, SO_KEEPALIVE, &on, sizeof on);
+    setsockopt(socket_fd, IPPROTO_TCP, TCP_KEEPALIVE, &idle, sizeof idle);
+    setsockopt(socket_fd, IPPROTO_TCP, TCP_KEEPINTVL, &interval,
+               sizeof interval);
+    setsockopt(socket_fd, IPPROTO_TCP, TCP_KEEPCNT, &count, sizeof count);
   }
 
   if (p->pinned_sha256 && tls) {
@@ -710,6 +762,27 @@ static int ls_connect_and_bind_now(const ConnPolicy *p, const char *host,
 
   *out = ld;
   return LS_OK;
+}
+
+/* connect_once, plus one retry when the attempt went through a cached SSH
+ * tunnel whose session turned out to have died while idle (the server
+ * dropped it, or the network changed): that's not worth showing anyone an
+ * error for when a fresh tunnel will do. */
+static int ls_connect_and_bind_now(const ConnPolicy *p, const char *host,
+                                   uint16_t port, bool use_ssl,
+                                   const char *bind_dn, const char *password,
+                                   LDAP **out, LSError *err) {
+  uint64_t tunnel = 0;
+  bool reused = false;
+  int rc = connect_once(p, host, port, use_ssl, bind_dn, password, &tunnel,
+                        &reused, out, err);
+  if (rc == LS_CONNECT_FAILED && reused && tunnel_was_dead(tunnel)) {
+    ls_error_dispose(err);
+    *err = (LSError){0};
+    rc = connect_once(p, host, port, use_ssl, bind_dn, password, &tunnel,
+                      &reused, out, err);
+  }
+  return rc;
 }
 
 /* ── hard connect deadline ────────────────────────────────────────── */
@@ -793,10 +866,20 @@ static void *connect_attempt_run(void *arg) {
   return NULL;
 }
 
+/* Writing to a socket the other end has closed raises SIGPIPE, which kills
+ * the process unless it's ignored — and with connections kept open in a
+ * pool, a server that dropped an idle one (or an SSH tunnel that closed a
+ * client) makes that a matter of time. libldap's sockets don't set
+ * SO_NOSIGPIPE, so ignore the signal process-wide; the write then just
+ * fails, which the core already reports as a lost connection. */
+static pthread_once_t g_sigpipe_once = PTHREAD_ONCE_INIT;
+static void ignore_sigpipe(void) { (void)signal(SIGPIPE, SIG_IGN); }
+
 int ls_connect_and_bind(const char *host, uint16_t port, bool use_ssl,
                         const char *bind_dn, const char *password, LDAP **out,
                         LSError *err) {
   *out = NULL;
+  pthread_once(&g_sigpipe_once, ignore_sigpipe);
 
   ConnectAttempt *a = ls_xcalloc(1, sizeof *a);
   a->policy = policy_clone(&g_policy); /* snapshot before spawning */
@@ -862,6 +945,53 @@ int ls_test_connection(const char *host, uint16_t port, bool use_ssl,
   ldap_unbind_ext_s(ld, NULL, NULL);
   return LS_OK;
 }
+
+/* ── persistent connections ───────────────────────────────────────── */
+
+struct LSConnection {
+  LDAP *ld;
+  bool broken;
+};
+
+int ls_connection_open(const char *host, uint16_t port, bool use_ssl,
+                       const char *bind_dn, const char *password,
+                       LSConnection **out, LSError *err) {
+  *out = NULL;
+  LDAP *ld = NULL;
+  int rc =
+      ls_connect_and_bind(host, port, use_ssl, bind_dn, password, &ld, err);
+  if (rc != LS_OK) return rc;
+
+  LSConnection *conn = ls_xcalloc(1, sizeof *conn);
+  conn->ld = ld;
+  *out = conn;
+  return LS_OK;
+}
+
+void ls_connection_close(LSConnection *conn) {
+  if (!conn) return;
+  ls_disconnect(conn->ld);
+  free(conn);
+}
+
+bool ls_connection_is_broken(const LSConnection *conn) { return conn->broken; }
+
+LDAP *ls_connection_ld(LSConnection *conn) { return conn->ld; }
+
+int ls_connection_fail(LSConnection *conn, LSError *err, LSErrorKind kind,
+                       int rc) {
+  if (rc == LDAP_SERVER_DOWN || rc == LDAP_CONNECT_ERROR) {
+    conn->broken = true;
+    kind = LS_CONNECTION_LOST;
+  } else if (rc == LDAP_TIMEOUT) {
+    /* A reply may still arrive for the timed-out request; don't let the
+     * next caller read it as theirs. */
+    conn->broken = true;
+  }
+  return ls_ldap_fail(err, kind, rc);
+}
+
+void ls_connection_mark_broken(LSConnection *conn) { conn->broken = true; }
 
 /* ── certificate probe (for the trust dialog) ─────────────────────── */
 

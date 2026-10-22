@@ -15,10 +15,18 @@ struct BrowserView: View {
 
     init(connection: SavedConnection) {
         _connection = State(initialValue: connection)
+        _tree = State(initialValue: DirectoryTree(connection: connection))
+        _operations = State(initialValue: BranchOperations(connection: connection))
     }
 
-    @State private var root: DirectoryEntry?
+    /// The lazily loaded directory tree — see DirectoryTree.swift.
+    @State private var tree: DirectoryTree
+    /// Delete / move / copy / export of whole branches; its progress and
+    /// confirmations show over this whole window.
+    @State private var operations: BranchOperations
     @State private var loadError: String?
+    /// Bumped to make the detail view re-read the selected entry.
+    @State private var detailReloadToken = 0
     @State private var isShowingCertTrust = false
     /// An SSH host key seen for the first time, waiting on the user's say-so.
     @State private var pendingSSHHostKey: PendingSSHHostKey?
@@ -39,29 +47,30 @@ struct BrowserView: View {
     @State private var isLogExpanded = false
     @State private var operationLog = OperationLog.shared
 
-    private var endpoint: String {
-        "\(connection.host):\(UInt16(clamping: connection.port))"
-    }
-
-    private var selectedEntryBinding: Binding<DirectoryEntry>? {
-        guard let selection, root?.find(id: selection) != nil else { return nil }
-        return Binding(
-            get: { root?.find(id: selection) ?? DirectoryEntry(name: "", dn: "", icon: "", attributes: [], children: nil) },
-            set: { newValue in root?.update(id: selection) { $0 = newValue } }
-        )
-    }
+    private var endpoint: String { connection.endpoint }
 
     var body: some View {
         VStack(spacing: 0) {
             content
             logStrip
         }
+        .branchOperations(operations)
+        .onDisappear { tree.cancelAll() }
+        .onAppear {
+            operations.onChange = { change in await apply(change) }
+            operations.onSelect = { dn in
+                Task {
+                    _ = try? await tree.reveal(dn)
+                    selection = tree.node(dn)?.dn ?? dn
+                }
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: .ldapEntryDidChange)) { note in
-            // A detached window (Edit Entry, …) wrote to this server — pull
-            // the fresh tree so the detail table reflects it.
-            guard note.userInfo?["endpoint"] as? String == endpoint else { return }
-            let dn = note.userInfo?["dn"] as? String
-            Task { await reload(selecting: dn ?? selection) }
+            // A detached window (Edit Entry, …) wrote to this server —
+            // re-read that entry so the tree and detail table reflect it.
+            guard note.userInfo?["endpoint"] as? String == endpoint,
+                  let dn = note.userInfo?["dn"] as? String else { return }
+            Task { await apply(.modified(dn)) }
         }
     }
 
@@ -78,29 +87,33 @@ struct BrowserView: View {
                         retry()
                     }
                 }
-            } else if let root {
+            } else if tree.root != nil {
                 NavigationSplitView {
                     DirectoryTreeView(
-                        root: root,
+                        tree: tree,
                         selection: $selection,
                         connection: connection,
                         schema: schema,
                         bookmarks: connection.bookmarks,
                         onToggleBookmark: toggleBookmark,
                         onUpdateSavedFilters: updateSavedFilters,
-                        reload: { dn in await reload(selecting: dn) }
+                        operations: operations,
+                        onChange: { change in await apply(change) },
+                        onRefreshDetail: { detailReloadToken += 1 }
                     )
                     .navigationSplitViewColumnWidth(min: 200, ideal: 260)
                 } detail: {
-                    if let selectedEntryBinding {
-                        EntryDetailView(
-                            entry: selectedEntryBinding,
-                            root: root,
+                    if let selection {
+                        EntryDetailLoader(
+                            dn: selection,
+                            reloadToken: detailReloadToken,
+                            tree: tree,
                             connection: connection,
                             schema: schema,
-                            isBookmarked: selection.map(connection.bookmarks.contains) ?? false,
-                            onToggleBookmark: { if let dn = selection { toggleBookmark(dn) } },
-                            reload: { dn in await reload(selecting: dn) }
+                            operations: operations,
+                            isBookmarked: connection.bookmarks.contains { DN.same($0, selection) },
+                            onToggleBookmark: { toggleBookmark(selection) },
+                            onChange: { change in await apply(change) }
                         )
                     } else {
                         ContentUnavailableView(
@@ -218,6 +231,8 @@ struct BrowserView: View {
 
     private func retry() {
         loadError = nil
+        tree.connection = connection
+        operations.connection = connection
         Task {
             await loadDirectory()
         }
@@ -225,7 +240,7 @@ struct BrowserView: View {
 
     /// Pin or unpin `dn` in this connection's bookmark list, then persist.
     private func toggleBookmark(_ dn: String) {
-        if let index = connection.bookmarks.firstIndex(of: dn) {
+        if let index = connection.bookmarks.firstIndex(where: { DN.same($0, dn) }) {
             connection.bookmarks.remove(at: index)
         } else {
             connection.bookmarks.insert(dn, at: 0)
@@ -238,80 +253,78 @@ struct BrowserView: View {
         store.update(connection)
     }
 
+    /// Opens the tree — the base entry and its direct children, nothing
+    /// more — with the schema (for autocomplete) loading alongside.
     private func loadDirectory() async {
-        let password = KeychainService.readPassword(for: connection.id) ?? ""
-
+        let target = connection.ldapTarget
         // Run together rather than one after the other — the schema fetch
         // is a nice-to-have for autocomplete, not something worth making
         // the user wait an extra round trip for.
-        async let entryTask = fetchRootEntry(
-            host: connection.host,
-            port: UInt16(clamping: connection.port),
-            useSsl: connection.useSSL,
-            startTLS: connection.useStartTLS,
-            pinnedCertSHA256: connection.trustedCertSHA256,
-            options: connection.ldapOptions,
-            bindDn: connection.bindDN,
-            password: password,
-            baseDn: connection.baseDN
-        )
-        async let schemaTask: LdapSchema? = try? await fetchSchema(
-            host: connection.host,
-            port: UInt16(clamping: connection.port),
-            useSsl: connection.useSSL,
-            startTLS: connection.useStartTLS,
-            pinnedCertSHA256: connection.trustedCertSHA256,
-            options: connection.ldapOptions,
-            bindDn: connection.bindDN,
-            password: password
-        )
+        async let schemaTask: LdapSchema? = try? await fetchSchema(target)
+        await tree.loadRoot()
 
-        do {
-            root = DirectoryEntry(ldapEntry: try await entryTask)
-            schema = await schemaTask
-            loadError = nil
-        } catch let error as ConnectionError {
-            // An untrusted certificate isn't a dead end — offer to inspect
-            // and pin it. Anything the user already pinned that still fails
-            // is a real problem, so show it plainly.
-            if case .TLSUntrusted = error, connection.trustedCertSHA256 == nil {
-                isShowingCertTrust = true
-            } else if case let .SSHHostKeyUntrusted(host, port, fingerprint) = error {
-                if connection.sshHostKeySHA256 == nil {
-                    pendingSSHHostKey = PendingSSHHostKey(host: host, port: port, fingerprint: fingerprint)
-                } else {
-                    // A key we already trusted no longer matches. Unlike a
-                    // first sighting, that is never a one-click decision —
-                    // it can mean the connection is being intercepted.
-                    loadError = """
-                        The SSH host key for \(host):\(port) has changed since you trusted it.
+        if let error = tree.rootError {
+            handleLoadError(error)
+            return
+        }
+        schema = await schemaTask
+        operations.schema = schema
+    }
 
-                        It is now \(SSHHostKeyFingerprint.openSSH(fromHex: fingerprint)).
-
-                        This can mean the server was rebuilt, or that someone is intercepting the connection. \
-                        If you know the change is legitimate, clear the trusted host key under Edit Connection \
-                        › SSH Tunnel, then connect again.
-                        """
-                }
+    private func handleLoadError(_ error: Error) {
+        guard let error = error as? ConnectionError else {
+            loadError = "\(error)"
+            return
+        }
+        // An untrusted certificate isn't a dead end — offer to inspect
+        // and pin it. Anything the user already pinned that still fails
+        // is a real problem, so show it plainly.
+        if case .TLSUntrusted = error, connection.trustedCertSHA256 == nil {
+            isShowingCertTrust = true
+        } else if case let .SSHHostKeyUntrusted(host, port, fingerprint) = error {
+            if connection.sshHostKeySHA256 == nil {
+                pendingSSHHostKey = PendingSSHHostKey(host: host, port: port, fingerprint: fingerprint)
             } else {
-                loadError = "\(error)"
+                // A key we already trusted no longer matches. Unlike a
+                // first sighting, that is never a one-click decision —
+                // it can mean the connection is being intercepted.
+                loadError = """
+                    The SSH host key for \(host):\(port) has changed since you trusted it.
+
+                    It is now \(SSHHostKeyFingerprint.openSSH(fromHex: fingerprint)).
+
+                    This can mean the server was rebuilt, or that someone is intercepting the connection. \
+                    If you know the change is legitimate, clear the trusted host key under Edit Connection \
+                    › SSH Tunnel, then connect again.
+                    """
             }
-        } catch {
+        } else {
             loadError = "\(error)"
         }
     }
 
-    /// Re-fetches the whole directory (used after any write from the detail
-    /// view) and re-selects whichever dn should still be selected — `nil`
-    /// when the entry that was selected no longer exists, e.g. after Delete
-    /// Value emptied it out or a Move relocated it and the caller doesn't
-    /// know its new dn.
-    private func reload(selecting dn: String?) async {
-        await loadDirectory()
-        if let dn, root?.find(id: dn) != nil {
-            selection = dn
-        } else {
-            selection = nil
+    /// Brings the tree and the detail view up to date after a write,
+    /// touching only the entries it affected.
+    private func apply(_ change: DirectoryChange) async {
+        switch change {
+        case let .added(dn):
+            await tree.entryAdded(dn)
+        case let .removed(dn):
+            tree.entryRemoved(dn)
+            if let selected = selection, DN.isWithin(selected, dn) { selection = nil }
+        case let .moved(from, to):
+            await tree.entryMoved(from: from, to: to)
+            if let selected = selection, DN.isWithin(selected, from) {
+                let moved = DN.rebase(selected, from: from, to: to)
+                // The server's spelling, so it matches the tree row's tag.
+                selection = tree.node(moved)?.dn ?? moved
+            }
+        case let .modified(dn):
+            await tree.entryModified(dn)
+            if let selected = selection, DN.same(selected, dn) { detailReloadToken += 1 }
+        case let .branchChanged(dn):
+            await tree.branchChanged(dn)
+            if let selected = selection, DN.isWithin(selected, dn) { detailReloadToken += 1 }
         }
     }
 }

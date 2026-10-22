@@ -1,55 +1,37 @@
 /*
- * ldap.c — directory browsing/search and the modify family. A direct port
- * of the old Rust directory.rs / modify.rs, built on the system's OpenLDAP
- * client (LDAP.framework).
+ * ldap.c — searching and the modify family, built on the OpenLDAP client
+ * library. Every call works on an LSConnection the app already opened
+ * (see connect.c), so nothing here connects or binds.
  *
- * Every exported call opens a fresh connection (via ls_connect_and_bind,
- * which lives in connect.c), does its work, and unbinds — exactly as the
- * async Rust functions did.
+ * Searches are asynchronous underneath (ldap_search_ext + ldap_result
+ * with a short poll) so a search can be cancelled from another thread and
+ * read one page at a time.
  */
-#include <ctype.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 #include <strings.h> /* strcasecmp */
+#include <time.h>
 
 #include "internal_ldap.h"
-#include "ssh_tunnel.h"
 
 /* ── DN helpers ──────────────────────────────────────────────────── */
 
-/* The comma that ends the first RDN, skipping backslash-escaped ones
- * ("cn=Smith\, John,dc=x"), or NULL for a single-RDN DN. */
-static const char *rdn_end(const char *dn) {
+/* The leftmost RDN of `dn` — everything before the first comma that isn't
+ * escaped with a backslash (RFC 4514), so "cn=Smith\, John,ou=People"
+ * gives "cn=Smith\, John". Caller frees. */
+static char *display_name(const char *dn) {
   for (const char *p = dn; *p; ++p) {
-    if (*p == '\\') {
-      if (!*++p) break;
+    if (*p == '\\' && p[1]) {
+      ++p;
     } else if (*p == ',') {
-      return p;
+      return ls_strdup_n(dn, (size_t)(p - dn));
     }
   }
-  return NULL;
+  return ls_xstrdup(dn);
 }
 
-/* The first RDN (or the whole DN). Caller frees. */
-static char *display_name(const char *dn) {
-  const char *comma = rdn_end(dn);
-  return comma ? ls_strdup_n(dn, (size_t)(comma - dn)) : ls_xstrdup(dn);
-}
-
-/* Everything after the first RDN, or NULL. Caller frees. */
-static char *parent_dn(const char *dn) {
-  const char *comma = rdn_end(dn);
-  return comma ? ls_xstrdup(comma + 1) : NULL;
-}
-
-/* ── flat entry + attribute extraction ───────────────────────────── */
-
-typedef struct {
-  char *dn;
-  LSAttribute *attrs;
-  size_t nattrs;
-  bool taken; /* moved into the result tree already */
-} FlatEntry;
+/* ── attribute extraction ────────────────────────────────────────── */
 
 static void push_attr(LSAttribute **arr, size_t *n, size_t *cap, char *name,
                       char *value, bool is_binary) {
@@ -95,289 +77,308 @@ static LSAttribute *attributes_from(LDAP *ld, LDAPMessage *msg, size_t *out_n) {
   return arr;
 }
 
-static void free_attr_array(LSAttribute *arr, size_t n) {
-  for (size_t i = 0; i < n; ++i) {
-    free(arr[i].name);
-    free(arr[i].value);
-  }
-  free(arr);
+/* ── cancellation ────────────────────────────────────────────────── */
+
+struct LSCancel {
+  atomic_int fired;
+};
+
+LSCancel *ls_cancel_new(void) { return ls_xcalloc(1, sizeof(LSCancel)); }
+
+void ls_cancel_trigger(LSCancel *cancel) {
+  if (cancel) atomic_store(&cancel->fired, 1);
 }
 
-/* ── tiny DN → index hash map (djb2, linear probing) ──────────────── *
- * Keys compare case-insensitively: DNs are, in practice, and a Base DN typed
- * as "dc=Example,dc=com" must still find the server's "dc=example,dc=com". */
+void ls_cancel_free(LSCancel *cancel) { free(cancel); }
 
-typedef struct {
-  char *key;
-  size_t val;
-  bool used;
-} MapSlot;
-typedef struct {
-  MapSlot *slots;
-  size_t cap;
-  size_t count;
-} Map;
-
-static void map_init(Map *m, size_t hint) {
-  m->cap = 16;
-  while (m->cap < hint * 2) m->cap *= 2;
-  m->slots = ls_xcalloc(m->cap, sizeof(MapSlot));
-  m->count = 0;
-}
-static void map_free(Map *m) {
-  free(m->slots);
-  m->slots = NULL;
-  m->cap = m->count = 0;
+static bool is_cancelled(LSCancel *cancel) {
+  if (!cancel) return false;
+  return atomic_load(&cancel->fired) != 0;
 }
 
-static size_t djb2(const char *s) {
-  size_t h = 5381;
-  for (; *s; ++s)
-    h = ((h << 5U) + h) ^ (unsigned char)tolower((unsigned char)*s);
-  return h;
+/* ── paged search ────────────────────────────────────────────────── */
+
+/* Smallest page size worth retrying with when a server refuses a page as
+ * too large (OpenLDAP's size.pr answers adminLimitExceeded; Active
+ * Directory just clamps to its MaxPageSize). */
+#define LS_MIN_PAGE_SIZE 50
+
+/* How often a waiting search wakes up to check its LSCancel. */
+#define LS_POLL_USECS 100000
+
+/* Cancelling a search the server hasn't answered for this long retires
+ * the connection instead of returning it to the pool. */
+#define LS_QUIET_SECS 1.5
+
+struct LSSearch {
+  LSConnection *conn;
+  char *base;
+  int scope;
+  char *filter;
+  char **attrs;       /* NULL-terminated, owned */
+  unsigned page_size; /* 0 = no paging control */
+  unsigned idle_timeout;
+  struct berval *cookie; /* server's position between pages; NULL at start */
+  bool started;
+  bool done;
+  /* Cancelled between or during pages: the server may still hold state
+   * for the previous page's cookie, which ls_search_free releases. */
+  bool cancelled;
+};
+
+static double now_seconds(void) {
+  struct timespec ts;
+  clock_gettime(CLOCK_MONOTONIC, &ts);
+  return (double)ts.tv_sec + ((double)ts.tv_nsec / 1e9);
 }
 
-static void map_put(Map *m, char *key, size_t val) {
-  size_t i = djb2(key) & (m->cap - 1);
-  while (m->slots[i].used) {
-    if (strcasecmp(m->slots[i].key, key) == 0) {
-      m->slots[i].val = val;
-      return;
-    }
-    i = (i + 1) & (m->cap - 1);
-  }
-  m->slots[i].key = key;
-  m->slots[i].val = val;
-  m->slots[i].used = true;
-  m->count++;
-}
+int ls_search_begin(LSConnection *conn, const char *base_dn, LSScope scope,
+                    const char *filter, const char *const *attributes,
+                    size_t attribute_count, bool include_operational,
+                    unsigned page_size, unsigned idle_timeout_seconds,
+                    LSSearch **out, LSError *err) {
+  (void)err;
+  LSSearch *s = ls_xcalloc(1, sizeof *s);
+  s->conn = conn;
+  s->base = ls_xstrdup(base_dn ? base_dn : "");
+  s->scope = LDAP_SCOPE_SUBTREE;
+  if (scope == LS_SCOPE_BASE)
+    s->scope = LDAP_SCOPE_BASE;
+  else if (scope == LS_SCOPE_ONELEVEL)
+    s->scope = LDAP_SCOPE_ONELEVEL;
+  s->filter = ls_xstrdup((filter && *filter) ? filter : "(objectClass=*)");
 
-/* Returns index, or SIZE_MAX if absent. */
-static size_t map_get(const Map *m, const char *key) {
-  if (!key) return (size_t)-1;
-  size_t i = djb2(key) & (m->cap - 1);
-  while (m->slots[i].used) {
-    if (strcasecmp(m->slots[i].key, key) == 0) return m->slots[i].val;
-    i = (i + 1) & (m->cap - 1);
-  }
-  return (size_t)-1;
-}
+  size_t n = 0;
+  s->attrs = ls_xcalloc(attribute_count + 3, sizeof(char *));
+  if (attribute_count == 0) s->attrs[n++] = ls_xstrdup("*");
+  for (size_t i = 0; i < attribute_count; ++i)
+    s->attrs[n++] = ls_xstrdup(attributes[i]);
+  if (include_operational) s->attrs[n++] = ls_xstrdup("+");
 
-/* ── tree assembly for fetch_root_entry ──────────────────────────── */
-
-typedef struct {
-  size_t *items;
-  size_t count;
-  size_t cap;
-} IdxList;
-
-static void idx_push(IdxList *l, size_t v) {
-  if (l->count == l->cap) {
-    l->cap = l->cap ? l->cap * 2 : 4;
-    l->items = ls_xrealloc(l->items, l->cap * sizeof(size_t));
-  }
-  l->items[l->count++] = v;
-}
-
-typedef struct {
-  char *key; /* lowercased display name (RDN) */
-  size_t idx;
-} SortKey;
-
-static int cmp_sort_key(const void *a, const void *b) {
-  return strcmp(((const SortKey *)a)->key, ((const SortKey *)b)->key);
-}
-
-/* Orders `kids` by display name, case-insensitively. Keys are computed once
- * up front instead of per comparison, and no global state is involved. */
-static void sort_children(IdxList *kids, const FlatEntry *flat) {
-  SortKey *keys = ls_xmalloc(kids->count * sizeof *keys);
-  for (size_t k = 0; k < kids->count; ++k) {
-    keys[k].idx = kids->items[k];
-    keys[k].key = display_name(flat[keys[k].idx].dn);
-    for (char *p = keys[k].key; *p; ++p) *p = (char)tolower((unsigned char)*p);
-  }
-  qsort(keys, kids->count, sizeof *keys, cmp_sort_key);
-  for (size_t k = 0; k < kids->count; ++k) {
-    kids->items[k] = keys[k].idx;
-    free(keys[k].key);
-  }
-  free(keys);
-}
-
-/* Recursively materializes the entry at flat index `i` and its subtree. */
-static LSEntry build_entry(size_t i, FlatEntry *flat, IdxList *children_of) {
-  FlatEntry *fe = &flat[i];
-  fe->taken = true;
-
-  IdxList *kids = &children_of[i];
-  if (kids->count > 1) sort_children(kids, flat);
-
-  LSEntry e;
-  e.dn = ls_xstrdup(fe->dn);
-  e.name = display_name(fe->dn);
-  e.attributes = fe->attrs;
-  e.attribute_count = fe->nattrs;
-  fe->attrs = NULL; /* ownership moved into the tree */
-  fe->nattrs = 0;
-  e.child_count = kids->count;
-  e.has_children = kids->count > 0;
-  e.children = kids->count ? ls_xmalloc(kids->count * sizeof(LSEntry)) : NULL;
-  for (size_t k = 0; k < kids->count; ++k)
-    e.children[k] = build_entry(kids->items[k], flat, children_of);
-  return e;
-}
-
-/* ── searching ───────────────────────────────────────────────────── */
-
-static int run_search(LDAP *ld, const char *base, int scope, const char *filter,
-                      bool include_operational, LDAPMessage **res,
-                      LSError *err) {
-  char *user_only[] = {(char *)"*", NULL};
-  char *with_operational[] = {(char *)"*", (char *)"+", NULL};
-  char **attrs = user_only;
-  if (include_operational) attrs = with_operational;
-  int rc = ldap_search_ext_s(ld, base ? base : "", scope,
-                             (filter && *filter) ? filter : "(objectClass=*)",
-                             attrs, 0, NULL, NULL, NULL, LDAP_NO_LIMIT, res);
-  if (rc != LDAP_SUCCESS) {
-    if (*res) {
-      ldap_msgfree(*res);
-      *res = NULL;
-    }
-    return ls_ldap_fail(err, LS_SEARCH_FAILED, rc);
-  }
+  s->page_size = page_size;
+  s->idle_timeout = idle_timeout_seconds;
+  *out = s;
   return LS_OK;
 }
 
-int ls_fetch_root_entry(const char *host, uint16_t port, bool use_ssl,
-                        const char *bind_dn, const char *password,
-                        const char *base_dn, LSEntry **out, LSError *err) {
-  *out = NULL;
+typedef struct {
+  LSEntry *items;
+  size_t count;
+  size_t cap;
+} EntryList;
 
-  LDAP *ld = NULL;
-  int rc =
-      ls_connect_and_bind(host, port, use_ssl, bind_dn, password, &ld, err);
-  if (rc != LS_OK) return rc;
-
-  LDAPMessage *res = NULL;
-  rc = run_search(ld, base_dn, LDAP_SCOPE_SUBTREE, "(objectClass=*)", false,
-                  &res, err);
-  if (rc != LS_OK) {
-    ldap_unbind_ext_s(ld, NULL, NULL);
-    return rc;
+static void entry_list_push(EntryList *l, LDAP *ld, LDAPMessage *msg) {
+  char *dn = ldap_get_dn(ld, msg);
+  if (!dn) return;
+  if (l->count == l->cap) {
+    l->cap = l->cap ? l->cap * 2 : 64;
+    l->items = ls_xrealloc(l->items, l->cap * sizeof(LSEntry));
   }
+  LSEntry *e = &l->items[l->count++];
+  e->dn = ls_xstrdup(dn);
+  e->name = display_name(dn);
+  e->attributes = attributes_from(ld, msg, &e->attribute_count);
+  ldap_memfree(dn);
+}
 
-  /* Flatten every returned entry. */
-  size_t n = 0;
-  size_t cap = 16;
-  FlatEntry *flat = ls_xmalloc(cap * sizeof(FlatEntry));
-  for (LDAPMessage *m = ldap_first_entry(ld, res); m;
-       m = ldap_next_entry(ld, m)) {
-    char *dn = ldap_get_dn(ld, m);
-    if (!dn) continue;
-    if (n == cap) {
-      cap *= 2;
-      flat = ls_xrealloc(flat, cap * sizeof(FlatEntry));
+/* Reads the final SearchResultDone of a page: the result code, and the
+ * cookie for the next page, if the server sent one. */
+static int finish_page(LSSearch *s, LDAP *ld, LDAPMessage *msg, int *code) {
+  LDAPControl **ctrls = NULL;
+  int rc = ldap_parse_result(ld, msg, code, NULL, NULL, NULL, &ctrls, 1);
+  if (rc != LDAP_SUCCESS) return rc;
+
+  if (s->cookie) {
+    ber_bvfree(s->cookie);
+    s->cookie = NULL;
+  }
+  LDAPControl *page = ldap_control_find(LDAP_CONTROL_PAGEDRESULTS, ctrls, NULL);
+  if (page) {
+    ber_int_t estimate = 0;
+    struct berval cookie = {0, NULL};
+    if (ldap_parse_pageresponse_control(ld, page, &estimate, &cookie) ==
+            LDAP_SUCCESS &&
+        cookie.bv_len > 0) {
+      s->cookie = ber_bvdup(&cookie);
     }
-    flat[n].dn = ls_xstrdup(dn);
-    flat[n].attrs = attributes_from(ld, m, &flat[n].nattrs);
-    flat[n].taken = false;
-    n++;
-    ldap_memfree(dn);
+    if (cookie.bv_val) ber_memfree(cookie.bv_val);
   }
-  ldap_msgfree(res);
-  ldap_unbind_ext_s(ld, NULL, NULL);
+  if (ctrls) ldap_controls_free(ctrls);
+  return LDAP_SUCCESS;
+}
 
-  /* Index by DN, then link each entry to its parent. */
-  Map by_dn;
-  map_init(&by_dn, n ? n : 1);
-  for (size_t i = 0; i < n; ++i) map_put(&by_dn, flat[i].dn, i);
-
-  IdxList *children_of = ls_xcalloc(n ? n : 1, sizeof(IdxList));
-  for (size_t i = 0; i < n; ++i) {
-    char *p = parent_dn(flat[i].dn);
-    size_t pi = map_get(&by_dn, p);
-    free(p);
-    if (pi != (size_t)-1 && pi != i) idx_push(&children_of[pi], i);
+/* Sends one page's request. */
+static int send_page(LSSearch *s, LDAP *ld, int *msgid) {
+  LDAPControl *page = NULL;
+  LDAPControl *ctrls[] = {NULL, NULL};
+  if (s->page_size > 0) {
+    int rc = ldap_create_page_control(ld, (ber_int_t)s->page_size, s->cookie,
+                                      0 /* not critical */, &page);
+    if (rc != LDAP_SUCCESS) return rc;
+    ctrls[0] = page;
   }
-
-  size_t root = map_get(&by_dn, base_dn);
-  if (root == (size_t)-1) {
-    char *reason =
-        ls_aprintf("Base DN \"%s\" was not found", base_dn ? base_dn : "");
-    rc = ls_fail(err, LS_SEARCH_FAILED, NULL, 0, reason);
-    free(reason);
-  } else {
-    *out = ls_xmalloc(sizeof(LSEntry));
-    **out = build_entry(root, flat, children_of);
-    rc = LS_OK;
-  }
-
-  for (size_t i = 0; i < n; ++i) {
-    free(children_of[i].items);
-    if (!flat[i].taken) free_attr_array(flat[i].attrs, flat[i].nattrs);
-    free(flat[i].dn);
-  }
-  free(children_of);
-  free(flat);
-  map_free(&by_dn);
+  int rc =
+      ldap_search_ext(ld, s->base, s->scope, s->filter, s->attrs, 0,
+                      page ? ctrls : NULL, NULL, NULL, LDAP_NO_LIMIT, msgid);
+  if (page) ldap_control_free(page);
   return rc;
 }
 
-int ls_search_directory(const char *host, uint16_t port, bool use_ssl,
-                        const char *bind_dn, const char *password,
-                        const char *base_dn, LSScope scope, const char *filter,
-                        bool include_operational, LSEntry **out,
-                        size_t *out_count, LSError *err) {
+/* Waits for the replies to page request `msgid`, adding its entries to
+ * `list`, until the SearchResultDone (whose result code goes to *code).
+ * Returns LS_OK, or the error — cancellation included — leaving `list` for
+ * the caller to free. */
+static int collect_page(LSSearch *s, LDAP *ld, int msgid, LSCancel *cancel,
+                        EntryList *list, int *code, LSError *err) {
+  double last_heard = now_seconds();
+  for (;;) {
+    if (is_cancelled(cancel)) {
+      ldap_abandon_ext(ld, msgid, NULL, NULL);
+      /* A server that's gone quiet may be unreachable (network dropped,
+       * VPN down) rather than slow; don't hand that connection to the
+       * next caller, who would wait on it forever. */
+      if (now_seconds() - last_heard > LS_QUIET_SECS)
+        ls_connection_mark_broken(s->conn);
+      s->cancelled = true;
+      return ls_fail(err, LS_CANCELLED, NULL, 0, "Cancelled");
+    }
+    struct timeval tick = {0, LS_POLL_USECS};
+    LDAPMessage *msg = NULL;
+    int type = ldap_result(ld, msgid, LDAP_MSG_ONE, &tick, &msg);
+    if (type == 0) {
+      if (s->idle_timeout > 0 &&
+          now_seconds() - last_heard > (double)s->idle_timeout) {
+        ldap_abandon_ext(ld, msgid, NULL, NULL);
+        ls_connection_mark_broken(s->conn);
+        return ls_fail(err, LS_SEARCH_FAILED, NULL, 0,
+                       "The server stopped responding");
+      }
+      continue;
+    }
+    if (type < 0) {
+      int lrc = LDAP_OTHER;
+      ldap_get_option(ld, LDAP_OPT_RESULT_CODE, &lrc);
+      return ls_connection_fail(s->conn, err, LS_SEARCH_FAILED, lrc);
+    }
+    last_heard = now_seconds();
+    if (type == LDAP_RES_SEARCH_ENTRY) {
+      entry_list_push(list, ld, msg);
+      ldap_msgfree(msg);
+      continue;
+    }
+    if (type != LDAP_RES_SEARCH_RESULT) {
+      /* Search references (AD's ForestDnsZones and the like) — the
+       * entries they point at live on other naming contexts. */
+      ldap_msgfree(msg);
+      continue;
+    }
+    int rc = finish_page(s, ld, msg, code);
+    if (rc != LDAP_SUCCESS)
+      return ls_connection_fail(s->conn, err, LS_SEARCH_FAILED, rc);
+    return LS_OK;
+  }
+}
+
+int ls_search_next_page(LSSearch *s, LSCancel *cancel, LSEntry **out,
+                        size_t *out_count, bool *done, bool *truncated,
+                        LSError *err) {
   *out = NULL;
   *out_count = 0;
-
-  int lscope = LDAP_SCOPE_SUBTREE;
-  if (scope == LS_SCOPE_BASE)
-    lscope = LDAP_SCOPE_BASE;
-  else if (scope == LS_SCOPE_ONELEVEL)
-    lscope = LDAP_SCOPE_ONELEVEL;
-
-  LDAP *ld = NULL;
-  int rc =
-      ls_connect_and_bind(host, port, use_ssl, bind_dn, password, &ld, err);
-  if (rc != LS_OK) return rc;
-
-  LDAPMessage *res = NULL;
-  rc = run_search(ld, base_dn, lscope, filter, include_operational, &res, err);
-  if (rc != LS_OK) {
-    ldap_unbind_ext_s(ld, NULL, NULL);
-    return rc;
+  *done = false;
+  *truncated = false;
+  if (s->done) {
+    *done = true;
+    return LS_OK;
   }
 
-  size_t n = 0;
-  size_t cap = 8;
-  LSEntry *entries = ls_xmalloc(cap * sizeof(LSEntry));
-  for (LDAPMessage *m = ldap_first_entry(ld, res); m;
-       m = ldap_next_entry(ld, m)) {
-    char *dn = ldap_get_dn(ld, m);
-    if (!dn) continue;
-    if (n == cap) {
-      cap *= 2;
-      entries = ls_xrealloc(entries, cap * sizeof(LSEntry));
+  LDAP *ld = ls_connection_ld(s->conn);
+  EntryList list = {0};
+
+  for (;;) { /* once per attempt; again only after shrinking the page */
+    int msgid = 0;
+    int rc = send_page(s, ld, &msgid);
+    if (rc != LDAP_SUCCESS) {
+      s->done = true;
+      return ls_connection_fail(s->conn, err, LS_SEARCH_FAILED, rc);
     }
-    LSEntry *e = &entries[n++];
-    e->dn = ls_xstrdup(dn);
-    e->name = display_name(dn);
-    e->attributes = attributes_from(ld, m, &e->attribute_count);
-    e->has_children = false;
-    e->children = NULL;
-    e->child_count = 0;
-    ldap_memfree(dn);
-  }
-  ldap_msgfree(res);
-  ldap_unbind_ext_s(ld, NULL, NULL);
 
-  *out = entries;
-  *out_count = n;
+    int code = LDAP_SUCCESS;
+    rc = collect_page(s, ld, msgid, cancel, &list, &code, err);
+    if (rc != LS_OK) {
+      ls_entries_free(list.items, list.count);
+      s->done = true;
+      return rc;
+    }
+
+    if (code == LDAP_ADMINLIMIT_EXCEEDED && !s->started && list.count == 0 &&
+        s->page_size > LS_MIN_PAGE_SIZE) {
+      s->page_size /= 2;
+      if (s->page_size < LS_MIN_PAGE_SIZE) s->page_size = LS_MIN_PAGE_SIZE;
+      continue;
+    }
+    s->started = true;
+
+    if (code == LDAP_SIZELIMIT_EXCEEDED) {
+      /* Only reachable when the server ignored the paging control — keep
+       * what arrived and say it's incomplete rather than failing. */
+      *truncated = true;
+      s->done = true;
+    } else if (code != LDAP_SUCCESS) {
+      ls_entries_free(list.items, list.count);
+      s->done = true;
+      return ls_connection_fail(s->conn, err, LS_SEARCH_FAILED, code);
+    } else if (!s->cookie) {
+      s->done = true;
+    }
+    break;
+  }
+
+  *out = list.items;
+  *out_count = list.count;
+  *done = s->done;
   return LS_OK;
 }
+
+void ls_search_free(LSSearch *s) {
+  if (!s) return;
+  if ((!s->done || s->cancelled) && s->cookie &&
+      !ls_connection_is_broken(s->conn)) {
+    /* RFC 2696: a page request with size 0 tells the server to drop the
+     * paged search's state. Wait briefly for the reply so it can't be
+     * mistaken for the next caller's; give up and retire the connection
+     * if it doesn't come. */
+    LDAP *ld = ls_connection_ld(s->conn);
+    s->page_size = 0;
+    LDAPControl *page = NULL;
+    if (ldap_create_page_control(ld, 0, s->cookie, 0, &page) == LDAP_SUCCESS) {
+      LDAPControl *ctrls[] = {page, NULL};
+      int msgid = 0;
+      if (ldap_search_ext(ld, s->base, s->scope, s->filter, s->attrs, 0, ctrls,
+                          NULL, NULL, LDAP_NO_LIMIT, &msgid) == LDAP_SUCCESS) {
+        struct timeval wait = {2, 0};
+        LDAPMessage *msg = NULL;
+        int type;
+        while ((type = ldap_result(ld, msgid, LDAP_MSG_ONE, &wait, &msg)) > 0) {
+          ldap_msgfree(msg);
+          if (type == LDAP_RES_SEARCH_RESULT) break;
+        }
+        if (type <= 0) {
+          ldap_abandon_ext(ld, msgid, NULL, NULL);
+          ls_connection_mark_broken(s->conn);
+        }
+      }
+      ldap_control_free(page);
+    }
+  }
+  if (s->cookie) ber_bvfree(s->cookie);
+  for (size_t i = 0; s->attrs[i]; ++i) free(s->attrs[i]);
+  free(s->attrs);
+  free(s->base);
+  free(s->filter);
+  free(s);
+}
+
+/* ── modify family ───────────────────────────────────────────────── */
 
 /* Every modification here carries binary-safe values, so LDAP_MOD_BVALUES is
  * OR'd onto each operation code. Both are plain signed-int macros; combine
@@ -385,8 +386,6 @@ int ls_search_directory(const char *host, uint16_t port, bool use_ssl,
 static int mod_op_bvalues(int op) {
   return (int)((unsigned)op | (unsigned)LDAP_MOD_BVALUES);
 }
-
-/* ── modify family ───────────────────────────────────────────────── */
 
 /* value bytes: base64-decode when is_binary, else the raw string. Caller
  * frees *bytes. Matches the old value_bytes() (bad base64 → empty). */
@@ -403,165 +402,25 @@ static void value_bytes(const char *value, bool is_binary, char **bytes,
   }
 }
 
-/* Opens a connection, runs `mods` against `dn`, unbinds. */
-static int run_modify(const char *host, uint16_t port, bool use_ssl,
-                      const char *bind_dn, const char *password, const char *dn,
-                      LDAPMod **mods, LSError *err) {
-  LDAP *ld = NULL;
-  int rc =
-      ls_connect_and_bind(host, port, use_ssl, bind_dn, password, &ld, err);
-  if (rc != LS_OK) return rc;
-
-  int lrc = ldap_modify_ext_s(ld, dn, mods, NULL, NULL);
-  ldap_unbind_ext_s(ld, NULL, NULL);
-  if (lrc != LDAP_SUCCESS) return ls_ldap_fail(err, LS_MODIFY_FAILED, lrc);
-  return LS_OK;
-}
-
-int ls_delete_entry(const char *host, uint16_t port, bool use_ssl,
-                    const char *bind_dn, const char *password, const char *dn,
-                    LSError *err) {
-  LDAP *ld = NULL;
-  int rc =
-      ls_connect_and_bind(host, port, use_ssl, bind_dn, password, &ld, err);
-  if (rc != LS_OK) return rc;
-
+int ls_delete_entry(LSConnection *conn, const char *dn, LSError *err) {
+  LDAP *ld = ls_connection_ld(conn);
   int lrc = ldap_delete_ext_s(ld, dn, NULL, NULL);
-  ldap_unbind_ext_s(ld, NULL, NULL);
-  if (lrc != LDAP_SUCCESS) return ls_ldap_fail(err, LS_MODIFY_FAILED, lrc);
+  if (lrc != LDAP_SUCCESS)
+    return ls_connection_fail(conn, err, LS_MODIFY_FAILED, lrc);
   return LS_OK;
 }
 
-int ls_add_attribute_value(const char *host, uint16_t port, bool use_ssl,
-                           const char *bind_dn, const char *password,
-                           const char *dn, const char *attribute,
-                           const char *value, LSError *err) {
-  char *vals[] = {(char *)(value ? value : ""), NULL};
-  LDAPMod mod = {
-      .mod_op = LDAP_MOD_ADD,
-      .mod_type = (char *)attribute,
-      .mod_vals.modv_strvals = vals,
-  };
-  LDAPMod *mods[] = {&mod, NULL};
-  return run_modify(host, port, use_ssl, bind_dn, password, dn, mods, err);
-}
-
-int ls_set_attribute_value(const char *host, uint16_t port, bool use_ssl,
-                           const char *bind_dn, const char *password,
-                           const char *dn, const char *attribute,
-                           const char *value, bool is_binary, LSError *err) {
-  char *bytes;
-  ber_len_t len;
-  value_bytes(value, is_binary, &bytes, &len);
-  struct berval bv = {.bv_len = len, .bv_val = bytes};
-  struct berval *bvals[] = {&bv, NULL};
-  LDAPMod mod = {
-      .mod_op = mod_op_bvalues(LDAP_MOD_REPLACE),
-      .mod_type = (char *)attribute,
-      .mod_vals.modv_bvals = bvals,
-  };
-  LDAPMod *mods[] = {&mod, NULL};
-  int rc = run_modify(host, port, use_ssl, bind_dn, password, dn, mods, err);
-  free(bytes);
-  return rc;
-}
-
-int ls_delete_attribute_value(const char *host, uint16_t port, bool use_ssl,
-                              const char *bind_dn, const char *password,
-                              const char *dn, const char *attribute,
-                              const char *value, bool is_binary, LSError *err) {
-  char *bytes;
-  ber_len_t len;
-  value_bytes(value, is_binary, &bytes, &len);
-  struct berval bv = {.bv_len = len, .bv_val = bytes};
-  struct berval *bvals[] = {&bv, NULL};
-  LDAPMod mod = {
-      .mod_op = mod_op_bvalues(LDAP_MOD_DELETE),
-      .mod_type = (char *)attribute,
-      .mod_vals.modv_bvals = bvals,
-  };
-  LDAPMod *mods[] = {&mod, NULL};
-  int rc = run_modify(host, port, use_ssl, bind_dn, password, dn, mods, err);
-  free(bytes);
-  return rc;
-}
-
-int ls_modify_attribute_value(const char *host, uint16_t port, bool use_ssl,
-                              const char *bind_dn, const char *password,
-                              const char *dn, const char *attribute,
-                              const char *old_value, const char *new_value,
-                              bool is_binary, LSError *err) {
-  /* Targeted delete-then-add of just this value, so other values of a
-   * multi-valued attribute survive (a plain Replace would wipe them). */
-  char *old_bytes;
-  char *new_bytes;
-  ber_len_t old_len;
-  ber_len_t new_len;
-  value_bytes(old_value, is_binary, &old_bytes, &old_len);
-  value_bytes(new_value, is_binary, &new_bytes, &new_len);
-
-  struct berval old_bv = {.bv_len = old_len, .bv_val = old_bytes};
-  struct berval new_bv = {.bv_len = new_len, .bv_val = new_bytes};
-  struct berval *old_bvals[] = {&old_bv, NULL};
-  struct berval *new_bvals[] = {&new_bv, NULL};
-
-  LDAPMod del = {
-      .mod_op = mod_op_bvalues(LDAP_MOD_DELETE),
-      .mod_type = (char *)attribute,
-      .mod_vals.modv_bvals = old_bvals,
-  };
-  LDAPMod add = {
-      .mod_op = mod_op_bvalues(LDAP_MOD_ADD),
-      .mod_type = (char *)attribute,
-      .mod_vals.modv_bvals = new_bvals,
-  };
-  LDAPMod *mods[] = {&del, &add, NULL};
-  int rc = run_modify(host, port, use_ssl, bind_dn, password, dn, mods, err);
-  free(old_bytes);
-  free(new_bytes);
-  return rc;
-}
-
-int ls_move_entry(const char *host, uint16_t port, bool use_ssl,
-                  const char *bind_dn, const char *password, const char *dn,
-                  const char *new_superior, LSError *err) {
-  char *rdn = display_name(dn); /* keep the current RDN */
-
-  LDAP *ld = NULL;
-  int rc =
-      ls_connect_and_bind(host, port, use_ssl, bind_dn, password, &ld, err);
-  if (rc != LS_OK) {
-    free(rdn);
-    return rc;
-  }
-
-  int lrc = ldap_rename_s(ld, dn, rdn,
-                          (new_superior && *new_superior) ? new_superior : NULL,
-                          1 /* deleteoldrdn */, NULL, NULL);
-  ldap_unbind_ext_s(ld, NULL, NULL);
-  free(rdn);
-  if (lrc != LDAP_SUCCESS) return ls_ldap_fail(err, LS_MODIFY_FAILED, lrc);
-  return LS_OK;
-}
-
-int ls_rename_entry(const char *host, uint16_t port, bool use_ssl,
-                    const char *bind_dn, const char *password, const char *dn,
-                    const char *new_rdn, bool delete_old_rdn,
-                    const char *new_superior, LSError *err) {
-  LDAP *ld = NULL;
-  int rc =
-      ls_connect_and_bind(host, port, use_ssl, bind_dn, password, &ld, err);
-  if (rc != LS_OK) return rc;
-
+int ls_rename_entry(LSConnection *conn, const char *dn, const char *new_rdn,
+                    bool delete_old_rdn, const char *new_superior,
+                    LSError *err) {
+  LDAP *ld = ls_connection_ld(conn);
   int lrc = ldap_rename_s(ld, dn, new_rdn ? new_rdn : "",
                           (new_superior && *new_superior) ? new_superior : NULL,
                           (int)delete_old_rdn, NULL, NULL);
-  ldap_unbind_ext_s(ld, NULL, NULL);
-  if (lrc != LDAP_SUCCESS) return ls_ldap_fail(err, LS_MODIFY_FAILED, lrc);
+  if (lrc != LDAP_SUCCESS)
+    return ls_connection_fail(conn, err, LS_MODIFY_FAILED, lrc);
   return LS_OK;
 }
-
-/* ── batched modify ─────────────────────────────────────────────── */
 
 static int mod_op_flag(LSModKind kind) {
   switch (kind) {
@@ -600,9 +459,8 @@ static void build_mod(const LSModOp *op, LDAPMod *mod, struct berval **bvals,
   mod->mod_vals.modv_bvals = *bptrs;
 }
 
-int ls_modify_entry(const char *host, uint16_t port, bool use_ssl,
-                    const char *bind_dn, const char *password, const char *dn,
-                    const LSModOp *ops, size_t op_count, LSError *err) {
+int ls_modify_entry(LSConnection *conn, const char *dn, const LSModOp *ops,
+                    size_t op_count, LSError *err) {
   LDAPMod *mods = ls_xcalloc(op_count, sizeof(LDAPMod));
   LDAPMod **modp = ls_xcalloc(op_count + 1, sizeof(LDAPMod *));
   struct berval **all_bvals = ls_xcalloc(op_count, sizeof(struct berval *));
@@ -614,7 +472,11 @@ int ls_modify_entry(const char *host, uint16_t port, bool use_ssl,
   }
   modp[op_count] = NULL;
 
-  int rc = run_modify(host, port, use_ssl, bind_dn, password, dn, modp, err);
+  LDAP *ld = ls_connection_ld(conn);
+  int rc = LS_OK;
+  int lrc = ldap_modify_ext_s(ld, dn, modp, NULL, NULL);
+  if (lrc != LDAP_SUCCESS)
+    rc = ls_connection_fail(conn, err, LS_MODIFY_FAILED, lrc);
 
   for (size_t i = 0; i < op_count; ++i) {
     if (all_bvals[i]) {
@@ -641,8 +503,7 @@ typedef struct {
   size_t cap;
 } AttrGroup;
 
-int ls_add_entry(const char *host, uint16_t port, bool use_ssl,
-                 const char *bind_dn, const char *password, const char *dn,
+int ls_add_entry(LSConnection *conn, const char *dn,
                  const LSAttribute *attributes, size_t attribute_count,
                  LSError *err) {
   /* Group values by attribute name. */
@@ -697,14 +558,11 @@ int ls_add_entry(const char *host, uint16_t port, bool use_ssl,
   }
   modp[ngroups] = NULL;
 
-  LDAP *ld = NULL;
-  int rc =
-      ls_connect_and_bind(host, port, use_ssl, bind_dn, password, &ld, err);
-  if (rc == LS_OK) {
-    int lrc = ldap_add_ext_s(ld, dn, modp, NULL, NULL);
-    ldap_unbind_ext_s(ld, NULL, NULL);
-    if (lrc != LDAP_SUCCESS) rc = ls_ldap_fail(err, LS_MODIFY_FAILED, lrc);
-  }
+  LDAP *ld = ls_connection_ld(conn);
+  int rc = LS_OK;
+  int lrc = ldap_add_ext_s(ld, dn, modp, NULL, NULL);
+  if (lrc != LDAP_SUCCESS)
+    rc = ls_connection_fail(conn, err, LS_MODIFY_FAILED, lrc);
 
   for (size_t g = 0; g < ngroups; ++g) {
     for (size_t k = 0; k < groups[g].count; ++k)
