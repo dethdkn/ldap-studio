@@ -28,24 +28,24 @@ static const char CRYPT_ALPHABET[] =
     "./0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 
 /* One-shot digest via EVP (no OpenSSL 3 deprecation warnings). */
-static void digest(const EVP_MD *md, const void *data, size_t len,
+static bool digest(const EVP_MD *md, const void *data, size_t len,
                    unsigned char *out, unsigned int *out_len) {
-  EVP_Digest(data, len, out, out_len, md, NULL);
+  return EVP_Digest(data, len, out, out_len, md, NULL) == 1;
 }
 
-/* {TAG}base64(digest(pw)) — no salt. */
+/* {TAG}base64(digest(pw)) — no salt. NULL if OpenSSL fails. */
 static char *hash_plain(const EVP_MD *md, const char *tag,
                         const char *plaintext) {
   unsigned char d[EVP_MAX_MD_SIZE];
   unsigned int dl = 0;
-  digest(md, plaintext, strlen(plaintext), d, &dl);
+  if (!digest(md, plaintext, strlen(plaintext), d, &dl)) return NULL;
   char *b64 = ls_b64_encode(d, dl);
   char *out = ls_aprintf("{%s}%s", tag, b64);
   free(b64);
   return out;
 }
 
-/* {TAG}base64(digest(pw || salt) || salt). */
+/* {TAG}base64(digest(pw || salt) || salt). NULL if OpenSSL fails. */
 static char *hash_salted(const EVP_MD *md, const char *tag,
                          const char *plaintext) {
   unsigned char salt[SIMPLE_SALT_LEN];
@@ -58,8 +58,9 @@ static char *hash_salted(const EVP_MD *md, const char *tag,
 
   unsigned char d[EVP_MAX_MD_SIZE];
   unsigned int dl = 0;
-  digest(md, buf, pw_len + sizeof salt, d, &dl);
+  bool ok = digest(md, buf, pw_len + sizeof salt, d, &dl);
   free(buf);
+  if (!ok) return NULL;
 
   unsigned char *combined = ls_xmalloc(dl + sizeof salt);
   memcpy(combined, d, dl);
@@ -76,8 +77,12 @@ static char *pbkdf2_sha512(const char *plaintext) {
   unsigned char key[PBKDF2_KEY_LEN];
   arc4random_buf(salt, sizeof salt);
 
-  PKCS5_PBKDF2_HMAC(plaintext, (int)strlen(plaintext), salt, sizeof salt,
-                    PBKDF2_ITERATIONS, EVP_sha512(), sizeof key, key);
+  /* On failure `key` is uninitialized — never encode it. */
+  if (PKCS5_PBKDF2_HMAC(plaintext, (int)strlen(plaintext), salt, sizeof salt,
+                        PBKDF2_ITERATIONS, EVP_sha512(), sizeof key,
+                        key) != 1) {
+    return NULL;
+  }
 
   char *b64_salt = ls_b64_encode(salt, sizeof salt);
   char *b64_key = ls_b64_encode(key, sizeof key);
@@ -116,6 +121,15 @@ static char *crypt_modular(const char *plaintext, const char *prefix,
   return crypt_with_setting(plaintext, setting, err);
 }
 
+/* Hands `hash` to *out, mapping NULL (an OpenSSL failure) to an error. */
+static int finish_hash(char *hash, char **out, LSError *err) {
+  *out = hash;
+  if (!hash)
+    return ls_fail(err, LS_HASH_FAILED, NULL, 0,
+                   "OpenSSL could not compute the hash");
+  return LS_OK;
+}
+
 int ls_hash_password(const char *plaintext, LSPasswordScheme scheme, char **out,
                      LSError *err) {
   if (!plaintext || !out)
@@ -124,20 +138,15 @@ int ls_hash_password(const char *plaintext, LSPasswordScheme scheme, char **out,
 
   switch (scheme) {
     case LS_PBKDF2_SHA512:
-      *out = pbkdf2_sha512(plaintext);
-      return LS_OK;
+      return finish_hash(pbkdf2_sha512(plaintext), out, err);
     case LS_MD5:
-      *out = hash_plain(EVP_md5(), "MD5", plaintext);
-      return LS_OK;
-    case LS_SHA1:
-      *out = hash_plain(EVP_sha1(), "SHA", plaintext); /* LDAP tag is {SHA} */
-      return LS_OK;
+      return finish_hash(hash_plain(EVP_md5(), "MD5", plaintext), out, err);
+    case LS_SHA1: /* LDAP tag is {SHA} */
+      return finish_hash(hash_plain(EVP_sha1(), "SHA", plaintext), out, err);
     case LS_SMD5:
-      *out = hash_salted(EVP_md5(), "SMD5", plaintext);
-      return LS_OK;
+      return finish_hash(hash_salted(EVP_md5(), "SMD5", plaintext), out, err);
     case LS_SSHA:
-      *out = hash_salted(EVP_sha1(), "SSHA", plaintext);
-      return LS_OK;
+      return finish_hash(hash_salted(EVP_sha1(), "SSHA", plaintext), out, err);
 
     case LS_UNIX_CRYPT: {
       unsigned char r[2];

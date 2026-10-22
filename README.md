@@ -46,10 +46,6 @@ To update, just download the newest version from the [Releases page](https://git
 - Autocomplete for attribute names and object classes when adding attributes or creating entries, driven by the server's own schema
 - Native macOS menu bar integration for every major action
 
-## Testing Against a Large Directory
-
-`scripts/test-server/run.sh start` runs a local OpenLDAP server (from the Homebrew `openldap` in the Brewfile) with about 150,000 entries, one OU with 76,000 direct children, a 30-level-deep branch, and an Active Directory-like 500-entry size limit. `scripts/test-server/check.sh` then exercises browsing, searching and branch operations against it. See the comments in `run.sh` for the accounts to bind as.
-
 ## Requirements
 
 - macOS 27 (Golden Gate) or later

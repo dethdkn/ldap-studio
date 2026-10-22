@@ -10,6 +10,7 @@
 #include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h> /* strcasecmp */
 #include <time.h>
 
 #include "internal_ldap.h"
@@ -509,7 +510,7 @@ int ls_add_entry(LSConnection *conn, const char *dn,
 
     size_t gi = (size_t)-1;
     for (size_t g = 0; g < ngroups; ++g)
-      if (strcmp(groups[g].name, a->name) == 0) {
+      if (strcasecmp(groups[g].name, a->name) == 0) {
         gi = g;
         break;
       }

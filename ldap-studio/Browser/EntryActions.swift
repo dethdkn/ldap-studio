@@ -165,8 +165,9 @@ struct EntryActions {
         let firstComponent = DN.rdn(of: dn)
         guard let equalsIndex = firstComponent.firstIndex(of: "=") else { return nil }
         let name = firstComponent[firstComponent.startIndex..<equalsIndex].trimmingCharacters(in: .whitespaces)
-        let value = firstComponent[firstComponent.index(after: equalsIndex)...].trimmingCharacters(in: .whitespaces)
-        guard !name.isEmpty, !value.isEmpty, !value.contains("\\") else { return nil }
+        let value = DN.unescaped(firstComponent[firstComponent.index(after: equalsIndex)...])
+            .trimmingCharacters(in: .whitespaces)
+        guard !name.isEmpty, !value.isEmpty else { return nil }
         return (name, value)
     }
 

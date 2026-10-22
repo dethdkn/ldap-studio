@@ -199,4 +199,43 @@ nonisolated enum DN {
         }
         return out
     }
+
+    /// `value` escaped for use inside an RDN (RFC 4514 §2.4), so
+    /// "Smith, John" becomes "Smith\, John".
+    static func escaped(_ value: String) -> String {
+        let lastOffset = value.count - 1
+        var out = ""
+        for (offset, character) in value.enumerated() {
+            let isEdge = (offset == 0 && (character == " " || character == "#"))
+                || (offset == lastOffset && character == " ")
+            if isEdge || ",+\"\\<>;".contains(character) { out.append("\\") }
+            out.append(character)
+        }
+        return out
+    }
+
+    /// An attribute value with its RFC 4514 escapes resolved: `\,` → `,`
+    /// and hex pairs like `\C3\A9` → `é`.
+    static func unescaped(_ value: Substring) -> String {
+        let bytes = Array(value.utf8)
+        func isHex(_ byte: UInt8) -> Bool { Character(Unicode.Scalar(byte)).isHexDigit }
+        var out: [UInt8] = []
+        var i = 0
+        while i < bytes.count {
+            if bytes[i] == UInt8(ascii: "\\"), i + 1 < bytes.count {
+                if i + 2 < bytes.count, isHex(bytes[i + 1]), isHex(bytes[i + 2]),
+                   let byte = UInt8(String(decoding: bytes[(i + 1)...(i + 2)], as: UTF8.self), radix: 16) {
+                    out.append(byte)
+                    i += 3
+                } else {
+                    out.append(bytes[i + 1])
+                    i += 2
+                }
+            } else {
+                out.append(bytes[i])
+                i += 1
+            }
+        }
+        return String(decoding: out, as: UTF8.self)
+    }
 }

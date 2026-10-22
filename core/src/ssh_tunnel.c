@@ -8,6 +8,7 @@
 #include <openssl/evp.h>
 #include <poll.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -23,11 +24,11 @@ struct LSSSHTunnel {
   LIBSSH2_SESSION *session;
   pthread_t thread;
   bool thread_started;
-  volatile bool stopping;
+  atomic_bool stopping; /* set by ls_ssh_tunnel_stop, read by forward_loop */
   /* Set by forward_loop when it gives up because of an I/O error (as
-   * opposed to being asked to stop) — the cache in ldap.c checks this
+   * opposed to being asked to stop) — the cache in connect.c checks this
    * before handing the tunnel to another operation. */
-  volatile bool broken;
+  atomic_bool broken;
   char *target_host;
   uint16_t target_port;
   uint16_t local_port;

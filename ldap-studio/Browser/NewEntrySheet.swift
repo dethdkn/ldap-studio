@@ -131,7 +131,11 @@ struct NewEntrySheet: View {
         return out
     }
 
-    private var guidedDN: String { "\(rdnAttribute)=\(rdnValue),\(parentDN)" }
+    private var guidedDN: String {
+        let attribute = rdnAttribute.trimmingCharacters(in: .whitespaces)
+        let value = DN.escaped(rdnValue.trimmingCharacters(in: .whitespaces))
+        return "\(attribute)=\(value),\(parentDN)"
+    }
 
     private var unfilledRequired: [String] {
         requiredFields.filter { (mustValues[$0] ?? "").trimmingCharacters(in: .whitespaces).isEmpty }

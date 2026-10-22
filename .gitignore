@@ -26,6 +26,8 @@ node_modules
 *.log
 
 # Misc
+.claude
+.skills
 dist
 tmp
 .claude

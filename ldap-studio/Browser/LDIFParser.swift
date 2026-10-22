@@ -10,10 +10,42 @@ struct LDIFEntry {
     var attributes: [(name: String, value: String, isBinary: Bool)]
 }
 
+/// One logical LDIF line after unfolding, with the 1-based source line it
+/// started on. Handles CRLF files (Foundation's `.newlines` would otherwise
+/// see an empty line inside every "\r\n") and RFC 2849 folding, where a line
+/// starting with one space continues the previous one — `ldapsearch` and
+/// most exporters fold long values that way.
+private func unfoldedLDIFLines(_ text: String) -> [(text: String, number: Int)] {
+    var out: [(text: String, number: Int)] = []
+    let lines = text.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: .newlines)
+    for (idx, raw) in lines.enumerated() {
+        if raw.hasPrefix(" "), !out.isEmpty {
+            out[out.count - 1].text += String(raw.dropFirst())
+        } else {
+            out.append((text: raw, number: idx + 1))
+        }
+    }
+    return out
+}
+
+/// Splits "name: value" / "name:: base64" after its colon — every space of
+/// the RFC 2849 FILL is dropped, not just the first.
+private func ldifValue(after colon: String.Index, in line: String) -> (value: String, isBinary: Bool) {
+    var rest = line[line.index(after: colon)...]
+    let isBinary = rest.first == ":"
+    if isBinary { rest = rest.dropFirst() }
+    return (String(rest.drop(while: { $0 == " " })), isBinary)
+}
+
+/// A base64 (`name::`) value decoded as UTF-8 text, for fields that are
+/// always text (dn, newrdn, newsuperior). Falls back to the raw value.
+private func ldifText(_ value: String, isBinary: Bool) -> String {
+    guard isBinary else { return value }
+    return Data(base64Encoded: value).flatMap { String(data: $0, encoding: .utf8) } ?? value
+}
+
 /// A minimal RFC 2849 reader — enough for entries produced by this app's own
-/// export, or by most other LDAP tools' plain exports. It does not handle
-/// line folding (continuation lines starting with a single leading space),
-/// which some exporters use for long values.
+/// export, or by most other LDAP tools' plain exports.
 enum LDIFParser {
     static func parse(_ text: String) -> [LDIFEntry] {
         var entries: [LDIFEntry] = []
@@ -28,7 +60,7 @@ enum LDIFParser {
             currentAttributes = []
         }
 
-        for rawLine in text.components(separatedBy: .newlines) {
+        for (rawLine, _) in unfoldedLDIFLines(text) {
             if rawLine.isEmpty {
                 flush()
                 continue
@@ -39,24 +71,11 @@ enum LDIFParser {
             guard let colonIndex = rawLine.firstIndex(of: ":") else { continue }
 
             let name = String(rawLine[rawLine.startIndex..<colonIndex])
-            var rest = rawLine[rawLine.index(after: colonIndex)...]
-            var isBinary = false
-            if rest.first == ":" {
-                isBinary = true
-                rest = rest.dropFirst()
-            }
-            if rest.first == " " {
-                rest = rest.dropFirst()
-            }
-            let value = String(rest)
+            let (value, isBinary) = ldifValue(after: colonIndex, in: rawLine)
 
             if name == "dn" {
                 flush()
-                if isBinary {
-                    currentDN = Data(base64Encoded: value).flatMap { String(data: $0, encoding: .utf8) } ?? value
-                } else {
-                    currentDN = value
-                }
+                currentDN = ldifText(value, isBinary: isBinary)
             } else {
                 currentAttributes.append((name: name, value: value, isBinary: isBinary))
             }
@@ -99,14 +118,10 @@ enum LDIFChangeParser {
         var errorDescription: String? { "Line \(line): \(message)" }
     }
 
-    /// One logical line after unfolding, with the source line it started on.
-    private struct Line {
-        var text: String
-        var number: Int
-    }
+    private typealias Line = (text: String, number: Int)
 
     static func parse(_ text: String) throws -> [LDIFRecord] {
-        let logical = unfold(text)
+        let logical = unfoldedLDIFLines(text)
         var records: [LDIFRecord] = []
 
         var i = 0
@@ -138,36 +153,17 @@ enum LDIFChangeParser {
 
     // MARK: -
 
-    private static func unfold(_ text: String) -> [Line] {
-        var out: [Line] = []
-        for (idx, raw) in text.components(separatedBy: .newlines).enumerated() {
-            let number = idx + 1
-            if raw.hasPrefix(" "), !out.isEmpty {
-                out[out.count - 1].text += String(raw.dropFirst())
-            } else {
-                out.append(Line(text: raw, number: number))
-            }
-        }
-        return out
-    }
-
     /// Splits "name: value" / "name:: base64" — returns (name, value, isBinary).
     private static func field(_ line: Line) throws -> (name: String, value: String, isBinary: Bool) {
         guard let colon = line.text.firstIndex(of: ":") else {
             throw ParseError(line: line.number, message: "expected \"name: value\"")
         }
         let name = String(line.text[line.text.startIndex..<colon]).trimmingCharacters(in: .whitespaces)
-        var rest = line.text[line.text.index(after: colon)...]
-        var isBinary = false
-        if rest.first == ":" {
-            isBinary = true
-            rest = rest.dropFirst()
-        }
-        if rest.first == "<" {
+        if line.text[line.text.index(after: colon)...].first == "<" {
             throw ParseError(line: line.number, message: "URL-valued attributes (name:< …) aren't supported")
         }
-        if rest.first == " " { rest = rest.dropFirst() }
-        return (name, String(rest), isBinary)
+        let (value, isBinary) = ldifValue(after: colon, in: line.text)
+        return (name, value, isBinary)
     }
 
     private static func parseRecord(_ block: [Line]) throws -> LDIFRecord {
@@ -175,9 +171,7 @@ enum LDIFChangeParser {
         guard first.name.caseInsensitiveCompare("dn") == .orderedSame else {
             throw ParseError(line: block[0].number, message: "record must start with \"dn:\"")
         }
-        let dn = first.isBinary
-            ? (Data(base64Encoded: first.value).flatMap { String(data: $0, encoding: .utf8) } ?? first.value)
-            : first.value
+        let dn = ldifText(first.value, isBinary: first.isBinary)
         let recordLine = block[0].number
 
         let rest = Array(block.dropFirst())
@@ -212,9 +206,9 @@ enum LDIFChangeParser {
             for l in body {
                 let f = try field(l)
                 switch f.name.lowercased() {
-                case "newrdn": newRDN = f.value
+                case "newrdn": newRDN = ldifText(f.value, isBinary: f.isBinary)
                 case "deleteoldrdn": deleteOld = f.value.trimmingCharacters(in: .whitespaces) != "0"
-                case "newsuperior": newSuperior = f.value
+                case "newsuperior": newSuperior = ldifText(f.value, isBinary: f.isBinary)
                 default: break
                 }
             }
