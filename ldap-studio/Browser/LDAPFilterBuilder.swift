@@ -62,7 +62,7 @@ struct LDAPFilterClause: Identifiable, Hashable {
 
     /// RFC 4515 requires these assertion-value bytes to be escaped. Keeping
     /// ordinary Unicode intact produces readable, valid UTF-8 filters.
-    private static func escape(_ value: String) -> String {
+    static func escape(_ value: String) -> String {
         value
             .replacingOccurrences(of: "\\", with: "\\5c")
             .replacingOccurrences(of: "*", with: "\\2a")
@@ -126,11 +126,10 @@ struct LDAPFilterBuilder: View {
                                 Spacer(minLength: 160)
                             }
 
-                            Button(role: .destructive) {
+                            Button("Remove Rule", systemImage: "minus.circle", role: .destructive) {
                                 clauses.removeAll { $0.id == clause.id }
-                            } label: {
-                                Image(systemName: "minus.circle")
                             }
+                            .labelStyle(.iconOnly)
                             .buttonStyle(.borderless)
                             .help("Remove Rule")
                             .disabled(clauses.count == 1)

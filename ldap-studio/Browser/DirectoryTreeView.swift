@@ -411,7 +411,7 @@ struct DirectoryTreeView: View {
                     Button {
                         goTo(dn)
                     } label: {
-                        Text(Self.rdn(of: dn))
+                        Text(DN.rdn(of: dn))
                     }
                     .help(dn)
                 }
@@ -734,9 +734,7 @@ struct DirectoryTreeView: View {
     }
 
     private func rename(_ entry: DirectoryEntry, to newRDN: String) {
-        let parentDN = entry.dn.contains(",")
-            ? String(entry.dn.drop(while: { $0 != "," }).dropFirst())
-            : ""
+        let parentDN = DN.parent(of: entry.dn)
         let newDN = parentDN.isEmpty ? newRDN : "\(newRDN),\(parentDN)"
         perform(reloadSelecting: newDN) {
             _ = try await actions.rename(entry, toRDN: newRDN)
@@ -878,7 +876,7 @@ struct DirectoryTreeView: View {
     /// result is picked from Advanced Search, which can land anywhere in
     /// the directory regardless of what's currently expanded.
     private func reveal(_ dn: String) {
-        for ancestor in Self.ancestorDNs(of: dn) {
+        for ancestor in DN.ancestors(of: dn) {
             expandedIDs.insert(ancestor)
         }
         selection = dn
@@ -928,25 +926,6 @@ struct DirectoryTreeView: View {
         return match
     }
 
-    /// The leftmost `attr=value` of a dn — the label shown for a bookmark.
-    private static func rdn(of dn: String) -> String {
-        String(dn.split(separator: ",").first ?? Substring(dn))
-    }
-
-    /// Every suffix of `dn` after stripping one RDN component at a time —
-    /// e.g. for "uid=x,ou=People,dc=corp,dc=com" that's
-    /// ["ou=People,dc=corp,dc=com", "dc=corp,dc=com", "dc=com"]. The dn
-    /// itself isn't included; expanding a leaf's own (nonexistent) children
-    /// isn't needed to reveal it.
-    private static func ancestorDNs(of dn: String) -> [String] {
-        var result: [String] = []
-        var remaining = Substring(dn)
-        while let commaIndex = remaining.firstIndex(of: ",") {
-            remaining = remaining[remaining.index(after: commaIndex)...]
-            result.append(String(remaining))
-        }
-        return result
-    }
 }
 
 /// A tree row with an externally controllable expanded state — plain

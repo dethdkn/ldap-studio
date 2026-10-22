@@ -114,10 +114,11 @@ struct EntryActions {
     }
 
     private static func parseRDN(_ dn: String) -> (name: String, value: String)? {
-        guard let firstComponent = dn.split(separator: ",").first,
-              let equalsIndex = firstComponent.firstIndex(of: "=") else { return nil }
+        let firstComponent = DN.rdn(of: dn)
+        guard let equalsIndex = firstComponent.firstIndex(of: "=") else { return nil }
         let name = firstComponent[firstComponent.startIndex..<equalsIndex].trimmingCharacters(in: .whitespaces)
-        let value = firstComponent[firstComponent.index(after: equalsIndex)...].trimmingCharacters(in: .whitespaces)
+        let value = DN.unescaped(firstComponent[firstComponent.index(after: equalsIndex)...])
+            .trimmingCharacters(in: .whitespaces)
         guard !name.isEmpty, !value.isEmpty else { return nil }
         return (name, value)
     }
@@ -175,9 +176,7 @@ struct EntryActions {
     /// Renames an entry's RDN in place (the parent DN is unchanged). The
     /// old RDN attribute value is dropped. Returns the entry's new dn.
     func rename(_ entry: DirectoryEntry, toRDN newRDN: String) async throws -> String {
-        let parentDN = entry.dn.contains(",")
-            ? String(entry.dn.drop(while: { $0 != "," }).dropFirst())
-            : ""
+        let parentDN = DN.parent(of: entry.dn)
         try await renameEntry(
             host: connection.host,
             port: UInt16(clamping: connection.port),

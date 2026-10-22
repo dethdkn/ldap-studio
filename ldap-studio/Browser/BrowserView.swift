@@ -269,6 +269,7 @@ struct BrowserView: View {
         do {
             root = DirectoryEntry(ldapEntry: try await entryTask)
             schema = await schemaTask
+            loadError = nil
         } catch let error as ConnectionError {
             // An untrusted certificate isn't a dead end — offer to inspect
             // and pin it. Anything the user already pinned that still fails

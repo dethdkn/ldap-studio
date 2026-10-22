@@ -8,6 +8,7 @@
 #include <openssl/evp.h>
 #include <poll.h>
 #include <pthread.h>
+#include <stdatomic.h>
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
@@ -19,15 +20,19 @@
 struct LSSSHTunnel {
   int ssh_socket;
   int listen_socket;
-  volatile int client_socket;
+  /* The connection forward_loop is serving, or -1. Guarded by client_lock so
+   * ls_ssh_tunnel_stop never shuts down an fd number the loop already closed
+   * (and the process may have reused). Only forward_loop closes it. */
+  int client_socket;
+  pthread_mutex_t client_lock;
   LIBSSH2_SESSION *session;
   pthread_t thread;
   bool thread_started;
-  volatile bool stopping;
+  atomic_bool stopping;
   /* Set by forward_loop when it gives up because of an I/O error (as
-   * opposed to being asked to stop) — the cache in ldap.c checks this
+   * opposed to being asked to stop) — the cache in connect.c checks this
    * before handing the tunnel to another operation. */
-  volatile bool broken;
+  atomic_bool broken;
   char *target_host;
   uint16_t target_port;
   uint16_t local_port;
@@ -196,10 +201,14 @@ static void *forward_loop(void *arg) {
       if (t->stopping) break;
       continue;
     }
+    pthread_mutex_lock(&t->client_lock);
     t->client_socket = client;
+    pthread_mutex_unlock(&t->client_lock);
     bool ok = serve_client(t, client);
-    close(client);
+    pthread_mutex_lock(&t->client_lock);
     t->client_socket = -1;
+    close(client);
+    pthread_mutex_unlock(&t->client_lock);
     if (!ok) {
       t->broken = true;
       break;
@@ -219,6 +228,7 @@ int ls_ssh_tunnel_start(const char *ssh_host, uint16_t ssh_port,
   libssh2_init(0);
   LSSSHTunnel *t = ls_xcalloc(1, sizeof *t);
   t->ssh_socket = t->listen_socket = t->client_socket = -1;
+  pthread_mutex_init(&t->client_lock, NULL);
   t->target_host = ls_xstrdup(target_host);
   t->target_port = target_port;
   char why[256] = "unknown error";
@@ -329,10 +339,10 @@ void ls_ssh_tunnel_stop(LSSSHTunnel *t) {
     shutdown(t->listen_socket, SHUT_RDWR);
     close(t->listen_socket);
   }
-  if (t->client_socket >= 0) {
-    shutdown(t->client_socket, SHUT_RDWR);
-    close(t->client_socket);
-  }
+  /* Shutdown wakes serve_client's poll/read; forward_loop does the close. */
+  pthread_mutex_lock(&t->client_lock);
+  if (t->client_socket >= 0) shutdown(t->client_socket, SHUT_RDWR);
+  pthread_mutex_unlock(&t->client_lock);
   if (t->thread_started) pthread_join(t->thread, NULL);
   if (t->session) {
     libssh2_session_set_blocking(t->session, 1);
@@ -340,6 +350,7 @@ void ls_ssh_tunnel_stop(LSSSHTunnel *t) {
     libssh2_session_free(t->session);
   }
   if (t->ssh_socket >= 0) close(t->ssh_socket);
+  pthread_mutex_destroy(&t->client_lock);
   free(t->target_host);
   free(t);
 }

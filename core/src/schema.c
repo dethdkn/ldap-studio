@@ -58,16 +58,12 @@ static char *sc_read_quoted(Scanner *s) {
   while (s->p < s->end) {
     char c = *s->p++;
     if (c == '\'') break;
-    if (c == '\\' && s->p + 1 < s->end) {
-      char h1 = s->p[0];
-      char h2 = s->p[1];
-      char hex[3] = {h1, h2, 0};
-      char *endp = NULL;
-      long byte = strtol(hex, &endp, 16);
-      if (endp == hex + 2) {
-        s->p += 2;
-        c = (char)byte;
-      }
+    /* isxdigit first: strtol alone would also accept "+1" or " 1". */
+    if (c == '\\' && s->p + 1 < s->end && isxdigit((unsigned char)s->p[0]) &&
+        isxdigit((unsigned char)s->p[1])) {
+      char hex[3] = {s->p[0], s->p[1], 0};
+      c = (char)strtol(hex, NULL, 16);
+      s->p += 2;
     }
     if (n + 1 >= cap) {
       cap *= 2;
@@ -135,6 +131,15 @@ static void upper_ascii(char *s) {
   for (; *s; ++s) *s = (char)toupper((unsigned char)*s);
 }
 
+/* Moves `l` into an items/count pair, freeing what was there — a definition
+ * that repeats a keyword (NAME, SUP, …) would otherwise leak the first list. */
+static void take_list(char ***items, size_t *count, LSStrList *l) {
+  LSStrList old = {*items, *count, *count};
+  ls_strlist_free_items(&old);
+  *items = l->items;
+  *count = l->count;
+}
+
 static char *first_or_null(LSStrList *l) {
   if (l->count == 0) {
     ls_strlist_free_items(l);
@@ -180,8 +185,7 @@ static bool parse_object_class(const char *raw, LSObjectClass *out) {
     if (strcmp(up, "NAME") == 0) {
       LSStrList l;
       sc_read_qdescrs(&s, &l);
-      out->names = l.items;
-      out->name_count = l.count;
+      take_list(&out->names, &out->name_count, &l);
     } else if (strcmp(up, "DESC") == 0) {
       free(out->description);
       out->description = sc_read_quoted(&s);
@@ -190,8 +194,7 @@ static bool parse_object_class(const char *raw, LSObjectClass *out) {
     } else if (strcmp(up, "SUP") == 0) {
       LSStrList l;
       sc_read_oid_list(&s, &l);
-      out->superior_classes = l.items;
-      out->superior_class_count = l.count;
+      take_list(&out->superior_classes, &out->superior_class_count, &l);
     } else if (strcmp(up, "STRUCTURAL") == 0 || strcmp(up, "ABSTRACT") == 0 ||
                strcmp(up, "AUXILIARY") == 0) {
       free(out->kind);
@@ -199,13 +202,11 @@ static bool parse_object_class(const char *raw, LSObjectClass *out) {
     } else if (strcmp(up, "MUST") == 0) {
       LSStrList l;
       sc_read_oid_list(&s, &l);
-      out->must = l.items;
-      out->must_count = l.count;
+      take_list(&out->must, &out->must_count, &l);
     } else if (strcmp(up, "MAY") == 0) {
       LSStrList l;
       sc_read_oid_list(&s, &l);
-      out->may = l.items;
-      out->may_count = l.count;
+      take_list(&out->may, &out->may_count, &l);
     } else if (strncmp(up, "X-", 2) == 0) {
       LSStrList l;
       sc_read_qdescrs(&s, &l);
@@ -251,8 +252,7 @@ static bool parse_attribute_type(const char *raw, LSAttributeType *out) {
     if (strcmp(up, "NAME") == 0) {
       LSStrList l;
       sc_read_qdescrs(&s, &l);
-      out->names = l.items;
-      out->name_count = l.count;
+      take_list(&out->names, &out->name_count, &l);
     } else if (strcmp(up, "DESC") == 0) {
       free(out->description);
       out->description = sc_read_quoted(&s);

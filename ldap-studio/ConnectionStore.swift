@@ -22,8 +22,18 @@ final class ConnectionStore {
     }
 
     func load() {
-        guard let data = try? Data(contentsOf: fileURL) else { return }
-        connections = (try? JSONDecoder().decode([SavedConnection].self, from: data)) ?? []
+        let url = fileURL
+        guard let data = try? Data(contentsOf: url) else { return }
+        do {
+            connections = try JSONDecoder().decode([SavedConnection].self, from: data)
+        } catch {
+            // Keep the unreadable file (e.g. written by a newer version)
+            // instead of letting the next save overwrite it.
+            let backup = url.deletingPathExtension()
+                .appendingPathExtension("unreadable-\(Int(Date().timeIntervalSince1970)).json")
+            try? FileManager.default.moveItem(at: url, to: backup)
+            connections = []
+        }
     }
 
     func add(_ connection: SavedConnection) {

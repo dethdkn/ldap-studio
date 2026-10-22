@@ -11,6 +11,7 @@
 #include <openssl/x509v3.h>
 #include <pthread.h>
 #include <sasl/sasl.h>
+#include <stdatomic.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -37,7 +38,7 @@ static double monotonic_seconds(void) {
 typedef struct {
   LDAP *ld;
   double deadline;
-  volatile bool call_done;
+  atomic_bool call_done; /* written by the caller, polled by the watchdog */
 } ConnectDeadline;
 
 static void *connect_deadline_watch(void *arg) {
@@ -835,7 +836,7 @@ int ls_connect_and_bind(const char *host, uint16_t port, bool use_ssl,
     pthread_join(thread, NULL); /* already done — returns immediately */
     *out = a->ld;
     int rc = a->rc;
-    if (rc != LS_OK) {
+    if (rc != LS_OK && err) {
       *err = a->err; /* transfers ownership of err's strings */
     } else {
       ls_error_dispose(&a->err);

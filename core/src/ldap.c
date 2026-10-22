@@ -10,21 +10,35 @@
 #include <ctype.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h> /* strcasecmp */
 
 #include "internal_ldap.h"
 #include "ssh_tunnel.h"
 
-/* ── DN helpers (naive first-comma split, matching the old code) ───── */
+/* ── DN helpers ──────────────────────────────────────────────────── */
 
-/* Text before the first comma (or the whole DN). Caller frees. */
+/* The comma that ends the first RDN, skipping backslash-escaped ones
+ * ("cn=Smith\, John,dc=x"), or NULL for a single-RDN DN. */
+static const char *rdn_end(const char *dn) {
+  for (const char *p = dn; *p; ++p) {
+    if (*p == '\\') {
+      if (!*++p) break;
+    } else if (*p == ',') {
+      return p;
+    }
+  }
+  return NULL;
+}
+
+/* The first RDN (or the whole DN). Caller frees. */
 static char *display_name(const char *dn) {
-  const char *comma = strchr(dn, ',');
+  const char *comma = rdn_end(dn);
   return comma ? ls_strdup_n(dn, (size_t)(comma - dn)) : ls_xstrdup(dn);
 }
 
-/* Text after the first comma, or NULL. Caller frees. */
+/* Everything after the first RDN, or NULL. Caller frees. */
 static char *parent_dn(const char *dn) {
-  const char *comma = strchr(dn, ',');
+  const char *comma = rdn_end(dn);
   return comma ? ls_xstrdup(comma + 1) : NULL;
 }
 
@@ -89,7 +103,9 @@ static void free_attr_array(LSAttribute *arr, size_t n) {
   free(arr);
 }
 
-/* ── tiny string → index hash map (djb2, linear probing) ──────────── */
+/* ── tiny DN → index hash map (djb2, linear probing) ──────────────── *
+ * Keys compare case-insensitively: DNs are, in practice, and a Base DN typed
+ * as "dc=Example,dc=com" must still find the server's "dc=example,dc=com". */
 
 typedef struct {
   char *key;
@@ -116,14 +132,15 @@ static void map_free(Map *m) {
 
 static size_t djb2(const char *s) {
   size_t h = 5381;
-  for (; *s; ++s) h = ((h << 5U) + h) ^ (unsigned char)*s;
+  for (; *s; ++s)
+    h = ((h << 5U) + h) ^ (unsigned char)tolower((unsigned char)*s);
   return h;
 }
 
 static void map_put(Map *m, char *key, size_t val) {
   size_t i = djb2(key) & (m->cap - 1);
   while (m->slots[i].used) {
-    if (strcmp(m->slots[i].key, key) == 0) {
+    if (strcasecmp(m->slots[i].key, key) == 0) {
       m->slots[i].val = val;
       return;
     }
@@ -140,7 +157,7 @@ static size_t map_get(const Map *m, const char *key) {
   if (!key) return (size_t)-1;
   size_t i = djb2(key) & (m->cap - 1);
   while (m->slots[i].used) {
-    if (strcmp(m->slots[i].key, key) == 0) return m->slots[i].val;
+    if (strcasecmp(m->slots[i].key, key) == 0) return m->slots[i].val;
     i = (i + 1) & (m->cap - 1);
   }
   return (size_t)-1;
@@ -162,20 +179,30 @@ static void idx_push(IdxList *l, size_t v) {
   l->items[l->count++] = v;
 }
 
-static FlatEntry *g_flat; /* for the sort comparator */
+typedef struct {
+  char *key; /* lowercased display name (RDN) */
+  size_t idx;
+} SortKey;
 
-static int cmp_by_name_ci(const void *a, const void *b) {
-  const char *na = g_flat[*(const size_t *)a].dn;
-  const char *nb = g_flat[*(const size_t *)b].dn;
-  /* compare on the display name (RDN), case-insensitively */
-  char *da = display_name(na);
-  char *db = display_name(nb);
-  for (char *p = da; *p; ++p) *p = (char)tolower((unsigned char)*p);
-  for (char *p = db; *p; ++p) *p = (char)tolower((unsigned char)*p);
-  int r = strcmp(da, db);
-  free(da);
-  free(db);
-  return r;
+static int cmp_sort_key(const void *a, const void *b) {
+  return strcmp(((const SortKey *)a)->key, ((const SortKey *)b)->key);
+}
+
+/* Orders `kids` by display name, case-insensitively. Keys are computed once
+ * up front instead of per comparison, and no global state is involved. */
+static void sort_children(IdxList *kids, const FlatEntry *flat) {
+  SortKey *keys = ls_xmalloc(kids->count * sizeof *keys);
+  for (size_t k = 0; k < kids->count; ++k) {
+    keys[k].idx = kids->items[k];
+    keys[k].key = display_name(flat[keys[k].idx].dn);
+    for (char *p = keys[k].key; *p; ++p) *p = (char)tolower((unsigned char)*p);
+  }
+  qsort(keys, kids->count, sizeof *keys, cmp_sort_key);
+  for (size_t k = 0; k < kids->count; ++k) {
+    kids->items[k] = keys[k].idx;
+    free(keys[k].key);
+  }
+  free(keys);
 }
 
 /* Recursively materializes the entry at flat index `i` and its subtree. */
@@ -184,10 +211,7 @@ static LSEntry build_entry(size_t i, FlatEntry *flat, IdxList *children_of) {
   fe->taken = true;
 
   IdxList *kids = &children_of[i];
-  if (kids->count > 1) {
-    g_flat = flat;
-    qsort(kids->items, kids->count, sizeof(size_t), cmp_by_name_ci);
-  }
+  if (kids->count > 1) sort_children(kids, flat);
 
   LSEntry e;
   e.dn = ls_xstrdup(fe->dn);
@@ -631,7 +655,7 @@ int ls_add_entry(const char *host, uint16_t port, bool use_ssl,
 
     size_t gi = (size_t)-1;
     for (size_t g = 0; g < ngroups; ++g)
-      if (strcmp(groups[g].name, a->name) == 0) {
+      if (strcasecmp(groups[g].name, a->name) == 0) {
         gi = g;
         break;
       }

@@ -209,6 +209,7 @@ struct LDIFEditorView: View {
         let ro = connection.isReadOnly
         let sTLS = connection.useStartTLS
         let pin = connection.trustedCertSHA256
+        let opts = connection.ldapOptions
         let bind = connection.bindDN
         let pw = password
         let dn = record.dn
@@ -217,7 +218,7 @@ struct LDIFEditorView: View {
         case .add(let attributes):
             return ("add", {
                 try await addEntry(host: host, port: port, useSsl: ssl, readOnly: ro,
-                                   startTLS: sTLS, pinnedCertSHA256: pin,
+                                   startTLS: sTLS, pinnedCertSHA256: pin, options: opts,
                                    bindDn: bind, password: pw,
                                    dn: dn,
                                    attributes: attributes.map {
@@ -227,13 +228,13 @@ struct LDIFEditorView: View {
         case .delete:
             return ("delete", {
                 try await deleteEntry(host: host, port: port, useSsl: ssl, readOnly: ro,
-                                      startTLS: sTLS, pinnedCertSHA256: pin,
+                                      startTLS: sTLS, pinnedCertSHA256: pin, options: opts,
                                       bindDn: bind, password: pw, dn: dn)
             })
         case .modify(let ops):
             return ("modify", {
                 try await modifyEntry(host: host, port: port, useSsl: ssl, readOnly: ro,
-                                      startTLS: sTLS, pinnedCertSHA256: pin,
+                                      startTLS: sTLS, pinnedCertSHA256: pin, options: opts,
                                       bindDn: bind, password: pw,
                                       dn: dn,
                                       ops: ops.map { op in
@@ -245,7 +246,7 @@ struct LDIFEditorView: View {
         case .modrdn(let newRDN, let deleteOldRDN, let newSuperior):
             return ("modrdn", {
                 try await renameEntry(host: host, port: port, useSsl: ssl, readOnly: ro,
-                                      startTLS: sTLS, pinnedCertSHA256: pin,
+                                      startTLS: sTLS, pinnedCertSHA256: pin, options: opts,
                                       bindDn: bind, password: pw,
                                       dn: dn, newRDN: newRDN, deleteOldRDN: deleteOldRDN,
                                       newSuperior: newSuperior)

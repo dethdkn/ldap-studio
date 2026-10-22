@@ -363,10 +363,8 @@ struct EditEntryView: View {
 
     // MARK: - Derived
 
-    private var rdn: String { String(dn.split(separator: ",").first ?? Substring(dn)) }
-    private var parentDN: String {
-        dn.contains(",") ? String(dn.drop(while: { $0 != "," }).dropFirst()) : ""
-    }
+    private var rdn: String { DN.rdn(of: dn) }
+    private var parentDN: String { DN.parent(of: dn) }
 
     private var mustNames: Set<String> {
         guard let schema else { return [] }
@@ -481,30 +479,30 @@ struct EditEntryView: View {
 
     private func pendingWrites() -> [Write] {
         var writes: [Write] = []
-        let host = connection.host
-        let port = UInt16(clamping: connection.port)
-        let ssl = connection.useSSL
-        let sTLS = connection.useStartTLS
-        let pin = connection.trustedCertSHA256
-        let ro = connection.isReadOnly
-        let bind = connection.bindDN
-        let pw = password
+        // Captured as a value; the Keychain password and the options are
+        // read only when a write actually runs, since `hasChanges` calls
+        // this on every render.
+        let conn = connection
         let target = dn
 
         func add(_ attr: String, _ value: String) {
             writes.append(Write(label: "+\(attr)") {
-                try await addAttributeValue(host: host, port: port, useSsl: ssl, readOnly: ro,
-                                            startTLS: sTLS, pinnedCertSHA256: pin,
-                                            bindDn: bind, password: pw, dn: target,
-                                            attribute: attr, value: value)
+                try await addAttributeValue(host: conn.host, port: UInt16(clamping: conn.port),
+                                            useSsl: conn.useSSL, readOnly: conn.isReadOnly,
+                                            startTLS: conn.useStartTLS, pinnedCertSHA256: conn.trustedCertSHA256,
+                                            options: conn.ldapOptions, bindDn: conn.bindDN,
+                                            password: KeychainService.readPassword(for: conn.id) ?? "",
+                                            dn: target, attribute: attr, value: value)
             })
         }
         func remove(_ attr: String, _ value: String) {
             writes.append(Write(label: "−\(attr)") {
-                try await deleteAttributeValue(host: host, port: port, useSsl: ssl, readOnly: ro,
-                                               startTLS: sTLS, pinnedCertSHA256: pin,
-                                               bindDn: bind, password: pw, dn: target,
-                                               attribute: attr, value: value, isBinary: false)
+                try await deleteAttributeValue(host: conn.host, port: UInt16(clamping: conn.port),
+                                               useSsl: conn.useSSL, readOnly: conn.isReadOnly,
+                                               startTLS: conn.useStartTLS, pinnedCertSHA256: conn.trustedCertSHA256,
+                                               options: conn.ldapOptions, bindDn: conn.bindDN,
+                                               password: KeychainService.readPassword(for: conn.id) ?? "",
+                                               dn: target, attribute: attr, value: value, isBinary: false)
             })
         }
 
@@ -566,6 +564,12 @@ struct EditEntryView: View {
             await load()
         } else {
             status = "\(writes.count - failures) of \(writes.count) applied · \(failures) failed"
+            // Some writes did land — let an open browser pick them up.
+            if failures < writes.count {
+                NotificationCenter.default.post(
+                    name: .ldapEntryDidChange, object: nil,
+                    userInfo: ["dn": dn, "endpoint": endpoint])
+            }
         }
     }
 

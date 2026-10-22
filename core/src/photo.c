@@ -49,7 +49,21 @@ int ls_resize_photo_to_base64(const char *path, char **out, LSError *err) {
     goto done;
   }
 
-  img = CGImageSourceCreateImageAtIndex(src, 0, NULL);
+  {
+    /* Decoded via the thumbnail API (no size cap, so full resolution) because
+     * it can apply the EXIF orientation; CGImageSourceCreateImageAtIndex
+     * returns raw sensor pixels, so portrait phone photos came out sideways. */
+    const void *keys[] = {
+        kCGImageSourceCreateThumbnailFromImageAlways,
+        kCGImageSourceCreateThumbnailWithTransform,
+    };
+    const void *vals[] = {kCFBooleanTrue, kCFBooleanTrue};
+    CFDictionaryRef opts =
+        CFDictionaryCreate(NULL, keys, vals, 2, &kCFTypeDictionaryKeyCallBacks,
+                           &kCFTypeDictionaryValueCallBacks);
+    img = CGImageSourceCreateThumbnailAtIndex(src, 0, opts);
+    if (opts) CFRelease(opts);
+  }
   if (!img) {
     rc = ls_fail(err, LS_DECODE_FAILED, NULL, 0, "could not decode the image");
     goto done;

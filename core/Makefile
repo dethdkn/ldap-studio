@@ -100,4 +100,15 @@ tidy:
 	@test -f compile_commands.json || { echo "run 'make compdb' first" >&2; exit 1; }
 	$(CLANG_TIDY) -p . $(SRC)
 
-.PHONY: all clean compdb format format-check tidy
+# Assert-based checks of the network-free helpers (tests/selftest.c).
+TEST_BIN := build/selftest
+test: $(TEST_BIN)
+	./$(TEST_BIN) build
+
+$(TEST_BIN): tests/selftest.c $(LIB)
+	$(CC) $(SYSROOT) $(CFLAGS) $(CPPFLAGS) $< $(LIB) -o $@ \
+	    -L$(OPENLDAP)/lib -lldap -llber -L$(OPENSSL)/lib -lssl -lcrypto \
+	    -L$(LIBXCRYPT)/lib -lcrypt -L$(LIBSSH2)/lib -lssh2 -lsasl2 \
+	    -framework CoreFoundation -framework CoreGraphics -framework ImageIO
+
+.PHONY: all clean compdb format format-check tidy test

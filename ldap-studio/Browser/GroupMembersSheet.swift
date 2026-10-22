@@ -221,11 +221,7 @@ struct GroupMembersSheet: View {
         isSearching = true
         defer { isSearching = false }
 
-        let escaped = query
-            .replacingOccurrences(of: "\\", with: "\\5c")
-            .replacingOccurrences(of: "*", with: "\\2a")
-            .replacingOccurrences(of: "(", with: "\\28")
-            .replacingOccurrences(of: ")", with: "\\29")
+        let escaped = LDAPFilterClause.escape(query)
         let nameClauses = ["cn", "uid", "sn", "givenName", "displayName", "mail"]
             .map { "(\($0)=*\(escaped)*)" }.joined()
         let filter = "(&(|(objectClass=person)(objectClass=inetOrgPerson)(objectClass=posixAccount))(|\(nameClauses)))"
@@ -352,9 +348,9 @@ struct GroupMembersSheet: View {
     }
 
     static func rdnValue(of dn: String) -> String {
-        guard let first = dn.split(separator: ",").first,
-              let eq = first.firstIndex(of: "=") else { return dn }
-        return String(first[first.index(after: eq)...])
+        let first = DN.rdn(of: dn)
+        guard let eq = first.firstIndex(of: "=") else { return dn }
+        return DN.unescaped(first[first.index(after: eq)...])
     }
 }
 
