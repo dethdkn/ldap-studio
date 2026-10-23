@@ -42,6 +42,10 @@ struct InfoPanel: View {
                 .buttonStyle(.link)
                 .font(.callout)
                 .disabled(isCheckingForUpdates)
+                Link("What’s New in \(appVersion)", destination: URL(string: "https://ldap-studio.app/changelog")!)
+                    .font(.callout)
+                Link("Support LDAP Studio", destination: URL(string: "https://github.com/sponsors/dethdkn")!)
+                    .font(.caption)
             }
 
             VStack(spacing: 10) {
