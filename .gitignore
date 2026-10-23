@@ -28,6 +28,7 @@ node_modules
 # Misc
 .claude
 .skills
+.agents
 dist
 tmp
 .claude
