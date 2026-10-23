@@ -63,6 +63,10 @@ struct DirectoryTreeView: View {
     @State private var goToText = ""
     @State private var goToError: String?
     @State private var isRevealing = false
+    /// The entry a reveal landed on, for the tree to scroll to once it's
+    /// showing — the selection may not change (a search click selects the
+    /// hit first), and the tree may still be hidden behind search results.
+    @State private var scrollTarget: String?
     @FocusState private var goToFieldFocused: Bool
 
     @State private var treeSelection: Set<DirectoryEntry.ID> = []
@@ -272,14 +276,25 @@ struct DirectoryTreeView: View {
             }
             .onAppear {
                 if let selection, tree.node(selection) != nil { treeSelection = [selection] }
+                scrollToTarget(proxy)
                 updateRowContext()
                 rowContext.onDrop = { ids, destination in
                     guard !connection.isReadOnly else { return }
                     operations.requestMove(ids, to: destination)
                 }
             }
+            .onChange(of: scrollTarget) { scrollToTarget(proxy) }
             .onChange(of: bookmarks) { updateRowContext() }
             .onChange(of: isReadOnly) { updateRowContext() }
+        }
+    }
+
+    private func scrollToTarget(_ proxy: ScrollViewProxy) {
+        guard let target = scrollTarget, tree.node(target) != nil else { return }
+        scrollTarget = nil
+        // Deferred so rows a reveal just expanded are laid out first.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) {
+            withAnimation { proxy.scrollTo(target, anchor: .center) }
         }
     }
 
@@ -317,7 +332,7 @@ struct DirectoryTreeView: View {
                     }
                     .tag(hit.dn)
                     .contentShape(Rectangle())
-                    .onTapGesture(count: 2) { revealFromSearch(hit.dn) }
+                    .onTapGesture { revealFromSearch(hit.dn) }
                 }
             }
             .onChange(of: searchSelection) { _, dn in
@@ -942,6 +957,7 @@ struct DirectoryTreeView: View {
                 let resolved = try await tree.reveal(dn)
                 selection = resolved
                 treeSelection = [resolved]
+                scrollTarget = resolved
             } catch is CancellationError {
             } catch {
                 actionError = error.localizedDescription
@@ -969,6 +985,7 @@ struct DirectoryTreeView: View {
                 let resolved = try await tree.reveal(trimmed)
                 selection = resolved
                 treeSelection = [resolved]
+                scrollTarget = resolved
                 isShowingGoTo = false
                 goToText = ""
             } catch {
